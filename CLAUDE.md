@@ -8,6 +8,12 @@ A toolkit CLI with a React Ink TUI for distributing skills, agents, MCP connecti
 
 > **Important:** Keep [README.md](README.md) up to date with any changes to commands, setup, or usage.
 
+## Git Rules
+
+- **NEVER push directly to `main`.** All changes go through a feature branch + pull request.
+- Create a descriptive branch name (e.g., `feat/scanner-improvements`, `fix/false-positives`).
+- Push the branch and open a PR. CI runs on PRs; merging to `main` triggers npm publish.
+
 ## Quick Start
 
 ```bash
@@ -96,7 +102,7 @@ resources/
 
 - **lint-skills.yml** — validates YAML frontmatter in all SKILL.md files
 - **validate-catalog.yml** — validates catalog schema and cross-references
-- **publish.yml** — builds and publishes to GitHub Packages on merge to main
+- **publish.yml** — builds and publishes to npm on merge to main
 
 ## Content Conventions
 
