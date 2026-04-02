@@ -1,4 +1,3 @@
-
 <div align="center">
 
 ```
@@ -12,9 +11,9 @@
 
 **toolkit-ai**
 
-Manage AI skills, agents, MCPs, and plugins across Claude Code, Copilot, and Cursor.
+**Manage AI skills, agents, MCPs, and plugins across Claude Code, Copilot, and Cursor.**
 
-[![npm](https://img.shields.io/npm/v/toolkit-ai)](https://www.npmjs.com/package/toolkit-ai)
+[![npm version](https://img.shields.io/npm/v/toolkit-ai.svg)](https://www.npmjs.com/package/toolkit-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -94,14 +93,6 @@ Every item is automatically scanned before installation. The scanner catches gen
 
 Skills that reference `<script>` tags, use `exec()`, contain `.html` templates, import `child_process`, or include any normal code patterns are **not flagged**. The scanner only catches content that has no legitimate use in a skill.
 
-### Scan in the TUI
-
-Items with security issues show visual indicators in the browse list:
-- **Red `✕ blocked`** — dangerous content detected, install prevented
-- **Yellow `⚠`** — warnings on trusted content (informational only)
-
-Press `Enter` on any item to see the full scan report in the detail view.
-
 ### Trust model
 
 | Source | Behavior |
@@ -116,11 +107,10 @@ Use `--force` to override a blocked install if you've reviewed the content.
 Add any GitHub or Bitbucket repo as a skill source:
 
 ```bash
-# In the TUI: Sources tab → press 'a'
+# In the TUI: Sources tab, press 'a'
 # Or via CLI:
 ai-toolkit source add owner/repo
 ai-toolkit source add https://github.com/owner/repo
-ai-toolkit source add git@github.com:owner/repo.git
 ```
 
 Sources are shallow-cloned and cached for 24 hours at `~/.toolkit/cache/`.
@@ -155,10 +145,10 @@ ai-toolkit source add your-org/my-skills
 ## Development
 
 ```bash
-git clone https://github.com/barleviatias/toolkit.git
-cd toolkit
+git clone https://github.com/barleviatias/toolkit-ai.git
+cd toolkit-ai
 npm install
-npm run build    # Build → bin/ai-toolkit.mjs
+npm run build    # Build -> bin/ai-toolkit.mjs
 npm run dev      # Build with watch
 npm test         # Lint skills + validate catalog
 npm link         # Link globally for testing
