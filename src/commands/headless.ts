@@ -5,7 +5,7 @@ import { installSkill, installAgent, installMcp, installPlugin } from '../core/i
 import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
-import { parseSourceInput, addSource, removeSource, loadSources } from '../core/sources.js';
+import { parseSourceInput, addSource, removeSource, loadSources, refreshSources } from '../core/sources.js';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -161,6 +161,7 @@ ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
   source list                     List configured sources
   source remove <name>            Remove a source
+  source refresh [name]           Force re-fetch sources (all or by name)
 
   ${DIM}Accepts: owner/repo, https://github.com/owner/repo,
           https://bitbucket.org/owner/repo, git@github.com:owner/repo.git${RESET}
@@ -303,7 +304,25 @@ function runSourceCommand(args: string[]): boolean {
     return true;
   }
 
-  console.log(`Usage: ai-toolkit source <add|list|remove> [args]`);
+  if (sub === 'refresh') {
+    const target = args[1] || undefined;
+    console.log(`\n${BOLD}Refreshing ${target || 'all'} sources...${RESET}\n`);
+    const results = refreshSources(target);
+    for (const r of results) {
+      if (r.ok) {
+        console.log(`  ${GREEN}[OK]${RESET} ${r.name}`);
+      } else {
+        console.log(`  ${RED}[!]${RESET}  ${r.name} — ${r.error}`);
+      }
+    }
+    if (results.length === 0) {
+      console.log(`  ${DIM}No sources to refresh.${RESET}`);
+    }
+    console.log();
+    return true;
+  }
+
+  console.log(`Usage: ai-toolkit source <add|list|remove|refresh> [args]`);
   return true;
 }
 
