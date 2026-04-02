@@ -8,6 +8,9 @@ interface ItemListProps {
   onToggle: (key: string) => void;
   onSubmit: (keys: string[]) => void;
   onDetail?: (item: ItemData) => void;
+  onInstall?: (item: ItemData) => void;
+  onRemove?: (item: ItemData) => void;
+  onUpdate?: (item: ItemData) => void;
   isFocused: boolean;
   maxVisible?: number;
 }
@@ -18,6 +21,9 @@ export const ItemList: React.FC<ItemListProps> = ({
   onToggle,
   onSubmit,
   onDetail,
+  onInstall,
+  onRemove,
+  onUpdate,
   isFocused,
   maxVisible = 8,
 }) => {
@@ -51,16 +57,27 @@ export const ItemList: React.FC<ItemListProps> = ({
       const item = items[clampedCursor];
       if (item) onToggle(item.key);
     } else if (key.return) {
-      if (onDetail && items[clampedCursor]) {
-        onDetail(items[clampedCursor]);
-      } else if (selected.size > 0) {
+      if (selected.size > 0) {
         onSubmit(Array.from(selected));
+      } else if (onDetail && items[clampedCursor]) {
+        onDetail(items[clampedCursor]);
       }
     } else if (input === 'a') {
+      // Proper toggle-all: if all visible selected, deselect all; otherwise select all
       const allSelected = items.every(i => selected.has(i.key));
       for (const item of items) {
-        onToggle(item.key);
+        if (allSelected && selected.has(item.key)) onToggle(item.key);
+        else if (!allSelected && !selected.has(item.key)) onToggle(item.key);
       }
+    } else if (input === 'i' && onInstall) {
+      const item = items[clampedCursor];
+      if (item && !item.installed) onInstall(item);
+    } else if (input === 'r' && onRemove) {
+      const item = items[clampedCursor];
+      if (item && item.installed) onRemove(item);
+    } else if (input === 'u' && onUpdate) {
+      const item = items[clampedCursor];
+      if (item && item.hasUpdate) onUpdate(item);
     }
   });
 

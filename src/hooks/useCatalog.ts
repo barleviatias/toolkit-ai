@@ -1,17 +1,18 @@
 import path from 'path';
 import { useState, useMemo } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
-import { loadCatalog, loadMcpConfig } from '../core/catalog.js';
+import { loadCatalog, loadMcpConfig, loadPluginConfig } from '../core/catalog.js';
 import { readLock } from '../core/lock.js';
-import { fetchExternalSkills } from '../core/sources.js';
+import { fetchExternalResources, type ExternalResources } from '../core/sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
 import { CACHE_DIR } from '../core/platform.js';
+import { makeKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 
 export function useCatalog(toolkitDir: string) {
   const [catalog] = useState<Catalog>(() => loadCatalog(toolkitDir));
-  const [externalSkills] = useState<CatalogEntry[]>(() => {
-    try { return fetchExternalSkills(); } catch { return []; }
+  const [external] = useState<ExternalResources>(() => {
+    try { return fetchExternalResources(); } catch { return { skills: [], agents: [], mcps: [] }; }
   });
   const [lock, setLock] = useState(() => readLock());
 
@@ -26,28 +27,43 @@ export function useCatalog(toolkitDir: string) {
     return false;
   }
 
-  // Build flat item list for the Browse tab (with security scan results)
+  // Get installed hash for an item (for update detection)
+  function getInstalledHash(lockKey: string): string | null {
+    if (lock.installed[lockKey]) return lock.installed[lockKey].hash;
+    for (const [k, v] of Object.entries(lock.installed)) {
+      if (k.startsWith('plugin:') && v.items?.[lockKey]) return v.items[lockKey].hash;
+    }
+    return null;
+  }
+
+  // Build flat item list with security scan results and update detection
   const allItems: ItemData[] = useMemo(() => {
     const items: ItemData[] = [];
 
     function scanItem(type: string, entry: CatalogEntry): { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string } {
       const src = entry.source || 'internal';
-      const isInternal = src === 'internal';
-      const trusted = isInternal;
+      const trusted = src === 'internal';
 
       try {
         let report;
         if (type === 'skill') {
-          const skillDir = isInternal
+          const skillDir = trusted
             ? path.join(toolkitDir, entry.path)
             : path.join(CACHE_DIR, src, entry.path);
           report = scanSkillDir(skillDir, entry.name, src, { trusted });
         } else if (type === 'agent') {
-          const agentPath = path.join(toolkitDir, entry.path);
+          const agentPath = trusted
+            ? path.join(toolkitDir, entry.path)
+            : path.join(CACHE_DIR, src, entry.path);
           report = scanAgentFile(agentPath, entry.name, src, { trusted });
         } else if (type === 'mcp') {
-          const mcpConfig = loadMcpConfig(toolkitDir, entry);
-          report = scanMcpConfig({ name: entry.name, transport: mcpConfig.transport, url: mcpConfig.url }, src);
+          const mcpPath = trusted
+            ? path.join(toolkitDir, entry.path)
+            : path.join(CACHE_DIR, src, entry.path);
+          try {
+            const mcpConfig = JSON.parse(require('fs').readFileSync(mcpPath, 'utf8'));
+            report = scanMcpConfig({ name: entry.name, transport: mcpConfig.transport, url: mcpConfig.url }, src);
+          } catch {}
         }
 
         if (!report || report.findings.length === 0) return { scanStatus: 'ok' };
@@ -65,84 +81,78 @@ export function useCatalog(toolkitDir: string) {
 
     function toItem(type: string, entry: CatalogEntry): ItemData {
       const src = entry.source || 'internal';
-      const uiKey = `${type}:${src}:${entry.name}`;
+      const uiKey = makeKey(type, src, entry.name);
       const lockKey = `${type}:${entry.name}`;
+      const installed = isInstalled(lockKey);
+      const installedHash = installed ? getInstalledHash(lockKey) : null;
+      const hasUpdate = installed && installedHash !== null && installedHash !== entry.hash;
       const { scanStatus, scanSummary } = scanItem(type, entry);
-      return {
+
+      const item: ItemData = {
         key: uiKey,
         type,
         name: entry.name,
         description: entry.description,
         source: src,
-        installed: isInstalled(lockKey),
+        installed,
+        hasUpdate,
         path: entry.path,
         hash: entry.hash,
         scanStatus,
         scanSummary,
       };
+
+      // Enrich MCP items with config details
+      if (type === 'mcp' && src === 'internal') {
+        try {
+          const mcpConfig = loadMcpConfig(toolkitDir, entry);
+          item.transport = mcpConfig.transport;
+          item.url = mcpConfig.url;
+          item.setupNote = mcpConfig.setupNote;
+        } catch {}
+      } else if (type === 'mcp' && src !== 'internal') {
+        try {
+          const mcpPath = path.join(CACHE_DIR, src, entry.path);
+          const mcpConfig = JSON.parse(require('fs').readFileSync(mcpPath, 'utf8'));
+          item.transport = mcpConfig.transport;
+          item.url = mcpConfig.url;
+          item.setupNote = mcpConfig.setupNote;
+        } catch {}
+      }
+
+      // Enrich plugin items with contents
+      if (type === 'plugin') {
+        try {
+          const pluginConfig = loadPluginConfig(toolkitDir, entry);
+          item.pluginContents = {
+            skills: pluginConfig.skills || [],
+            agents: pluginConfig.agents || [],
+            mcps: pluginConfig.mcps || [],
+          };
+        } catch {}
+      }
+
+      return item;
     }
 
-    // Internal items
+    // Internal items (from bundled resources — may be empty)
     for (const s of catalog.skills) items.push(toItem('skill', s));
     for (const a of catalog.agents) items.push(toItem('agent', a));
     for (const m of catalog.mcps)   items.push(toItem('mcp', m));
     for (const p of catalog.plugins) items.push(toItem('plugin', p));
 
-    // External skills from configured sources
-    for (const s of externalSkills) items.push(toItem('skill', s));
+    // External resources from configured sources
+    for (const s of external.skills) items.push(toItem('skill', s));
+    for (const a of external.agents) items.push(toItem('agent', a));
+    for (const m of external.mcps)   items.push(toItem('mcp', m));
 
     return items;
-  }, [catalog, externalSkills, lock]);
+  }, [catalog, external, lock]);
 
   // Installed items for the Installed tab
   const installedItems: ItemData[] = useMemo(() => {
     return allItems.filter(i => i.installed);
   }, [allItems]);
 
-  // Update status items
-  const updateItems: ItemData[] = useMemo(() => {
-    const items: ItemData[] = [];
-    for (const [lockKey, lockEntry] of Object.entries(lock.installed)) {
-      if (lockKey.startsWith('plugin:')) {
-        for (const [itemKey, itemEntry] of Object.entries(lockEntry.items || {})) {
-          const [type, name] = itemKey.split(':');
-          const catalogList = type === 'skill' ? catalog.skills :
-                              type === 'agent' ? catalog.agents :
-                              type === 'mcp'   ? catalog.mcps : [];
-          const catalogItem = catalogList.find(e => e.name === name);
-          if (catalogItem && catalogItem.hash !== itemEntry.hash) {
-            items.push({
-              key: `${itemKey}:update`,
-              type,
-              name,
-              description: catalogItem.description,
-              source: 'internal',
-              installed: true,
-              hasUpdate: true,
-            });
-          }
-        }
-      } else {
-        const [type, name] = lockKey.split(':');
-        const catalogList = type === 'skill' ? catalog.skills :
-                            type === 'agent' ? catalog.agents :
-                            type === 'mcp'   ? catalog.mcps : [];
-        const catalogItem = catalogList.find(e => e.name === name);
-        if (catalogItem && catalogItem.hash !== lockEntry.hash) {
-          items.push({
-            key: `${lockKey}:update`,
-            type,
-            name,
-            description: catalogItem.description,
-            source: 'internal',
-            installed: true,
-            hasUpdate: true,
-          });
-        }
-      }
-    }
-    return items;
-  }, [catalog, lock]);
-
-  return { catalog, lock, allItems, installedItems, updateItems, refreshLock };
+  return { catalog, lock, allItems, installedItems, refreshLock };
 }

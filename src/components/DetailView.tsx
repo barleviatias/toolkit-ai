@@ -7,6 +7,7 @@ interface DetailViewProps {
   onBack: () => void;
   onInstall: (key: string) => void;
   onRemove: (key: string) => void;
+  onUpdate?: (key: string) => void;
 }
 
 export const DetailView: React.FC<DetailViewProps> = ({
@@ -14,6 +15,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
   onBack,
   onInstall,
   onRemove,
+  onUpdate,
 }) => {
   useInput((input, key) => {
     if (key.escape) {
@@ -22,6 +24,8 @@ export const DetailView: React.FC<DetailViewProps> = ({
       onInstall(item.key);
     } else if (input === 'r' && item.installed) {
       onRemove(item.key);
+    } else if (input === 'u' && item.hasUpdate && onUpdate) {
+      onUpdate(item.key);
     }
   });
 
@@ -50,6 +54,31 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </Box>
       )}
 
+      {/* Plugin contents */}
+      {item.pluginContents && (
+        <Box marginTop={1} flexDirection="column">
+          <Text bold dimColor>Contains:</Text>
+          {(item.pluginContents.skills || []).map(s => (
+            <Text key={s} color="magenta">  SKILL  {s}</Text>
+          ))}
+          {(item.pluginContents.agents || []).map(a => (
+            <Text key={a} color="blue">  AGENT  {a}</Text>
+          ))}
+          {(item.pluginContents.mcps || []).map(m => (
+            <Text key={m} color="yellow">  MCP    {m}</Text>
+          ))}
+        </Box>
+      )}
+
+      {/* MCP details */}
+      {item.transport && (
+        <Box marginTop={1} flexDirection="column">
+          <Text dimColor>Transport: {item.transport}</Text>
+          {item.url && <Text dimColor>URL: {item.url}</Text>}
+          {item.setupNote && <Text color="cyan">{item.setupNote}</Text>}
+        </Box>
+      )}
+
       <Box marginTop={1} gap={2}>
         {item.installed ? (
           <>
@@ -67,6 +96,15 @@ export const DetailView: React.FC<DetailViewProps> = ({
           </>
         )}
       </Box>
+
+      {item.hasUpdate && onUpdate && (
+        <Box gap={2}>
+          <Text color="yellow">~ Update available</Text>
+          <Text dimColor>  Press </Text>
+          <Text color="yellow" bold>u</Text>
+          <Text dimColor> to update</Text>
+        </Box>
+      )}
 
       <Box marginTop={1}>
         <Text dimColor italic>Esc to go back</Text>

@@ -129,6 +129,126 @@ export function installExternalSkill(
 }
 
 // ---------------------------------------------------------------------------
+// Install an external agent (from cached source)
+// ---------------------------------------------------------------------------
+
+export function installExternalAgent(
+  sourceName: string,
+  agentName: string,
+  agentPath: string,
+  hash: string,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+): InstallResult {
+  const src = path.join(CACHE_DIR, sourceName, agentPath);
+  if (!fs.existsSync(src)) throw new Error(`External agent not found at: ${src}`);
+
+  const report = scanAgentFile(src, agentName, sourceName);
+  if (!report.passed && !opts.force) {
+    log(formatReport(report));
+    log(`      Skipped — use --force to override`);
+    return { type: 'agent', name: agentName, action: 'blocked' };
+  }
+  if (report.findings.length > 0) log(formatReport(report));
+
+  const lock = readLock();
+  const itemKey = `agent:${agentName}`;
+  const filename = path.basename(agentPath);
+
+  const lockEntry = lock.installed[itemKey];
+  const needsUpdate = lockEntry && lockEntry.hash !== hash;
+  const shouldForce = opts.force || needsUpdate;
+
+  let action: InstallResult['action'] = 'skipped';
+  for (const dir of AGENT_TARGETS) {
+    const dest = path.join(dir, filename);
+    const result = linkOrCopyFile(src, dest, shouldForce || false, true);
+    if (result === 'updated') {
+      log(`  [~] agent ${agentName} updated in ${dest}`);
+      action = 'updated';
+    } else if (result === 'installed') {
+      log(`  [+] agent ${agentName} -> ${dest}`);
+      action = 'installed';
+    } else {
+      log(`  [OK] agent ${agentName} (up to date)`);
+    }
+  }
+
+  recordInstall(lock, itemKey, hash);
+  writeLock(lock);
+  return { type: 'agent', name: agentName, action };
+}
+
+// ---------------------------------------------------------------------------
+// Install an external MCP (from cached source)
+// ---------------------------------------------------------------------------
+
+export function installExternalMcp(
+  sourceName: string,
+  mcpName: string,
+  mcpPath: string,
+  hash: string,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+): InstallResult {
+  const src = path.join(CACHE_DIR, sourceName, mcpPath);
+  if (!fs.existsSync(src)) throw new Error(`External MCP not found at: ${src}`);
+
+  let mcpConfig;
+  try {
+    mcpConfig = JSON.parse(fs.readFileSync(src, 'utf8'));
+  } catch {
+    throw new Error(`Failed to parse MCP config: ${src}`);
+  }
+
+  const report = scanMcpConfig({ name: mcpName, transport: mcpConfig.transport, url: mcpConfig.url }, sourceName);
+  if (!report.passed && !opts.force) {
+    log(formatReport(report));
+    log(`      Skipped — use --force to override`);
+    return { type: 'mcp', name: mcpName, action: 'blocked' };
+  }
+  if (report.findings.length > 0) log(formatReport(report));
+
+  const newEntry = { type: mcpConfig.transport, url: mcpConfig.url };
+  const lock = readLock();
+  const itemKey = `mcp:${mcpName}`;
+
+  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(f => fs.existsSync(f));
+  const configsToWrite = [...localExisting, ...GLOBAL_MCP_CONFIG_FILES];
+
+  let action: InstallResult['action'] = 'skipped';
+  for (const configPath of configsToWrite) {
+    if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
+      ensureDir(path.dirname(configPath));
+    }
+
+    let config: Record<string, any>;
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch {
+      if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
+        config = {};
+      } else {
+        continue;
+      }
+    }
+
+    const format = getConfigFormat(configPath);
+    const section = format === 'servers' ? 'servers' : 'mcpServers';
+    if (!config[section]) config[section] = {};
+
+    config[section][mcpName] = newEntry;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    log(`  [+] mcp ${mcpName} -> ${configPath}`);
+    action = 'installed';
+  }
+
+  recordInstall(lock, itemKey, hash);
+  writeLock(lock);
+  return { type: 'mcp', name: mcpName, action };
+}
+
+// ---------------------------------------------------------------------------
 // Install an agent
 // ---------------------------------------------------------------------------
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, Box } from 'ink';
 
 export interface ItemData {
-  key: string;        // e.g. 'skill:internal:writing-skills'
+  key: string;        // e.g. 'skill::internal::writing-skills'
   type: string;       // 'skill' | 'agent' | 'mcp' | 'plugin'
   name: string;
   description: string;
@@ -13,6 +13,12 @@ export interface ItemData {
   hash?: string;      // content hash (for external items)
   scanStatus?: 'ok' | 'warn' | 'block';
   scanSummary?: string; // short summary of findings
+  // Plugin-specific
+  pluginContents?: { skills: string[]; agents: string[]; mcps: string[] };
+  // MCP-specific
+  transport?: string;
+  url?: string;
+  setupNote?: string;
 }
 
 const TYPE_COLORS: Record<string, string> = {

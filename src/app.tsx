@@ -3,18 +3,19 @@ import { render, Box, useInput, useApp } from 'ink';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
 import { useCatalog } from './hooks/useCatalog.js';
-import { BrowseTab } from './tabs/BrowseTab.js';
+import { CatalogTab } from './tabs/CatalogTab.js';
 import { InstalledTab } from './tabs/InstalledTab.js';
-import { PluginsTab } from './tabs/PluginsTab.js';
-import { UpdatesTab } from './tabs/UpdatesTab.js';
 import { SourcesTab } from './tabs/SourcesTab.js';
+import { installSkill, installAgent, installMcp, installExternalSkill, installExternalAgent, installExternalMcp } from './core/installer.js';
+import { updateAll } from './core/updater.js';
+import type { ItemData } from './components/ItemRow.js';
 
 interface AppProps {
   toolkitDir: string;
   initialTab: TabId;
 }
 
-const TAB_ORDER: TabId[] = ['browse', 'plugins', 'installed', 'sources', 'updates'];
+const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources'];
 
 const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
@@ -22,24 +23,44 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
 
   const {
     catalog,
-    lock,
     allItems,
     installedItems,
-    updateItems,
     refreshLock,
   } = useCatalog(toolkitDir);
 
+  const updateCount = allItems.filter(i => i.hasUpdate).length;
+
   const tabs: Tab[] = [
-    { id: 'browse', label: 'Browse', badge: allItems.length },
-    { id: 'plugins', label: 'Plugins', badge: catalog.plugins.length },
+    { id: 'catalog', label: updateCount > 0 ? `Catalog ~${updateCount}` : 'Catalog', badge: allItems.length },
     { id: 'installed', label: 'Installed', badge: installedItems.length },
     { id: 'sources', label: 'Sources' },
-    { id: 'updates', label: 'Updates', badge: updateItems.length },
   ];
 
   const handleRefresh = useCallback(() => {
     refreshLock();
   }, [refreshLock]);
+
+  const handleUpdateItem = useCallback((item: ItemData) => {
+    const { type, name, source } = item;
+    try {
+      if (source !== 'internal' && item.path && item.hash) {
+        // External resource — reinstall from cache
+        if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: true }, () => {});
+        else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: true }, () => {});
+        else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: true }, () => {});
+      } else {
+        if (type === 'skill')      installSkill(catalog, toolkitDir, name, { force: true }, () => {});
+        else if (type === 'agent') installAgent(catalog, toolkitDir, name, { force: true }, () => {});
+        else if (type === 'mcp')   installMcp(catalog, toolkitDir, name, { force: true }, () => {});
+      }
+      refreshLock();
+    } catch {}
+  }, [catalog, toolkitDir, refreshLock]);
+
+  const handleUpdateAll = useCallback(() => {
+    updateAll(catalog, toolkitDir, { force: true }, () => {});
+    refreshLock();
+  }, [catalog, toolkitDir, refreshLock]);
 
   useInput((input, key) => {
     if (key.tab) {
@@ -61,20 +82,14 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
       <Logo />
       <TabBar tabs={tabs} activeTab={activeTab} />
 
-      {activeTab === 'browse' && (
-        <BrowseTab
+      {activeTab === 'catalog' && (
+        <CatalogTab
           items={allItems}
           catalog={catalog}
           toolkitDir={toolkitDir}
           onRefresh={handleRefresh}
-        />
-      )}
-      {activeTab === 'plugins' && (
-        <PluginsTab
-          catalog={catalog}
-          lock={lock}
-          toolkitDir={toolkitDir}
-          onRefresh={handleRefresh}
+          onUpdateItem={handleUpdateItem}
+          onUpdateAll={handleUpdateAll}
         />
       )}
       {activeTab === 'installed' && (
@@ -85,11 +100,8 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
         />
       )}
       {activeTab === 'sources' && (
-        <SourcesTab onRefresh={handleRefresh} />
-      )}
-      {activeTab === 'updates' && (
-        <UpdatesTab
-          items={updateItems}
+        <SourcesTab
+          allItems={allItems}
           catalog={catalog}
           toolkitDir={toolkitDir}
           onRefresh={handleRefresh}
@@ -99,8 +111,8 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
   );
 };
 
-export async function renderApp(toolkitDir: string, initialTab: string = 'browse') {
-  const tab = TAB_ORDER.includes(initialTab as TabId) ? (initialTab as TabId) : 'browse';
+export async function renderApp(toolkitDir: string, initialTab: string = 'catalog') {
+  const tab = TAB_ORDER.includes(initialTab as TabId) ? (initialTab as TabId) : 'catalog';
   const { waitUntilExit } = render(<App toolkitDir={toolkitDir} initialTab={tab} />);
   await waitUntilExit();
 }

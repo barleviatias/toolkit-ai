@@ -5,6 +5,7 @@ import { installSkill, installAgent, installMcp, installPlugin } from '../core/i
 import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
+import { fetchExternalResources, loadSources } from '../core/sources.js';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -157,10 +158,10 @@ ${BOLD}Direct remove:${RESET}
   remove --plugin <name>          Remove a plugin bundle
 
 ${BOLD}Sources:${RESET}
-  source add <owner/repo>         Add an external skill source
+  refresh                         Re-fetch all external sources
+  source add <owner/repo>         Add an external source
   source list                     List configured sources
   source remove <name>            Remove a source
-  import <source>@<skill>         Import a skill from an external source
 
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
@@ -294,6 +295,16 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
   const isCheck    = flag(args, '--check') || flag(args, 'check');
   const isUpdate   = flag(args, '--update') || flag(args, 'update');
   const isScan     = flag(args, 'scan');
+  const isRefresh  = flag(args, 'refresh') || flag(args, '--refresh');
+
+  // Source refresh — re-fetch all external sources
+  if (isRefresh) {
+    const sources = loadSources();
+    console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
+    const resources = fetchExternalResources(true);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs\n`);
+    return true;
+  }
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||
