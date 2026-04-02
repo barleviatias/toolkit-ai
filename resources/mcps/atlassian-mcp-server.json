@@ -1,0 +1,7 @@
+{
+  "name": "atlassian-mcp-server",
+  "description": "Jira via MCP gateway",
+  "transport": "sse",
+  "url": "https://mcp.atlassian.com/v1/sse",
+  "setupNote": "After install, restart your agent — a browser window will open to authorize with Jira."
+}

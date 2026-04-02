@@ -1,0 +1,18 @@
+name: Lint Skill Frontmatter
+
+on:
+  pull_request:
+    paths:
+      - "resources/skills/**"
+
+jobs:
+  lint-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install js-yaml
+        run: npm install --no-save js-yaml
+
+      - name: Lint SKILL.md frontmatter
+        run: node scripts/ci/lint-skills.js

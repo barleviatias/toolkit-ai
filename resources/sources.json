@@ -1,0 +1,7 @@
+{
+  "sources": [
+    { "name": "vercel-labs", "type": "github", "repo": "vercel-labs/agent-skills" },
+    { "name": "anthropics", "type": "github", "repo": "anthropics/skills" }
+  ],
+  "cacheTTL": 86400
+}
