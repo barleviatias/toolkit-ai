@@ -5,6 +5,7 @@ import { installSkill, installAgent, installMcp, installPlugin } from '../core/i
 import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
+import { parseSourceInput, addSource, removeSource, loadSources } from '../core/sources.js';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -157,10 +158,12 @@ ${BOLD}Direct remove:${RESET}
   remove --plugin <name>          Remove a plugin bundle
 
 ${BOLD}Sources:${RESET}
-  source add <owner/repo>         Add an external skill source
+  source add <repo>               Add an external skill source
   source list                     List configured sources
   source remove <name>            Remove a source
-  import <source>@<skill>         Import a skill from an external source
+
+  ${DIM}Accepts: owner/repo, https://github.com/owner/repo,
+          https://bitbucket.org/owner/repo, git@github.com:owner/repo.git${RESET}
 
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
@@ -267,6 +270,44 @@ function showScan(catalog: Catalog, toolkitDir: string, specificSkill?: string |
 }
 
 // ---------------------------------------------------------------------------
+// Source management
+// ---------------------------------------------------------------------------
+
+function runSourceCommand(args: string[]): boolean {
+  const sub = args[0];
+
+  if (sub === 'add' && args[1]) {
+    const source = parseSourceInput(args[1]);
+    addSource(source);
+    console.log(`  ${GREEN}[+]${RESET} Added source ${BOLD}${source.name}${RESET} (${source.type}: ${source.repo})`);
+    return true;
+  }
+
+  if (sub === 'list') {
+    const config = loadSources();
+    if (config.sources.length === 0) {
+      console.log(`  ${DIM}No sources configured.${RESET}`);
+    } else {
+      console.log(`\n${BOLD}Sources${RESET}\n`);
+      for (const s of config.sources) {
+        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}`);
+      }
+      console.log();
+    }
+    return true;
+  }
+
+  if (sub === 'remove' && args[1]) {
+    removeSource(args[1]);
+    console.log(`  ${RED}[-]${RESET} Removed source ${BOLD}${args[1]}${RESET}`);
+    return true;
+  }
+
+  console.log(`Usage: ai-toolkit source <add|list|remove> [args]`);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Main headless dispatch
 // ---------------------------------------------------------------------------
 
@@ -282,6 +323,11 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
     const version = process.env.TOOLKIT_VERSION || 'dev';
     console.log(`ai-toolkit v${version}`);
     return true;
+  }
+
+  // Source commands (don't need catalog)
+  if (args[0] === 'source') {
+    return runSourceCommand(args.slice(1));
   }
 
   const isForce = flag(args, '--force');
