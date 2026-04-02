@@ -4,15 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-A toolkit CLI with a React Ink TUI for distributing skills, agents, MCP connections, and plugin bundles to AI dev tools (Claude Code, GitHub Copilot, Cursor). Supports both internal resources and external skill sources from GitHub/Bitbucket repos.
+A source-driven toolkit CLI with a React Ink TUI for managing AI skills, agents, and MCP connections across Claude Code, GitHub Copilot, and Cursor. All resources come from external GitHub/Bitbucket sources — no bundled content.
 
 > **Important:** Keep [README.md](README.md) up to date with any changes to commands, setup, or usage.
-
-## Git Rules
-
-- **NEVER push directly to `main`.** All changes go through a feature branch + pull request.
-- Create a descriptive branch name (e.g., `feat/scanner-improvements`, `fix/false-positives`).
-- Push the branch and open a PR. CI runs on PRs; merging to `main` triggers npm publish.
 
 ## Quick Start
 
@@ -25,7 +19,7 @@ node bin/ai-toolkit.mjs
 
 # Headless commands
 node bin/ai-toolkit.mjs --list
-node bin/ai-toolkit.mjs --skill brainstorming
+node bin/ai-toolkit.mjs refresh
 node bin/ai-toolkit.mjs --version
 ```
 
@@ -55,33 +49,58 @@ All runtime deps (ink, react) are bundled — consumers install zero dependencie
 ```
 src/
   index.tsx              # Entry point — routes to headless CLI or Ink TUI
-  app.tsx                # Root Ink app with tabbed layout
+  app.tsx                # Root Ink app with 3-tab layout (Catalog, Installed, Sources)
   types.ts               # Shared TypeScript interfaces
   core/
     platform.ts          # OS paths, targets, npx detection
     fs-helpers.ts        # Symlink/copy/remove operations
     catalog.ts           # Catalog generation, frontmatter parser, lookups
     lock.ts              # Lock file CRUD (~/.toolkit/lock.json)
-    installer.ts         # Install for skill/agent/mcp/plugin + external skills
+    item-key.ts          # Structured key handling (makeKey/parseKey with :: delimiter)
+    installer.ts         # Install for skill/agent/mcp/plugin + external resources
     remover.ts           # Remove with protection logic
-    updater.ts           # Update detection + bulk update
+    updater.ts           # Update detection + bulk/selective update
+    scanner.ts           # Security scanner for skills, agents, MCPs
     sources.ts           # External source fetch, cache, scan (GitHub/Bitbucket)
-  components/            # React Ink UI components (Logo, TabBar, SearchInput, ItemList, etc.)
-  tabs/                  # Tab views (Browse, Plugins, Installed, Sources, Updates)
+  components/
+    TabBar.tsx           # Tab navigation header
+    Logo.tsx             # ASCII art branding
+    SearchInput.tsx      # Search box with count feedback
+    ItemList.tsx         # Scrollable list with cursor, selection, action keys (i/r/u)
+    ItemRow.tsx          # Single item display with type badge and metadata
+    DetailView.tsx       # Modal detail view with install/remove/update actions
+    TypeFilter.tsx       # Toggleable type filter chips (1-4 keys)
+    ConfirmDialog.tsx    # Destructive action confirmation (y/n)
+    StatusBar.tsx        # Footer with keyboard hints
+  tabs/
+    CatalogTab.tsx       # Unified browse + install + update (replaces old Browse/Plugins/Updates)
+    InstalledTab.tsx     # Manage installed items with detail view and type filters
+    SourcesTab.tsx       # Source management with per-source item browsing
+  hooks/
+    useCatalog.ts        # Central data hook — loads catalog + external resources + lock
   commands/
-    headless.ts          # All --flag commands (backward compat)
+    headless.ts          # All --flag commands
+    init.ts              # Scaffold a skill repo
 ```
 
 ### Resources
 
 ```
 resources/
-  skills/<name>/SKILL.md   # Skill with YAML frontmatter (name, description required)
-  agents/<name>.agent.md   # Agent with YAML frontmatter
-  mcps/<name>.json         # MCP config (transport, url, setupNote)
-  plugins/<name>.json      # Plugin bundle referencing skills/agents/mcps by name
-  sources.json             # Default external source repos
+  sources.json             # Default external source repos (vercel-labs, anthropics)
+  skills/                  # Empty — all content comes from sources
+  agents/                  # Empty
+  mcps/                    # Empty
+  plugins/                 # Empty
 ```
+
+### External source discovery
+
+Sources are GitHub/Bitbucket repos. The toolkit discovers resources by convention:
+
+- **Skills**: Any directory containing `SKILL.md` (recursive, stops at skill boundary)
+- **Agents**: Any `*.agent.md` file (recursive)
+- **MCPs**: Any `*.json` in `mcps/` directories, or `*.mcp.json` anywhere
 
 ### User state (~/.toolkit/)
 
@@ -102,17 +121,11 @@ resources/
 
 - **lint-skills.yml** — validates YAML frontmatter in all SKILL.md files
 - **validate-catalog.yml** — validates catalog schema and cross-references
-- **publish.yml** — builds and publishes to npm on merge to main
+- **publish.yml** — builds and publishes to GitHub Packages on merge to main
 
 ## Content Conventions
 
 - All names are lowercase-hyphenated (e.g., `test-driven-development`)
 - Skills require `name` and `description` in YAML frontmatter
-- Plugins reference items by name — CI validates all references resolve
-
-## Adding New Content
-
-1. Create the content file in the appropriate `resources/` directory
-2. If it belongs in a plugin, add the name to the plugin's JSON
-3. Run `npm test` locally
-4. Open a PR
+- Agents use `*.agent.md` naming with YAML frontmatter
+- MCPs are JSON with `name`, `description`, `transport`, `url` fields

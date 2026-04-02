@@ -45,7 +45,7 @@ export const SOURCES_FILE = path.join(TOOLKIT_HOME, 'sources.json');
 export const CACHE_DIR = path.join(TOOLKIT_HOME, 'cache');
 
 // Legacy path — migrate if exists
-export const LEGACY_LOCK_FILE = path.join(HOME, '.toolkit-legacy', '.ai-toolkit-lock.json');
+export const LEGACY_LOCK_FILE = path.join(HOME, '.rdwr', '.ai-toolkit-lock.json');
 
 export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' {
   const isVsCode = configPath.includes('.vscode') ||

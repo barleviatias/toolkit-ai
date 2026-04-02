@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import type { Source, SourcesConfig, CatalogEntry } from '../types.js';
 import { SOURCES_FILE, CACHE_DIR } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
-import { parseFrontmatter, hashDir } from './catalog.js';
+import { parseFrontmatter, hashDir, hashFile } from './catalog.js';
 
 function loadDefaultConfig(): SourcesConfig {
   // Load defaults from resources/sources.json (bundled with the package)
@@ -128,7 +128,7 @@ function fetchSource(source: Source): void {
 }
 
 // ---------------------------------------------------------------------------
-// Scan a cached source for skills — recursive SKILL.md discovery
+// Scan a cached source for resources (skills, agents, MCPs)
 // ---------------------------------------------------------------------------
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage']);
@@ -149,6 +149,50 @@ function findSkillDirs(dir: string): string[] {
     for (const entry of entries) {
       if (!entry.isDirectory() || SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
       walk(path.join(current, entry.name));
+    }
+  }
+
+  walk(dir);
+  return results;
+}
+
+function findAgentFiles(dir: string): string[] {
+  const results: string[] = [];
+
+  function walk(current: string) {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.agent.md')) {
+        results.push(path.join(current, entry.name));
+      } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+        walk(path.join(current, entry.name));
+      }
+    }
+  }
+
+  walk(dir);
+  return results;
+}
+
+function findMcpFiles(dir: string): string[] {
+  const results: string[] = [];
+  // Look for mcps/ directory with .json files, or *.mcp.json anywhere
+  function walk(current: string) {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+
+    const isMcpsDir = path.basename(current) === 'mcps';
+
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.json') && isMcpsDir) {
+        results.push(path.join(current, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith('.mcp.json')) {
+        results.push(path.join(current, entry.name));
+      } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+        walk(path.join(current, entry.name));
+      }
     }
   }
 
@@ -181,13 +225,71 @@ function scanSourceSkills(source: Source): CatalogEntry[] {
   return entries;
 }
 
+function scanSourceAgents(source: Source): CatalogEntry[] {
+  const cacheDir = getCacheDir(source);
+  if (!fs.existsSync(cacheDir)) return [];
+
+  const agentFiles = findAgentFiles(cacheDir);
+  const entries: CatalogEntry[] = [];
+
+  for (const agentFile of agentFiles) {
+    const meta = parseFrontmatter(fs.readFileSync(agentFile, 'utf8'));
+    const fileName = path.basename(agentFile, '.agent.md');
+
+    entries.push({
+      name: meta.name || fileName,
+      description: meta.description || '',
+      hash: hashFile(agentFile),
+      path: path.relative(cacheDir, agentFile),
+      source: source.name,
+    });
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return entries;
+}
+
+function scanSourceMcps(source: Source): CatalogEntry[] {
+  const cacheDir = getCacheDir(source);
+  if (!fs.existsSync(cacheDir)) return [];
+
+  const mcpFiles = findMcpFiles(cacheDir);
+  const entries: CatalogEntry[] = [];
+
+  for (const mcpFile of mcpFiles) {
+    try {
+      const config = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
+      const fileName = path.basename(mcpFile, '.json');
+
+      entries.push({
+        name: config.name || fileName,
+        description: config.description || '',
+        hash: hashFile(mcpFile),
+        path: path.relative(cacheDir, mcpFile),
+        source: source.name,
+      });
+    } catch {
+      // Skip malformed JSON
+    }
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return entries;
+}
+
 // ---------------------------------------------------------------------------
-// Public: get all external skills (fetch if needed)
+// Public: external resources (skills, agents, MCPs)
 // ---------------------------------------------------------------------------
 
-export function fetchExternalSkills(forceRefresh = false): CatalogEntry[] {
+export interface ExternalResources {
+  skills: CatalogEntry[];
+  agents: CatalogEntry[];
+  mcps: CatalogEntry[];
+}
+
+export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
-  const allSkills: CatalogEntry[] = [];
+  const result: ExternalResources = { skills: [], agents: [], mcps: [] };
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
@@ -196,11 +298,18 @@ export function fetchExternalSkills(forceRefresh = false): CatalogEntry[] {
       if (forceRefresh || isCacheStale(source, config.cacheTTL)) {
         fetchSource(source);
       }
-      allSkills.push(...scanSourceSkills(source));
+      result.skills.push(...scanSourceSkills(source));
+      result.agents.push(...scanSourceAgents(source));
+      result.mcps.push(...scanSourceMcps(source));
     } catch {
       // Silently skip failed sources in TUI
     }
   }
 
-  return allSkills;
+  return result;
+}
+
+/** @deprecated Use fetchExternalResources instead */
+export function fetchExternalSkills(forceRefresh = false): CatalogEntry[] {
+  return fetchExternalResources(forceRefresh).skills;
 }
