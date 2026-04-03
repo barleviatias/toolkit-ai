@@ -4,7 +4,8 @@
   "description": "CLI with React Ink TUI for managing AI skills, agents, MCPs, and plugins across Claude Code, Copilot, and Cursor",
   "bin": {
     "toolkit-ai": "bin/ai-toolkit.mjs",
-    "ai-toolkit": "bin/ai-toolkit.mjs"
+    "ai-toolkit": "bin/ai-toolkit.mjs",
+    "toolkit": "bin/ai-toolkit.mjs"
   },
   "files": [
     "bin/ai-toolkit.mjs",
