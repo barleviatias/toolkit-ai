@@ -123,7 +123,7 @@ You are a code review agent. Given a set of file changes, you:
 
 ### MCPs
 
-Model Context Protocol server connections that let AI agents interact with external services — databases, APIs, browsers, and more.
+Model Context Protocol server configurations. The toolkit reads these JSON files and registers the MCP server into each AI tool's config file — it does **not** run the server itself.
 
 **Example `supabase-mcp.json`:**
 
@@ -133,12 +133,28 @@ Model Context Protocol server connections that let AI agents interact with exter
   "description": "Connect to Supabase for database queries and auth",
   "transport": "sse",
   "url": "https://mcp.supabase.com/v1/sse",
-  "setupNote": "After install, restart your agent to authorize.",
-  "docsUrl": "https://supabase.com/docs/mcp"
+  "setupNote": "After install, restart your agent to authorize."
 }
 ```
 
-**Installs to:** `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Identifier — used as the key in target config files |
+| `description` | Yes | Shown in the TUI catalog |
+| `transport` | Yes | Protocol type (`sse`, `stdio`, etc.) — written as `type` in target configs |
+| `url` | Yes | Server endpoint URL |
+| `setupNote` | No | Shown to the user after install (e.g. "restart your agent") |
+
+**What happens on install:** The toolkit writes `{ "type": "<transport>", "url": "<url>" }` into each tool's MCP config:
+
+```
+~/.claude/settings.json    → mcpServers.<name>
+~/.cursor/mcp.json         → mcpServers.<name>
+~/.vscode/mcp.json         → servers.<name>
+~/.claude.json             → mcpServers.<name>
+```
+
+Only config files that already exist locally are updated (the toolkit won't create `~/.vscode/mcp.json` if VS Code isn't set up). Global configs (`~/.claude.json`) are always created if missing.
 
 ### Bundles
 
