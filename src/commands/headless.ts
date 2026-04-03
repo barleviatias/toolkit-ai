@@ -359,6 +359,16 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
   const isCheck    = flag(args, '--check') || flag(args, 'check');
   const isUpdate   = flag(args, '--update') || flag(args, 'update');
   const isScan     = flag(args, 'scan');
+  const isRefresh  = flag(args, 'refresh') || flag(args, '--refresh');
+
+  // Source refresh — re-fetch all external sources
+  if (isRefresh) {
+    const sources = loadSources();
+    console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
+    const resources = fetchExternalResources(true);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs\n`);
+    return true;
+  }
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||

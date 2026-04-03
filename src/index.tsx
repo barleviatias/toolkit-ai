@@ -22,7 +22,7 @@ async function main() {
   if (args.length === 0 || args.includes('add') || args.includes('remove')) {
     // Dynamic import to avoid loading React for headless commands
     const { renderApp } = await import('./app.js');
-    const initialTab = args.includes('remove') ? 'installed' : 'browse';
+    const initialTab = args.includes('remove') ? 'installed' : 'catalog';
     await renderApp(TOOLKIT_DIR, initialTab);
     return;
   }

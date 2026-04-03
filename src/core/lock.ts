@@ -10,7 +10,7 @@ export function readLock(): LockFile {
   try {
     return JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')) as LockFile;
   } catch {
-    // Migrate from legacy location if it exists
+    // Migrate from legacy ~/.rdwr/ if it exists
     try {
       const legacy = JSON.parse(fs.readFileSync(LEGACY_LOCK_FILE, 'utf8')) as LockFile;
       writeLock(legacy); // save to new location

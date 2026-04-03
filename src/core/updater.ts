@@ -77,6 +77,29 @@ export function checkForUpdates(catalog: Catalog): UpdateStatus[] {
 }
 
 // ---------------------------------------------------------------------------
+// Update specific items by type:name
+// ---------------------------------------------------------------------------
+
+export function updateSelected(
+  catalog: Catalog,
+  toolkitDir: string,
+  items: Array<{ type: string; name: string }>,
+  log: LogFn = console.log,
+): InstallResult[] {
+  const results: InstallResult[] = [];
+  for (const { type, name } of items) {
+    try {
+      if (type === 'skill')      results.push(installSkill(catalog, toolkitDir, name, { force: true }, log));
+      else if (type === 'agent') results.push(installAgent(catalog, toolkitDir, name, { force: true }, log));
+      else if (type === 'mcp')   results.push(installMcp(catalog, toolkitDir, name, { force: true }, log));
+    } catch (e: any) {
+      log(`  [!] Failed to update ${type} ${name}: ${e.message}`);
+    }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Update all installed items
 // ---------------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text, Box } from 'ink';
 
-export type TabId = 'browse' | 'plugins' | 'installed' | 'sources' | 'updates';
+export type TabId = 'catalog' | 'installed' | 'sources';
 
 export interface Tab {
   id: TabId;

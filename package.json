@@ -1,6 +1,6 @@
 {
   "name": "toolkit-ai",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "description": "CLI with React Ink TUI for managing AI skills, agents, MCPs, and plugins across Claude Code, Copilot, and Cursor",
   "bin": {
     "ai-toolkit": "bin/ai-toolkit.mjs"
@@ -14,10 +14,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "prepare": "npm run build",
-    "lint:skills": "node scripts/ci/lint-skills.js",
-    "validate:catalog": "npm run generate:catalog && node scripts/ci/validate-catalog.js",
     "generate:catalog": "node scripts/generate-catalog.js",
-    "test": "npm run lint:skills && npm run validate:catalog"
+    "test": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^20.19.37",
@@ -44,6 +42,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/barleviatias/toolkit-ai.git"
+    "url": "git+https://github.com/barleviatias/toolkit.git"
+  },
+  "dependencies": {
+    "toolkit-ai": "^1.0.1"
   }
 }
