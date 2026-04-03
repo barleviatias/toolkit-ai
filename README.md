@@ -361,7 +361,7 @@ Every item from external sources is automatically scanned before installation. I
 | Dangerous protocols | `file://`, `data://` URLs | Block |
 | Internal network access (SSRF) | URLs pointing to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost) | Block |
 | Command injection | Shell metacharacters in URL (`;`, `&`, `\|`, `` ` ``, `$`, `(`, `)`) | Block |
-| Insecure transport | HTTP instead of HTTPS | Warn |
+| Insecure protocol | HTTP instead of HTTPS | Warn |
 
 ### Trust model
 
