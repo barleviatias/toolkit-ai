@@ -6,7 +6,7 @@
 //   - skills    → MD5 of all files in the skill directory (sorted by relative path)
 //   - agents    → MD5 of the single .agent.md file
 //   - mcps      → MD5 of the single .json file
-//   - plugins   → MD5 of the single .json file
+//   - bundles   → MD5 of the single .json file
 //
 // Usage:  node scripts/generate-catalog.js [--output <path>]
 
@@ -153,8 +153,8 @@ function scanMcps() {
   return entries;
 }
 
-function scanPlugins() {
-  const dir = path.join(ROOT, 'resources', 'plugins');
+function scanBundles() {
+  const dir = path.join(ROOT, 'resources', 'bundles');
   if (!fs.existsSync(dir)) return [];
   const entries = [];
   for (const file of fs.readdirSync(dir)) {
@@ -164,15 +164,15 @@ function scanPlugins() {
     try {
       config = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     } catch (e) {
-      console.warn(`[warn] plugins/${file}: parse error – ${e.message}, skipping`);
+      console.warn(`[warn] bundles/${file}: parse error – ${e.message}, skipping`);
       continue;
     }
-    const entryName = config.name || file.replace('.json', '');
+    const entryName = config.name || file.replace('.bundle.json', '').replace('.json', '');
     entries.push({
       name:        entryName,
       description: config.description || '',
       hash:        hashFile(filePath),
-      path:        `resources/plugins/${file}`,
+      path:        `resources/bundles/${file}`,
     });
   }
   entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -187,7 +187,7 @@ const catalog = {
   skills:  scanSkills(),
   agents:  scanAgents(),
   mcps:    scanMcps(),
-  plugins: scanPlugins(),
+  bundles: scanBundles(),
 };
 
 fs.writeFileSync(OUTPUT_FILE, JSON.stringify(catalog, null, 2) + '\n');
@@ -196,4 +196,4 @@ console.log(`Generated ${OUTPUT_FILE}`);
 console.log(`  skills:  ${catalog.skills.length}`);
 console.log(`  agents:  ${catalog.agents.length}`);
 console.log(`  mcps:    ${catalog.mcps.length}`);
-console.log(`  plugins: ${catalog.plugins.length}`);
+console.log(`  bundles: ${catalog.bundles.length}`);

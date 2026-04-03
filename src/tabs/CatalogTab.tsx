@@ -9,8 +9,8 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
-import { installSkill, installAgent, installMcp, installPlugin, installExternalSkill, installExternalAgent, installExternalMcp } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installExternalSkill, installExternalAgent, installExternalMcp } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
 
 interface CatalogTabProps {
   items: ItemData[];
@@ -91,7 +91,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (input === '1') toggleType('skill');
       else if (input === '2') toggleType('agent');
       else if (input === '3') toggleType('mcp');
-      else if (input === '4') toggleType('plugin');
+      else if (input === '4') toggleType('bundle');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U') {
         onUpdateAll();
@@ -137,7 +137,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       } else if (type === 'skill')  installSkill(catalog, toolkitDir, name, { force: false }, () => {});
       else if (type === 'agent')    installAgent(catalog, toolkitDir, name, { force: false }, () => {});
       else if (type === 'mcp')      installMcp(catalog, toolkitDir, name, { force: false }, () => {});
-      else if (type === 'plugin')   installPlugin(catalog, toolkitDir, name, { force: false }, () => {});
+      else if (type === 'bundle')   installBundle(catalog, toolkitDir, name, { force: false }, () => {});
       setMessage(`Installed ${type} ${name}`);
       onRefresh();
     } catch (e: any) {
@@ -151,7 +151,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       if (type === 'skill')       removeSkill(catalog, name, () => {});
       else if (type === 'agent')  removeAgent(catalog, name, () => {});
       else if (type === 'mcp')    removeMcp(catalog, name, () => {});
-      else if (type === 'plugin') removePlugin(catalog, name, () => {});
+      else if (type === 'bundle') removeBundle(catalog, name, () => {});
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: any) {

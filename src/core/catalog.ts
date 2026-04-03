@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { spawnSync } from 'child_process';
-import type { Catalog, CatalogEntry, PluginConfig, McpConfig } from '../types.js';
+import type { Catalog, CatalogEntry, BundleConfig, McpConfig } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Frontmatter parser (YAML --- blocks, zero deps)
@@ -98,12 +98,12 @@ export function findMcp(catalog: Catalog, name: string): CatalogEntry | undefine
   return catalog.mcps.find(m => m.name === name);
 }
 
-export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undefined {
-  return catalog.plugins.find(p => p.name === name);
+export function findBundle(catalog: Catalog, name: string): CatalogEntry | undefined {
+  return catalog.bundles.find(p => p.name === name);
 }
 
-export function loadPluginConfig(toolkitDir: string, entry: CatalogEntry): PluginConfig {
-  return JSON.parse(fs.readFileSync(path.join(toolkitDir, entry.path), 'utf8')) as PluginConfig;
+export function loadBundleConfig(toolkitDir: string, entry: CatalogEntry): BundleConfig {
+  return JSON.parse(fs.readFileSync(path.join(toolkitDir, entry.path), 'utf8')) as BundleConfig;
 }
 
 export function loadMcpConfig(toolkitDir: string, entry: CatalogEntry): McpConfig {

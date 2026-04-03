@@ -54,17 +54,17 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </Box>
       )}
 
-      {/* Plugin contents */}
-      {item.pluginContents && (
+      {/* Bundle contents */}
+      {item.bundleContents && (
         <Box marginTop={1} flexDirection="column">
           <Text bold dimColor>Contains:</Text>
-          {(item.pluginContents.skills || []).map(s => (
+          {(item.bundleContents.skills || []).map(s => (
             <Text key={s} color="magenta">  SKILL  {s}</Text>
           ))}
-          {(item.pluginContents.agents || []).map(a => (
+          {(item.bundleContents.agents || []).map(a => (
             <Text key={a} color="blue">  AGENT  {a}</Text>
           ))}
-          {(item.pluginContents.mcps || []).map(m => (
+          {(item.bundleContents.mcps || []).map(m => (
             <Text key={m} color="yellow">  MCP    {m}</Text>
           ))}
         </Box>

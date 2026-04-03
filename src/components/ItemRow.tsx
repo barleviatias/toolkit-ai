@@ -3,7 +3,7 @@ import { Text, Box } from 'ink';
 
 export interface ItemData {
   key: string;        // e.g. 'skill::internal::writing-skills'
-  type: string;       // 'skill' | 'agent' | 'mcp' | 'plugin'
+  type: string;       // 'skill' | 'agent' | 'mcp' | 'bundle'
   name: string;
   description: string;
   source: string;     // 'internal' or external source name
@@ -13,8 +13,8 @@ export interface ItemData {
   hash?: string;      // content hash (for external items)
   scanStatus?: 'ok' | 'warn' | 'block';
   scanSummary?: string; // short summary of findings
-  // Plugin-specific
-  pluginContents?: { skills: string[]; agents: string[]; mcps: string[] };
+  // Bundle-specific
+  bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
   // MCP-specific
   transport?: string;
   url?: string;
@@ -25,7 +25,7 @@ const TYPE_COLORS: Record<string, string> = {
   skill:  'magenta',
   agent:  'blue',
   mcp:    'yellow',
-  plugin: 'cyan',
+  bundle: 'cyan',
 };
 
 interface ItemRowProps {

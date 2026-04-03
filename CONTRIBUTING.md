@@ -38,15 +38,14 @@ tools:
 
 ---
 
-## Adding a plugin
+## Adding a bundle
 
-1. Create `plugins/<name>.json` referencing only things that already exist in `resources`:
+1. Create `bundles/<name>.bundle.json` referencing only things that already exist in `resources`:
 
 ```json
 {
-  "name": "your-plugin",
+  "name": "your-bundle",
   "description": "What this bundle provides",
-  "version": "1.0.0",
   "skills": ["skill-one", "skill-two"],
   "agents": ["agent-one"],
   "mcps":   ["mcp-one"]
@@ -74,7 +73,7 @@ tools:
 }
 ```
 
-3. Reference it from a plugin if appropriate.
+3. Reference it from a bundle if appropriate.
 4. Open a PR.
 
 ---
@@ -91,7 +90,7 @@ No reinstall needed.
 
 - Skill names: lowercase, hyphens, max 64 chars (`our-api-conventions`)
 - Agent names: lowercase, hyphens (`backend-specialist`)
-- Plugin names: lowercase, hyphens (`backend-core`)
+- Bundle names: lowercase, hyphens (`backend-core`)
 - MCP names: match the system (`crm`, `jira`, `data-warehouse`)
 
 ---
@@ -99,4 +98,4 @@ No reinstall needed.
 ## CI checks
 
 PRs that modify `skills/` must pass frontmatter linting.
-PRs that modify `teams.json` or `plugins/` must pass catalog validation (all refs must resolve).
+PRs that modify `teams.json` or `bundles/` must pass catalog validation (all refs must resolve).

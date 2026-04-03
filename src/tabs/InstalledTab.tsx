@@ -9,7 +9,7 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
-import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
 
 interface InstalledTabProps {
   items: ItemData[];
@@ -90,7 +90,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (input === '1') toggleType('skill');
       else if (input === '2') toggleType('agent');
       else if (input === '3') toggleType('mcp');
-      else if (input === '4') toggleType('plugin');
+      else if (input === '4') toggleType('bundle');
       else if (input === '0') setTypeFilter(new Set());
     }
   });
@@ -110,7 +110,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       if (type === 'skill')       removeSkill(catalog, name, () => {});
       else if (type === 'agent')  removeAgent(catalog, name, () => {});
       else if (type === 'mcp')    removeMcp(catalog, name, () => {});
-      else if (type === 'plugin') removePlugin(catalog, name, () => {});
+      else if (type === 'bundle') removeBundle(catalog, name, () => {});
     } catch (e: any) {
       setMessage(`Error removing ${name}: ${e.message}`);
     }
