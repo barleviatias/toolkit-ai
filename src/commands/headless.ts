@@ -138,25 +138,24 @@ ${BOLD}Scaffold:${RESET}
 
 ${BOLD}Security:${RESET}
   scan                              Scan all available items for threats
-  scan --skill <name>               Scan a specific skill
+  scan skill <name>                 Scan a specific skill
 
 ${BOLD}Updates:${RESET}
   update                          Update all installed items
   check                           Check for available updates
-  --force                         Force reinstall (combine with any install)
 
-${BOLD}Direct install:${RESET}
-  --list                          List all available items
-  --skill <name>                  Install a skill
-  --agent <name>                  Install an agent
-  --mcp <name>                    Register an MCP server
-  --bundle <name>                 Install a bundle
+${BOLD}Install:${RESET}
+  list                            List all available items
+  skill <name>                    Install a skill
+  agent <name>                    Install an agent
+  mcp <name>                      Register an MCP server
+  bundle <name>                   Install a bundle
 
-${BOLD}Direct remove:${RESET}
-  remove --skill <name>           Remove a skill
-  remove --agent <name>           Remove an agent
-  remove --mcp <name>             Deregister an MCP server
-  remove --bundle <name>          Remove a bundle
+${BOLD}Remove:${RESET}
+  remove skill <name>             Remove a skill
+  remove agent <name>             Remove an agent
+  remove mcp <name>               Deregister an MCP server
+  remove bundle <name>            Remove a bundle
 
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
@@ -351,16 +350,20 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
-  const skillName  = option(args, '--skill');
-  const agentName  = option(args, '--agent');
-  const mcpName    = option(args, '--mcp');
-  const bundleName = option(args, '--bundle');
   const isRemove   = flag(args, 'remove');
-  const isList     = flag(args, '--list');
+  const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');
   const isUpdate   = flag(args, '--update') || flag(args, 'update');
   const isScan     = flag(args, 'scan');
   const isRefresh  = flag(args, 'refresh') || flag(args, '--refresh');
+
+  // Subcommand style: toolkit skill <name> / toolkit remove skill <name>
+  // Also supports legacy --flag style for backwards compat
+  const subArgs = isRemove ? args.slice(args.indexOf('remove') + 1) : args;
+  const skillName  = option(subArgs, '--skill')  || (subArgs[0] === 'skill'  && subArgs[1] ? subArgs[1] : null);
+  const agentName  = option(subArgs, '--agent')  || (subArgs[0] === 'agent'  && subArgs[1] ? subArgs[1] : null);
+  const mcpName    = option(subArgs, '--mcp')    || (subArgs[0] === 'mcp'    && subArgs[1] ? subArgs[1] : null);
+  const bundleName = option(subArgs, '--bundle') || (subArgs[0] === 'bundle' && subArgs[1] ? subArgs[1] : null);
 
   // Source refresh — re-fetch all external sources
   if (isRefresh) {
@@ -379,9 +382,10 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
 
   const catalog = loadCatalog(toolkitDir);
 
-  // Scan command
+  // Scan command: toolkit scan skill <name>
   if (isScan) {
-    showScan(catalog, toolkitDir, skillName);
+    const scanSkillName = skillName || (args[1] === 'skill' && args[2] ? args[2] : null);
+    showScan(catalog, toolkitDir, scanSkillName);
     return true;
   }
 
