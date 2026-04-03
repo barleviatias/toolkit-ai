@@ -49,7 +49,7 @@ const MCP_TEMPLATE = JSON.stringify(
   {
     name: 'example-mcp',
     description: 'A short description of this MCP server',
-    transport: 'sse',
+    type: 'sse',
     url: 'https://your-server.example.com/sse',
     setupNote: 'Instructions for setting up this MCP connection.',
   },
@@ -110,7 +110,7 @@ resources/
 1. Create your resource in the appropriate \`resources/\` directory
 2. Skills require \`name\` and \`description\` in YAML frontmatter
 3. Agents use \`*.agent.md\` naming with YAML frontmatter
-4. MCPs are JSON with \`name\`, \`description\`, \`transport\`, \`url\`
+4. MCPs are JSON with \`name\`, \`description\`, \`type\`, \`url\`
 5. Bundles are JSON with \`name\`, \`description\`, and arrays of \`skills\`, \`agents\`, \`mcps\`
 `;
 

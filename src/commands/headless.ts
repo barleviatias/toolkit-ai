@@ -253,7 +253,7 @@ function showScan(catalog: Catalog, toolkitDir: string, specificSkill?: string |
 
     for (const mcp of catalog.mcps) {
       const mcpConfig = loadMcpConfig(toolkitDir, mcp);
-      const report = scanMcpConfig({ name: mcp.name, transport: mcpConfig.transport, url: mcpConfig.url }, mcp.source || 'internal');
+      const report = scanMcpConfig({ name: mcp.name, type: mcpConfig.type, url: mcpConfig.url }, mcp.source || 'internal');
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;

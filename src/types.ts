@@ -25,7 +25,7 @@ export interface BundleConfig {
 export interface McpConfig {
   name: string;
   description: string;
-  transport: string;
+  type: string;
   url: string;
   setupNote?: string;
   docsUrl?: string;

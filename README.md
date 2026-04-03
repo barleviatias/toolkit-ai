@@ -131,7 +131,7 @@ Model Context Protocol server configurations. The toolkit reads these JSON files
 {
   "name": "supabase-mcp",
   "description": "Connect to Supabase for database queries and auth",
-  "transport": "sse",
+  "type": "sse",
   "url": "https://mcp.supabase.com/v1/sse",
   "setupNote": "After install, restart your agent to authorize."
 }
@@ -141,11 +141,11 @@ Model Context Protocol server configurations. The toolkit reads these JSON files
 |-------|----------|-------------|
 | `name` | Yes | Identifier — used as the key in target config files |
 | `description` | Yes | Shown in the TUI catalog |
-| `transport` | Yes | Protocol type (`sse`, `stdio`, etc.) — written as `type` in target configs |
+| `type` | Yes | Protocol type (`sse`, `stdio`, etc.) |
 | `url` | Yes | Server endpoint URL |
 | `setupNote` | No | Shown to the user after install (e.g. "restart your agent") |
 
-**What happens on install:** The toolkit writes `{ "type": "<transport>", "url": "<url>" }` into each tool's MCP config:
+**What happens on install:** The toolkit writes `{ "type": "<type>", "url": "<url>" }` into each tool's MCP config:
 
 ```
 ~/.claude/settings.json    → mcpServers.<name>
