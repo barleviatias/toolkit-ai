@@ -16,7 +16,7 @@ export interface ItemData {
   // Bundle-specific
   bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
   // MCP-specific
-  transport?: string;
+  mcpType?: string;
   url?: string;
   setupNote?: string;
 }

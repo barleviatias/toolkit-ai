@@ -201,7 +201,7 @@ export function installExternalMcp(
     throw new Error(`Failed to parse MCP config: ${src}`);
   }
 
-  const report = scanMcpConfig({ name: mcpName, transport: mcpConfig.transport, url: mcpConfig.url }, sourceName);
+  const report = scanMcpConfig({ name: mcpName, type: mcpConfig.type, url: mcpConfig.url }, sourceName);
   if (!report.passed && !opts.force) {
     log(formatReport(report));
     log(`      Skipped — use --force to override`);
@@ -209,7 +209,7 @@ export function installExternalMcp(
   }
   if (report.findings.length > 0) log(formatReport(report));
 
-  const newEntry = { type: mcpConfig.transport, url: mcpConfig.url };
+  const newEntry = { type: mcpConfig.type, url: mcpConfig.url };
   const lock = readLock();
   const itemKey = `mcp:${mcpName}`;
 
@@ -322,7 +322,7 @@ export function installMcp(
   const mcpConfig = loadMcpConfig(toolkitDir, entry);
 
   // Security scan
-  const report = scanMcpConfig({ name, transport: mcpConfig.transport, url: mcpConfig.url }, entry.source || 'internal');
+  const report = scanMcpConfig({ name, type: mcpConfig.type, url: mcpConfig.url }, entry.source || 'internal');
   if (!report.passed && !opts.force) {
     log(formatReport(report));
     log(`      Skipped — use --force to override`);
@@ -330,7 +330,7 @@ export function installMcp(
   }
   if (report.findings.length > 0) log(formatReport(report));
 
-  const newEntry = { type: mcpConfig.transport, url: mcpConfig.url };
+  const newEntry = { type: mcpConfig.type, url: mcpConfig.url };
   const currentHash = entry.hash;
   const lock = readLock();
   const itemKey = `mcp:${name}`;

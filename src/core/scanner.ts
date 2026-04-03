@@ -244,7 +244,7 @@ export function scanAgentFile(agentPath: string, name: string, source: string, o
 
 export interface McpConfigInput {
   name: string;
-  transport?: string;
+  type?: string;
   url?: string;
 }
 

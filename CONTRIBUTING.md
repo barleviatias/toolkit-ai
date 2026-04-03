@@ -66,10 +66,9 @@ tools:
 {
   "name": "your-mcp",
   "description": "What this MCP connects to",
-  "transport": "sse",
+  "type": "sse",
   "url": "https://mcp.your-org.internal/your-mcp",
-  "setupNote": "After install, restart your agent and follow any prompts.",
-  "docsUrl": "https://your-org.internal/docs/mcp-your-mcp"
+  "setupNote": "After install, restart your agent and follow any prompts."
 }
 ```
 

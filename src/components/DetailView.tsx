@@ -71,9 +71,9 @@ export const DetailView: React.FC<DetailViewProps> = ({
       )}
 
       {/* MCP details */}
-      {item.transport && (
+      {item.mcpType && (
         <Box marginTop={1} flexDirection="column">
-          <Text dimColor>Transport: {item.transport}</Text>
+          <Text dimColor>Type: {item.mcpType}</Text>
           {item.url && <Text dimColor>URL: {item.url}</Text>}
           {item.setupNote && <Text color="cyan">{item.setupNote}</Text>}
         </Box>

@@ -62,7 +62,7 @@ export function useCatalog(toolkitDir: string) {
             : path.join(CACHE_DIR, src, entry.path);
           try {
             const mcpConfig = JSON.parse(require('fs').readFileSync(mcpPath, 'utf8'));
-            report = scanMcpConfig({ name: entry.name, transport: mcpConfig.transport, url: mcpConfig.url }, src);
+            report = scanMcpConfig({ name: entry.name, type: mcpConfig.type, url: mcpConfig.url }, src);
           } catch {}
         }
 
@@ -106,7 +106,7 @@ export function useCatalog(toolkitDir: string) {
       if (type === 'mcp' && src === 'internal') {
         try {
           const mcpConfig = loadMcpConfig(toolkitDir, entry);
-          item.transport = mcpConfig.transport;
+          item.mcpType = mcpConfig.type;
           item.url = mcpConfig.url;
           item.setupNote = mcpConfig.setupNote;
         } catch {}
@@ -114,7 +114,7 @@ export function useCatalog(toolkitDir: string) {
         try {
           const mcpPath = path.join(CACHE_DIR, src, entry.path);
           const mcpConfig = JSON.parse(require('fs').readFileSync(mcpPath, 'utf8'));
-          item.transport = mcpConfig.transport;
+          item.mcpType = mcpConfig.type;
           item.url = mcpConfig.url;
           item.setupNote = mcpConfig.setupNote;
         } catch {}

@@ -129,4 +129,4 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 - All names are lowercase-hyphenated (e.g., `test-driven-development`)
 - Skills require `name` and `description` in YAML frontmatter
 - Agents use `*.agent.md` naming with YAML frontmatter
-- MCPs are JSON with `name`, `description`, `transport`, `url` fields
+- MCPs are JSON with `name`, `description`, `type`, `url` fields
