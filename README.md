@@ -26,6 +26,7 @@ Manage AI skills, agents, and MCPs across Claude Code, Copilot, and Cursor — f
 ```bash
 npx toolkit-ai            # run directly, no install
 npm install -g toolkit-ai  # or install globally
+toolkit                   # launch after global install
 ```
 
 ## What It Does
@@ -42,10 +43,10 @@ All resources come from configured external sources (GitHub/Bitbucket repos). No
 
 ## TUI
 
-Run `ai-toolkit` with no arguments to launch the interactive interface:
+Run `toolkit` with no arguments to launch the interactive interface:
 
 ```
-ai-toolkit
+toolkit
 ```
 
 | Tab | What you do |
@@ -84,19 +85,16 @@ ai-toolkit
 ## CLI
 
 ```bash
-ai-toolkit --list                     # List all available items
-ai-toolkit --skill <name>             # Install a skill
-ai-toolkit --agent <name>             # Install an agent
-ai-toolkit --mcp <name>               # Register an MCP server
-ai-toolkit remove --skill <name>      # Remove a skill
-ai-toolkit check                      # Check for updates
-ai-toolkit update                     # Update all installed items
-ai-toolkit refresh                    # Re-fetch all external sources
-ai-toolkit scan                       # Security scan all items
-ai-toolkit init [dir]                 # Scaffold a new skill repo
-ai-toolkit source add <repo>          # Add an external source
-ai-toolkit source list                # List configured sources
-ai-toolkit source remove <name>       # Remove a source
+toolkit --list                     # List all available items
+toolkit --skill <name>             # Install a skill
+toolkit --agent <name>             # Install an agent
+toolkit --mcp <name>               # Register an MCP server
+toolkit remove --skill <name>      # Remove a skill
+toolkit check                      # Check for updates
+toolkit update                     # Update all installed items
+toolkit refresh                    # Re-fetch all external sources
+toolkit scan                       # Security scan all items
+toolkit init [dir]                 # Scaffold a new skill repo
 ```
 
 ## External Sources
@@ -106,8 +104,8 @@ All content comes from external repos. Add any GitHub or Bitbucket repo as a sou
 ```bash
 # In the TUI: Sources tab → press 'a'
 # Or via CLI:
-ai-toolkit source add owner/repo
-ai-toolkit source add https://github.com/owner/repo
+toolkit source add owner/repo
+toolkit source add https://github.com/owner/repo
 ```
 
 The toolkit discovers resources in source repos by convention:
@@ -118,7 +116,7 @@ The toolkit discovers resources in source repos by convention:
 | **Agents** | Any `*.agent.md` file (recursive) |
 | **MCPs** | Any `*.json` in a `mcps/` directory, or `*.mcp.json` anywhere |
 
-Sources are shallow-cloned and cached for 24 hours at `~/.toolkit/cache/`. Press `f` in the Sources tab or run `ai-toolkit refresh` to force a re-fetch.
+Sources are shallow-cloned and cached for 24 hours at `~/.toolkit/cache/`. Press `f` in the Sources tab or run `toolkit refresh` to force a re-fetch.
 
 ### Default sources
 
@@ -184,7 +182,7 @@ The **lock file** (`lock.json`) tracks every installed item with a content hash 
 Scaffold a boilerplate repo to publish your own resources:
 
 ```bash
-ai-toolkit init my-skills
+toolkit init my-skills
 ```
 
 This creates a repo structure that the toolkit can discover:
@@ -203,14 +201,14 @@ my-skills/
 Push to GitHub, then share:
 
 ```bash
-ai-toolkit source add your-org/my-skills
+toolkit source add your-org/my-skills
 ```
 
 ## Development
 
 ```bash
-git clone https://github.com/barleviatias/toolkit.git
-cd toolkit
+git clone https://github.com/barleviatias/toolkit-ai.git
+cd toolkit-ai
 npm install
 npm run build    # Build → bin/ai-toolkit.mjs
 npm run dev      # Build with watch
