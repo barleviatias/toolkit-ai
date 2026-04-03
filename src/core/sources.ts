@@ -127,6 +127,25 @@ function fetchSource(source: Source): void {
   fs.writeFileSync(path.join(cacheDir, '.fetched'), new Date().toISOString());
 }
 
+/** Force-refresh one or all sources (re-clone from remote) */
+export function refreshSources(sourceName?: string): { name: string; ok: boolean; error?: string }[] {
+  const config = loadSources();
+  const targets = sourceName
+    ? config.sources.filter(s => s.name === sourceName)
+    : config.sources.filter(s => s.type === 'github' || s.type === 'bitbucket');
+
+  const results: { name: string; ok: boolean; error?: string }[] = [];
+  for (const source of targets) {
+    try {
+      fetchSource(source);
+      results.push({ name: source.name, ok: true });
+    } catch (e: any) {
+      results.push({ name: source.name, ok: false, error: e.message });
+    }
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------------
 // Scan a cached source for resources (skills, agents, MCPs)
 // ---------------------------------------------------------------------------
