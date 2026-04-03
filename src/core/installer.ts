@@ -8,13 +8,13 @@ import {
   getConfigFormat, isNpxRun,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile, copyDirRecursive } from './fs-helpers.js';
-import { findSkill, findAgent, findMcp, findPlugin, loadPluginConfig, loadMcpConfig } from './catalog.js';
+import { findSkill, findAgent, findMcp, findBundle, loadBundleConfig, loadMcpConfig } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport, type ScanOptions } from './scanner.js';
 
 export interface InstallOptions {
   force?: boolean;
-  pluginName?: string;
+  bundleName?: string;
   verbose?: boolean;
 }
 
@@ -50,8 +50,8 @@ export function installSkill(
   const lock = readLock();
   const itemKey = `skill:${name}`;
 
-  const lockEntry = opts.pluginName
-    ? lock.installed[`plugin:${opts.pluginName}`]?.items?.[itemKey]
+  const lockEntry = opts.bundleName
+    ? lock.installed[`bundle:${opts.bundleName}`]?.items?.[itemKey]
     : lock.installed[itemKey];
   const needsUpdate = lockEntry && lockEntry.hash !== currentHash;
   const shouldForce = opts.force || needsUpdate;
@@ -71,7 +71,7 @@ export function installSkill(
     }
   }
 
-  recordInstall(lock, itemKey, currentHash, opts.pluginName);
+  recordInstall(lock, itemKey, currentHash, opts.bundleName);
   writeLock(lock);
   return { type: 'skill', name, action };
 }
@@ -279,8 +279,8 @@ export function installAgent(
   const lock = readLock();
   const itemKey = `agent:${name}`;
 
-  const lockEntry = opts.pluginName
-    ? lock.installed[`plugin:${opts.pluginName}`]?.items?.[itemKey]
+  const lockEntry = opts.bundleName
+    ? lock.installed[`bundle:${opts.bundleName}`]?.items?.[itemKey]
     : lock.installed[itemKey];
   const needsUpdate = lockEntry && lockEntry.hash !== currentHash;
   const shouldForce = opts.force || needsUpdate;
@@ -300,7 +300,7 @@ export function installAgent(
     }
   }
 
-  recordInstall(lock, itemKey, currentHash, opts.pluginName);
+  recordInstall(lock, itemKey, currentHash, opts.bundleName);
   writeLock(lock);
   return { type: 'agent', name, action };
 }
@@ -382,43 +382,43 @@ export function installMcp(
     if (mcpConfig.setupNote) log(`      ${mcpConfig.setupNote}`);
   }
 
-  recordInstall(lock, itemKey, currentHash, opts.pluginName);
+  recordInstall(lock, itemKey, currentHash, opts.bundleName);
   writeLock(lock);
   return { type: 'mcp', name, action };
 }
 
 // ---------------------------------------------------------------------------
-// Install a plugin (bundle of skills + agents + mcps)
+// Install a bundle (collection of skills + agents + mcps)
 // ---------------------------------------------------------------------------
 
-export function installPlugin(
+export function installBundle(
   catalog: Catalog,
   toolkitDir: string,
   name: string,
-  opts: Omit<InstallOptions, 'pluginName'> = {},
+  opts: Omit<InstallOptions, 'bundleName'> = {},
   log: LogFn = console.log,
 ): InstallResult[] {
-  const entry = findPlugin(catalog, name);
-  if (!entry) throw new Error(`Plugin not found in catalog: ${name}`);
-  const plugin = loadPluginConfig(toolkitDir, entry);
+  const entry = findBundle(catalog, name);
+  if (!entry) throw new Error(`Bundle not found in catalog: ${name}`);
+  const bundle = loadBundleConfig(toolkitDir, entry);
 
-  log(`\nInstalling plugin: ${name}`);
+  log(`\nInstalling bundle: ${name}`);
 
-  // Initialize plugin lock entry
+  // Initialize bundle lock entry
   const lock = readLock();
-  lock.installed[`plugin:${name}`] = { hash: entry.hash, installedAt: new Date().toISOString(), items: {} };
+  lock.installed[`bundle:${name}`] = { hash: entry.hash, installedAt: new Date().toISOString(), items: {} };
   writeLock(lock);
 
   const results: InstallResult[] = [];
-  const installOpts = { ...opts, pluginName: name };
+  const installOpts = { ...opts, bundleName: name };
 
-  for (const s of plugin.skills || []) {
+  for (const s of bundle.skills || []) {
     results.push(installSkill(catalog, toolkitDir, s, installOpts, log));
   }
-  for (const a of plugin.agents || []) {
+  for (const a of bundle.agents || []) {
     results.push(installAgent(catalog, toolkitDir, a, installOpts, log));
   }
-  for (const m of plugin.mcps || []) {
+  for (const m of bundle.mcps || []) {
     results.push(installMcp(catalog, toolkitDir, m, installOpts, log));
   }
 

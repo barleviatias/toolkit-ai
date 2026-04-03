@@ -57,7 +57,7 @@ src/
     catalog.ts           # Catalog generation, frontmatter parser, lookups
     lock.ts              # Lock file CRUD (~/.toolkit/lock.json)
     item-key.ts          # Structured key handling (makeKey/parseKey with :: delimiter)
-    installer.ts         # Install for skill/agent/mcp/plugin + external resources
+    installer.ts         # Install for skill/agent/mcp/bundle + external resources
     remover.ts           # Remove with protection logic
     updater.ts           # Update detection + bulk/selective update
     scanner.ts           # Security scanner for skills, agents, MCPs
@@ -91,7 +91,7 @@ resources/
   skills/                  # Empty — all content comes from sources
   agents/                  # Empty
   mcps/                    # Empty
-  plugins/                 # Empty
+  bundles/                 # Empty
 ```
 
 ### External source discovery
@@ -101,6 +101,7 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 - **Skills**: Any directory containing `SKILL.md` (recursive, stops at skill boundary)
 - **Agents**: Any `*.agent.md` file (recursive)
 - **MCPs**: Any `*.json` in `mcps/` directories, or `*.mcp.json` anywhere
+- **Bundles**: Any `*.json` in `bundles/` directories, or `*.bundle.json` anywhere
 
 ### User state (~/.toolkit/)
 

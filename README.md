@@ -12,7 +12,7 @@
 
 **toolkit-ai**
 
-Manage AI skills, agents, and MCPs across Claude Code, Copilot, and Cursor — from any GitHub or Bitbucket source.
+Manage AI skills, agents, MCPs, and bundles across Claude Code, Copilot, and Cursor — from any GitHub or Bitbucket source.
 
 [![npm](https://img.shields.io/npm/v/toolkit-ai)](https://www.npmjs.com/package/toolkit-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -38,6 +38,7 @@ A source-driven CLI with an interactive TUI that lets you browse, install, and m
 | **Skills** | Markdown instructions that teach AI agents new capabilities | `~/.claude/skills/` `~/.copilot/skills/` |
 | **Agents** | Specialized agent definitions with tool access | `~/.claude/agents/` `~/.copilot/agents/` |
 | **MCPs** | Model Context Protocol server connections | `settings.json` / `mcp.json` |
+| **Bundles** | Curated sets of skills + agents + MCPs installed together | Installs all referenced items |
 
 All resources come from configured external sources (GitHub/Bitbucket repos). No bundled content — you control what gets installed.
 
@@ -64,7 +65,7 @@ toolkit
 |-----|--------|
 | `↑` `↓` | Navigate |
 | `/` | Search |
-| `1`-`4` | Filter by type (Skills / Agents / MCPs / Plugins) |
+| `1`-`4` | Filter by type (Skills / Agents / MCPs / Bundles) |
 | `0` | Reset filter to All |
 | `Space` | Toggle selection |
 | `Enter` | Detail view (or submit if items selected) |
@@ -85,16 +86,21 @@ toolkit
 ## CLI
 
 ```bash
-toolkit --list                     # List all available items
-toolkit --skill <name>             # Install a skill
-toolkit --agent <name>             # Install an agent
-toolkit --mcp <name>               # Register an MCP server
-toolkit remove --skill <name>      # Remove a skill
+toolkit list                       # List all available items
+toolkit skill <name>               # Install a skill
+toolkit agent <name>               # Install an agent
+toolkit mcp <name>                 # Register an MCP server
+toolkit bundle <name>              # Install a bundle (all items at once)
+toolkit remove skill <name>        # Remove a skill
+toolkit remove bundle <name>       # Remove a bundle
 toolkit check                      # Check for updates
 toolkit update                     # Update all installed items
 toolkit refresh                    # Re-fetch all external sources
 toolkit scan                       # Security scan all items
 toolkit init [dir]                 # Scaffold a new skill repo
+toolkit source add <repo>          # Add an external source
+toolkit source list                # List configured sources
+toolkit source remove <name>       # Remove a source
 ```
 
 ## External Sources
@@ -115,6 +121,7 @@ The toolkit discovers resources in source repos by convention:
 | **Skills** | Any directory containing a `SKILL.md` file (recursive) |
 | **Agents** | Any `*.agent.md` file (recursive) |
 | **MCPs** | Any `*.json` in a `mcps/` directory, or `*.mcp.json` anywhere |
+| **Bundles** | Any `*.json` in a `bundles/` directory, or `*.bundle.json` anywhere |
 
 Sources are shallow-cloned and cached for 24 hours at `~/.toolkit/cache/`. Press `f` in the Sources tab or run `toolkit refresh` to force a re-fetch.
 
@@ -189,12 +196,15 @@ This creates a repo structure that the toolkit can discover:
 
 ```
 my-skills/
-  skills/
-    example-skill/SKILL.md
-  agents/
-    example-agent.agent.md
-  mcps/
-    example-mcp.json
+  resources/
+    skills/
+      example-skill/SKILL.md
+    agents/
+      example-agent.agent.md
+    mcps/
+      example-mcp.json
+    bundles/
+      fullstack-starter.bundle.json
   README.md
 ```
 

@@ -1,7 +1,7 @@
 import path from 'path';
 import { useState, useMemo } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
-import { loadCatalog, loadMcpConfig, loadPluginConfig } from '../core/catalog.js';
+import { loadCatalog, loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import { readLock } from '../core/lock.js';
 import { fetchExternalResources, type ExternalResources } from '../core/sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
@@ -12,7 +12,7 @@ import type { ItemData } from '../components/ItemRow.js';
 export function useCatalog(toolkitDir: string) {
   const [catalog] = useState<Catalog>(() => loadCatalog(toolkitDir));
   const [external] = useState<ExternalResources>(() => {
-    try { return fetchExternalResources(); } catch { return { skills: [], agents: [], mcps: [] }; }
+    try { return fetchExternalResources(); } catch { return { skills: [], agents: [], mcps: [], bundles: [] }; }
   });
   const [lock, setLock] = useState(() => readLock());
 
@@ -22,7 +22,7 @@ export function useCatalog(toolkitDir: string) {
   function isInstalled(lockKey: string): boolean {
     if (lock.installed[lockKey]) return true;
     for (const [k, v] of Object.entries(lock.installed)) {
-      if (k.startsWith('plugin:') && v.items?.[lockKey]) return true;
+      if (k.startsWith('bundle:') && v.items?.[lockKey]) return true;
     }
     return false;
   }
@@ -31,7 +31,7 @@ export function useCatalog(toolkitDir: string) {
   function getInstalledHash(lockKey: string): string | null {
     if (lock.installed[lockKey]) return lock.installed[lockKey].hash;
     for (const [k, v] of Object.entries(lock.installed)) {
-      if (k.startsWith('plugin:') && v.items?.[lockKey]) return v.items[lockKey].hash;
+      if (k.startsWith('bundle:') && v.items?.[lockKey]) return v.items[lockKey].hash;
     }
     return null;
   }
@@ -120,14 +120,14 @@ export function useCatalog(toolkitDir: string) {
         } catch {}
       }
 
-      // Enrich plugin items with contents
-      if (type === 'plugin') {
+      // Enrich bundle items with contents
+      if (type === 'bundle') {
         try {
-          const pluginConfig = loadPluginConfig(toolkitDir, entry);
-          item.pluginContents = {
-            skills: pluginConfig.skills || [],
-            agents: pluginConfig.agents || [],
-            mcps: pluginConfig.mcps || [],
+          const bundleConfig = loadBundleConfig(toolkitDir, entry);
+          item.bundleContents = {
+            skills: bundleConfig.skills || [],
+            agents: bundleConfig.agents || [],
+            mcps: bundleConfig.mcps || [],
           };
         } catch {}
       }
@@ -139,12 +139,13 @@ export function useCatalog(toolkitDir: string) {
     for (const s of catalog.skills) items.push(toItem('skill', s));
     for (const a of catalog.agents) items.push(toItem('agent', a));
     for (const m of catalog.mcps)   items.push(toItem('mcp', m));
-    for (const p of catalog.plugins) items.push(toItem('plugin', p));
+    for (const b of catalog.bundles) items.push(toItem('bundle', b));
 
     // External resources from configured sources
     for (const s of external.skills) items.push(toItem('skill', s));
     for (const a of external.agents) items.push(toItem('agent', a));
     for (const m of external.mcps)   items.push(toItem('mcp', m));
+    for (const b of external.bundles) items.push(toItem('bundle', b));
 
     return items;
   }, [catalog, external, lock]);

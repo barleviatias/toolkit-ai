@@ -3,7 +3,7 @@ import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
 import { SKILL_TARGETS, AGENT_TARGETS, MCP_CONFIG_FILES, getConfigFormat } from './platform.js';
 import { removeLink } from './fs-helpers.js';
-import { findAgent, findPlugin } from './catalog.js';
+import { findAgent, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
 
 export type LogFn = (msg: string) => void;
@@ -63,7 +63,7 @@ export function removeSkill(catalog: Catalog, name: string, log?: LogFn): void {
   if (!isItemProtected(itemKey, null, lock, catalog)) {
     removeItemFromFilesystem(catalog, itemKey, log);
   } else {
-    (log || console.log)(`  [skip] skill ${name} still referenced by an installed plugin`);
+    (log || console.log)(`  [skip] skill ${name} still referenced by an installed bundle`);
   }
   delete lock.installed[itemKey];
   writeLock(lock);
@@ -75,7 +75,7 @@ export function removeAgent(catalog: Catalog, name: string, log?: LogFn): void {
   if (!isItemProtected(itemKey, null, lock, catalog)) {
     removeItemFromFilesystem(catalog, itemKey, log);
   } else {
-    (log || console.log)(`  [skip] agent ${name} still referenced by an installed plugin`);
+    (log || console.log)(`  [skip] agent ${name} still referenced by an installed bundle`);
   }
   delete lock.installed[itemKey];
   writeLock(lock);
@@ -87,29 +87,29 @@ export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
   if (!isItemProtected(itemKey, null, lock, catalog)) {
     removeItemFromFilesystem(catalog, itemKey, log);
   } else {
-    (log || console.log)(`  [skip] mcp ${name} still referenced by an installed plugin`);
+    (log || console.log)(`  [skip] mcp ${name} still referenced by an installed bundle`);
   }
   delete lock.installed[itemKey];
   writeLock(lock);
 }
 
-export function removePlugin(catalog: Catalog, name: string, log: LogFn = console.log): void {
-  log(`\nRemoving plugin: ${name}`);
+export function removeBundle(catalog: Catalog, name: string, log: LogFn = console.log): void {
+  log(`\nRemoving bundle: ${name}`);
   const lock = readLock();
-  const pluginKey = `plugin:${name}`;
-  const pluginEntry = lock.installed[pluginKey];
-  if (!pluginEntry) {
-    log(`  plugin ${name} was not installed`);
+  const bundleKey = `bundle:${name}`;
+  const bundleEntry = lock.installed[bundleKey];
+  if (!bundleEntry) {
+    log(`  bundle ${name} was not installed`);
     return;
   }
-  for (const itemKey of Object.keys(pluginEntry.items || {})) {
-    if (isItemProtected(itemKey, pluginKey, lock, catalog, true)) {
+  for (const itemKey of Object.keys(bundleEntry.items || {})) {
+    if (isItemProtected(itemKey, bundleKey, lock, catalog, true)) {
       const [type, itemName] = itemKey.split(':');
       log(`  [skip] ${type} ${itemName} still referenced elsewhere`);
     } else {
       removeItemFromFilesystem(catalog, itemKey, log);
     }
   }
-  delete lock.installed[pluginKey];
+  delete lock.installed[bundleKey];
   writeLock(lock);
 }

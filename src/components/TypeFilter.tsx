@@ -1,20 +1,20 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-const TYPE_ORDER = ['skill', 'agent', 'mcp', 'plugin'] as const;
+const TYPE_ORDER = ['skill', 'agent', 'mcp', 'bundle'] as const;
 
 const TYPE_LABELS: Record<string, string> = {
   skill: 'Skills',
   agent: 'Agents',
   mcp: 'MCPs',
-  plugin: 'Plugins',
+  bundle: 'Bundles',
 };
 
 const TYPE_COLORS: Record<string, string> = {
   skill: 'magenta',
   agent: 'blue',
   mcp: 'yellow',
-  plugin: 'cyan',
+  bundle: 'cyan',
 };
 
 interface TypeFilterProps {

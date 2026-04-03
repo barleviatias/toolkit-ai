@@ -268,6 +268,30 @@ function scanSourceAgents(source: Source): CatalogEntry[] {
   return entries;
 }
 
+function findBundleFiles(dir: string): string[] {
+  const results: string[] = [];
+
+  function walk(current: string) {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+
+    const isBundlesDir = path.basename(current) === 'bundles';
+
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.json') && isBundlesDir) {
+        results.push(path.join(current, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith('.bundle.json')) {
+        results.push(path.join(current, entry.name));
+      } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+        walk(path.join(current, entry.name));
+      }
+    }
+  }
+
+  walk(dir);
+  return results;
+}
+
 function scanSourceMcps(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
@@ -296,19 +320,48 @@ function scanSourceMcps(source: Source): CatalogEntry[] {
   return entries;
 }
 
+function scanSourceBundles(source: Source): CatalogEntry[] {
+  const cacheDir = getCacheDir(source);
+  if (!fs.existsSync(cacheDir)) return [];
+
+  const bundleFiles = findBundleFiles(cacheDir);
+  const entries: CatalogEntry[] = [];
+
+  for (const bundleFile of bundleFiles) {
+    try {
+      const config = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
+      const fileName = path.basename(bundleFile).replace('.bundle.json', '').replace('.json', '');
+
+      entries.push({
+        name: config.name || fileName,
+        description: config.description || '',
+        hash: hashFile(bundleFile),
+        path: path.relative(cacheDir, bundleFile),
+        source: source.name,
+      });
+    } catch {
+      // Skip malformed JSON
+    }
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return entries;
+}
+
 // ---------------------------------------------------------------------------
-// Public: external resources (skills, agents, MCPs)
+// Public: external resources (skills, agents, MCPs, bundles)
 // ---------------------------------------------------------------------------
 
 export interface ExternalResources {
   skills: CatalogEntry[];
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
+  bundles: CatalogEntry[];
 }
 
 export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
-  const result: ExternalResources = { skills: [], agents: [], mcps: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [] };
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
@@ -320,6 +373,7 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
       result.skills.push(...scanSourceSkills(source));
       result.agents.push(...scanSourceAgents(source));
       result.mcps.push(...scanSourceMcps(source));
+      result.bundles.push(...scanSourceBundles(source));
     } catch {
       // Silently skip failed sources in TUI
     }

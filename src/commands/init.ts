@@ -57,10 +57,10 @@ const MCP_TEMPLATE = JSON.stringify(
   2,
 );
 
-const PLUGIN_TEMPLATE = JSON.stringify(
+const BUNDLE_TEMPLATE = JSON.stringify(
   {
-    name: 'example-plugin',
-    description: 'A bundle of related skills, agents, and MCPs',
+    name: 'fullstack-starter',
+    description: 'Essential skills and MCPs for full-stack development',
     skills: ['example-skill'],
     agents: ['example-agent'],
     mcps: ['example-mcp'],
@@ -71,33 +71,47 @@ const PLUGIN_TEMPLATE = JSON.stringify(
 
 const README_TEMPLATE = `# My Skills
 
-A collection of AI skills, agents, and MCP configurations for use with [toolkit-ai](https://www.npmjs.com/package/toolkit-ai).
+A collection of AI skills, agents, MCP configurations, and bundles for use with [toolkit-ai](https://www.npmjs.com/package/toolkit-ai).
 
 ## Usage
 
 Add this repo as an external source in toolkit-ai:
 
 \`\`\`bash
-toolkit-ai source add owner/repo
+ai-toolkit source add owner/repo
 \`\`\`
 
-Then browse and install skills from the TUI.
+Then browse and install from the TUI, or use headless commands:
+
+\`\`\`bash
+ai-toolkit --skill <name>    # Install a skill
+ai-toolkit --bundle <name>   # Install a bundle (all items at once)
+\`\`\`
 
 ## Structure
 
 \`\`\`
 resources/
-  skills/<name>/SKILL.md   # Skills with YAML frontmatter
-  agents/<name>.agent.md   # Agent definitions
-  mcps/<name>.json         # MCP server configs
-  plugins/<name>.json      # Plugin bundles
+  skills/<name>/SKILL.md           # Skills with YAML frontmatter
+  agents/<name>.agent.md           # Agent definitions
+  mcps/<name>.json                 # MCP server configs
+  bundles/<name>.bundle.json       # Bundles (curated sets of items)
 \`\`\`
+
+## Resource Types
+
+- **Skills** — Markdown files that teach AI agents domain knowledge or workflows. Require \`name\` and \`description\` in YAML frontmatter.
+- **Agents** — Markdown files defining specialized AI workers with their own tools and behavior.
+- **MCPs** — JSON configs for Model Context Protocol servers (connect AI to external services).
+- **Bundles** — JSON manifests that reference skills, agents, and MCPs by name. Installing a bundle installs all referenced items together.
 
 ## Adding Content
 
-1. Create your skill/agent/MCP in the appropriate \`resources/\` directory
+1. Create your resource in the appropriate \`resources/\` directory
 2. Skills require \`name\` and \`description\` in YAML frontmatter
-3. Plugin JSON files reference items by name
+3. Agents use \`*.agent.md\` naming with YAML frontmatter
+4. MCPs are JSON with \`name\`, \`description\`, \`transport\`, \`url\`
+5. Bundles are JSON with \`name\`, \`description\`, and arrays of \`skills\`, \`agents\`, \`mcps\`
 `;
 
 const GITIGNORE_TEMPLATE = `node_modules/
@@ -113,7 +127,7 @@ const FILES: FileEntry[] = [
   { path: 'resources/skills/example-skill/SKILL.md', content: SKILL_TEMPLATE },
   { path: 'resources/agents/example-agent.agent.md', content: AGENT_TEMPLATE },
   { path: 'resources/mcps/example-mcp.json', content: MCP_TEMPLATE },
-  { path: 'resources/plugins/example-plugin.json', content: PLUGIN_TEMPLATE },
+  { path: 'resources/bundles/fullstack-starter.bundle.json', content: BUNDLE_TEMPLATE },
   { path: 'README.md', content: README_TEMPLATE },
   { path: '.gitignore', content: GITIGNORE_TEMPLATE },
 ];

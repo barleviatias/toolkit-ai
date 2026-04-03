@@ -1,8 +1,9 @@
 import path from 'path';
 import type { Catalog, InstallResult } from '../types.js';
 import { loadCatalog, loadMcpConfig } from '../core/catalog.js';
-import { installSkill, installAgent, installMcp, installPlugin } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { fetchExternalResources } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources } from '../core/sources.js';
@@ -107,9 +108,9 @@ function listAll(catalog: Catalog) {
   for (const m of catalog.mcps)
     console.log(`  ${m.name.padEnd(28)} ${DIM}${m.description}${RESET}`);
 
-  console.log(`\n${BOLD}=== Plugins ===${RESET}`);
-  for (const p of catalog.plugins)
-    console.log(`  ${p.name.padEnd(28)} ${DIM}${p.description}${RESET}`);
+  console.log(`\n${BOLD}=== Bundles ===${RESET}`);
+  for (const b of catalog.bundles)
+    console.log(`  ${b.name.padEnd(28)} ${DIM}${b.description}${RESET}`);
 
   console.log();
 }
@@ -137,25 +138,24 @@ ${BOLD}Scaffold:${RESET}
 
 ${BOLD}Security:${RESET}
   scan                              Scan all available items for threats
-  scan --skill <name>               Scan a specific skill
+  scan skill <name>                 Scan a specific skill
 
 ${BOLD}Updates:${RESET}
   update                          Update all installed items
   check                           Check for available updates
-  --force                         Force reinstall (combine with any install)
 
-${BOLD}Direct install:${RESET}
-  --list                          List all available items
-  --skill <name>                  Install a skill
-  --agent <name>                  Install an agent
-  --mcp <name>                    Register an MCP server
-  --plugin <name>                 Install a plugin bundle
+${BOLD}Install:${RESET}
+  list                            List all available items
+  skill <name>                    Install a skill
+  agent <name>                    Install an agent
+  mcp <name>                      Register an MCP server
+  bundle <name>                   Install a bundle
 
-${BOLD}Direct remove:${RESET}
-  remove --skill <name>           Remove a skill
-  remove --agent <name>           Remove an agent
-  remove --mcp <name>             Deregister an MCP server
-  remove --plugin <name>          Remove a plugin bundle
+${BOLD}Remove:${RESET}
+  remove skill <name>             Remove a skill
+  remove agent <name>             Remove an agent
+  remove mcp <name>               Deregister an MCP server
+  remove bundle <name>            Remove a bundle
 
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
@@ -190,7 +190,7 @@ function showCheck(catalog: Catalog) {
     if (s.status === 'not_in_catalog') {
       console.log(`  ${RED}[?]${RESET} ${s.type} ${BOLD}${s.name}${RESET} - no longer in catalog`);
     } else if (s.status === 'update_available') {
-      const prefix = s.parent ? `plugin ${BOLD}${s.parent}${RESET} > ` : '';
+      const prefix = s.parent ? `bundle ${BOLD}${s.parent}${RESET} > ` : '';
       console.log(`  ${YELLOW}[~]${RESET} ${prefix}${s.type} ${BOLD}${s.name}${RESET} - ${YELLOW}update available${RESET}`);
       outdated++;
     } else {
@@ -350,16 +350,20 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
-  const skillName  = option(args, '--skill');
-  const agentName  = option(args, '--agent');
-  const mcpName    = option(args, '--mcp');
-  const pluginName = option(args, '--plugin');
   const isRemove   = flag(args, 'remove');
-  const isList     = flag(args, '--list');
+  const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');
   const isUpdate   = flag(args, '--update') || flag(args, 'update');
   const isScan     = flag(args, 'scan');
   const isRefresh  = flag(args, 'refresh') || flag(args, '--refresh');
+
+  // Subcommand style: toolkit skill <name> / toolkit remove skill <name>
+  // Also supports legacy --flag style for backwards compat
+  const subArgs = isRemove ? args.slice(args.indexOf('remove') + 1) : args;
+  const skillName  = option(subArgs, '--skill')  || (subArgs[0] === 'skill'  && subArgs[1] ? subArgs[1] : null);
+  const agentName  = option(subArgs, '--agent')  || (subArgs[0] === 'agent'  && subArgs[1] ? subArgs[1] : null);
+  const mcpName    = option(subArgs, '--mcp')    || (subArgs[0] === 'mcp'    && subArgs[1] ? subArgs[1] : null);
+  const bundleName = option(subArgs, '--bundle') || (subArgs[0] === 'bundle' && subArgs[1] ? subArgs[1] : null);
 
   // Source refresh — re-fetch all external sources
   if (isRefresh) {
@@ -372,15 +376,16 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||
-    skillName || agentName || mcpName || pluginName;
+    skillName || agentName || mcpName || bundleName;
 
   if (!needsCatalog) return false; // not a headless command
 
   const catalog = loadCatalog(toolkitDir);
 
-  // Scan command
+  // Scan command: toolkit scan skill <name>
   if (isScan) {
-    showScan(catalog, toolkitDir, skillName);
+    const scanSkillName = skillName || (args[1] === 'skill' && args[2] ? args[2] : null);
+    showScan(catalog, toolkitDir, scanSkillName);
     return true;
   }
 
@@ -408,7 +413,7 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
     if (skillName)       removeSkill(catalog, skillName);
     else if (agentName)  removeAgent(catalog, agentName);
     else if (mcpName)    removeMcp(catalog, mcpName);
-    else if (pluginName) removePlugin(catalog, pluginName);
+    else if (bundleName) removeBundle(catalog, bundleName);
     else return false; // interactive remove -> TUI
     return true;
   }
@@ -419,7 +424,7 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
   if (skillName)       results.push(installSkill(catalog, toolkitDir, skillName, opts));
   else if (agentName)  results.push(installAgent(catalog, toolkitDir, agentName, opts));
   else if (mcpName)    results.push(installMcp(catalog, toolkitDir, mcpName, opts));
-  else if (pluginName) results.push(...installPlugin(catalog, toolkitDir, pluginName, opts));
+  else if (bundleName) results.push(...installBundle(catalog, toolkitDir, bundleName, opts));
 
   if (results.length > 0) {
     printSummary(results);
