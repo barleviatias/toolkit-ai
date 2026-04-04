@@ -13,6 +13,7 @@ export interface ItemData {
   hash?: string;      // content hash
   scanStatus?: 'ok' | 'warn' | 'block';
   scanSummary?: string; // short summary of findings
+  trackedByLock?: boolean;
   // Bundle-specific
   bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
   // MCP-specific
@@ -50,7 +51,9 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         <Text dimColor> · {item.source}</Text>
         {item.scanStatus === 'block' && <Text color="red"> ✕ blocked</Text>}
         {item.scanStatus === 'warn' && <Text color="yellow"> ⚠</Text>}
-        {item.installed && <Text color="green"> · installed</Text>}
+        {item.installed && (
+          <Text color="green">{item.trackedByLock === false ? ' · detected on disk' : ' · installed'}</Text>
+        )}
         {item.hasUpdate && <Text color="yellow"> · update available</Text>}
       </Box>
       <Box marginLeft={14}>

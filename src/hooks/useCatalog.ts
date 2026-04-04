@@ -7,6 +7,7 @@ import { fetchExternalResources, buildCatalog, type ExternalResources } from '..
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
 import { CACHE_DIR } from '../core/platform.js';
 import { makeKey } from '../core/item-key.js';
+import { getInstalledState } from '../core/installed-state.js';
 import type { ItemData } from '../components/ItemRow.js';
 
 function loadExternalState(forceRefresh = false): ExternalResources {
@@ -21,21 +22,19 @@ export function useCatalog() {
   const [external, setExternal] = useState<ExternalResources>(() => loadExternalState());
   const [lock, setLock] = useState(() => readLock());
   const catalog: Catalog = useMemo(() => buildCatalog(external), [external]);
+  const installedState = useMemo(() => getInstalledState(catalog, lock), [catalog, lock]);
 
   const refreshLock = () => setLock(readLock());
   const refreshExternal = (forceRefresh = false) => setExternal(loadExternalState(forceRefresh));
 
   // Check if an item is installed (by lock-format key: "type:name")
   function isInstalled(lockKey: string): boolean {
-    if (lock.installed[lockKey]) return true;
-    for (const [k, v] of Object.entries(lock.installed)) {
-      if (k.startsWith('bundle:') && v.items?.[lockKey]) return true;
-    }
-    return false;
+    return installedState.installedKeys.has(lockKey);
   }
 
   // Get installed hash for an item (for update detection)
   function getInstalledHash(lockKey: string): string | null {
+    if (installedState.recoveredKeys.has(lockKey)) return null;
     if (lock.installed[lockKey]) return lock.installed[lockKey].hash;
     for (const [k, v] of Object.entries(lock.installed)) {
       if (k.startsWith('bundle:') && v.items?.[lockKey]) return v.items[lockKey].hash;
@@ -99,6 +98,7 @@ export function useCatalog() {
         hash: entry.hash,
         scanStatus,
         scanSummary,
+        trackedByLock: !installedState.recoveredKeys.has(lockKey),
       };
 
       // Enrich MCP items with config details
@@ -132,7 +132,7 @@ export function useCatalog() {
     for (const b of catalog.bundles) items.push(toItem('bundle', b));
 
     return items;
-  }, [catalog, lock]);
+  }, [catalog, lock, installedState]);
 
   // Installed items for the Installed tab
   const installedItems: ItemData[] = useMemo(() => {
