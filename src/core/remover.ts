@@ -12,7 +12,7 @@ export type LogFn = (msg: string) => void;
 // Remove an item from the filesystem only (no lock changes)
 // ---------------------------------------------------------------------------
 
-function removeItemFromFilesystem(
+export function removeItemFromFilesystem(
   catalog: Catalog,
   itemKey: string,
   log: LogFn = console.log,

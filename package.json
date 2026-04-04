@@ -1,6 +1,6 @@
 {
   "name": "toolkit-ai",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "CLI with React Ink TUI for managing AI skills, agents, MCPs, and bundles across Claude Code, Copilot, and Cursor",
   "bin": {
     "toolkit-ai": "bin/ai-toolkit.mjs",
@@ -44,7 +44,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/barleviatias/toolkit.git"
+    "url": "git+https://github.com/barleviatias/toolkit-ai.git"
   },
   "dependencies": {}
 }

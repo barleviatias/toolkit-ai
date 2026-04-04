@@ -1,40 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import type { LockFile, LockEntry, Catalog } from '../types.js';
-import { LOCK_FILE, LEGACY_LOCK_FILE } from './platform.js';
+import { LOCK_FILE } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 import { findBundle } from './catalog.js';
 
-function migrateLockKeys(lock: LockFile): boolean {
-  let changed = false;
-  for (const [key, value] of Object.entries(lock.installed)) {
-    if (key.startsWith('plugin:')) {
-      const newKey = 'bundle:' + key.slice(7);
-      lock.installed[newKey] = value;
-      delete lock.installed[key];
-      changed = true;
-    }
-  }
-  return changed;
-}
-
 export function readLock(): LockFile {
-  // Try new location first
-  let lock: LockFile;
   try {
-    lock = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')) as LockFile;
+    return JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')) as LockFile;
   } catch {
-    // Migrate from legacy ~/.rdwr/ if it exists
-    try {
-      lock = JSON.parse(fs.readFileSync(LEGACY_LOCK_FILE, 'utf8')) as LockFile;
-      writeLock(lock); // save to new location
-    } catch {
-      return { installed: {} };
-    }
+    return { installed: {} };
   }
-  // Migrate plugin: keys to bundle:
-  if (migrateLockKeys(lock)) writeLock(lock);
-  return lock;
 }
 
 export function writeLock(lock: LockFile): void {

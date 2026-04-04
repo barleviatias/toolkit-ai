@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { spawnSync } from 'child_process';
 import type { Catalog, CatalogEntry, BundleConfig, McpConfig } from '../types.js';
+import { CACHE_DIR } from './platform.js';
 
 // ---------------------------------------------------------------------------
 // Frontmatter parser (YAML --- blocks, zero deps)
@@ -108,4 +109,12 @@ export function loadBundleConfig(toolkitDir: string, entry: CatalogEntry): Bundl
 
 export function loadMcpConfig(toolkitDir: string, entry: CatalogEntry): McpConfig {
   return JSON.parse(fs.readFileSync(path.join(toolkitDir, entry.path), 'utf8')) as McpConfig;
+}
+
+export function loadExternalBundleConfig(sourceName: string, bundlePath: string): BundleConfig {
+  return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, sourceName, bundlePath), 'utf8')) as BundleConfig;
+}
+
+export function loadExternalMcpConfig(sourceName: string, mcpPath: string): McpConfig {
+  return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, sourceName, mcpPath), 'utf8')) as McpConfig;
 }

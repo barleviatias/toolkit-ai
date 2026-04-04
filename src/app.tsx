@@ -6,7 +6,15 @@ import { useCatalog } from './hooks/useCatalog.js';
 import { CatalogTab } from './tabs/CatalogTab.js';
 import { InstalledTab } from './tabs/InstalledTab.js';
 import { SourcesTab } from './tabs/SourcesTab.js';
-import { installSkill, installAgent, installMcp, installExternalSkill, installExternalAgent, installExternalMcp } from './core/installer.js';
+import {
+  installSkill,
+  installAgent,
+  installMcp,
+  installExternalSkill,
+  installExternalAgent,
+  installExternalMcp,
+  installExternalBundle,
+} from './core/installer.js';
 import { updateAll } from './core/updater.js';
 import type { ItemData } from './components/ItemRow.js';
 
@@ -26,6 +34,7 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
     allItems,
     installedItems,
     refreshLock,
+    refreshExternal,
   } = useCatalog(toolkitDir);
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
@@ -48,6 +57,7 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
         if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: true }, () => {});
         else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: true }, () => {});
         else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: true }, () => {});
+        else if (type === 'bundle') installExternalBundle(catalog, toolkitDir, source, name, item.path, item.hash, { force: true }, () => {});
       } else {
         if (type === 'skill')      installSkill(catalog, toolkitDir, name, { force: true }, () => {});
         else if (type === 'agent') installAgent(catalog, toolkitDir, name, { force: true }, () => {});
@@ -105,6 +115,7 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
           catalog={catalog}
           toolkitDir={toolkitDir}
           onRefresh={handleRefresh}
+          onRefreshSources={refreshExternal}
         />
       )}
     </Box>

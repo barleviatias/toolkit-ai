@@ -1,16 +1,25 @@
 import fs from 'fs';
 import path from 'path';
-import type { Catalog, CatalogEntry, InstallResult, LockFile } from '../types.js';
+import type { Catalog, CatalogEntry, InstallResult, McpConfigFile } from '../types.js';
 import {
   SKILL_TARGETS, AGENT_TARGETS,
-  LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES, MCP_CONFIG_FILES,
+  LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES,
   CACHE_DIR,
   getConfigFormat, isNpxRun,
 } from './platform.js';
-import { ensureDir, linkOrCopyDir, linkOrCopyFile, copyDirRecursive } from './fs-helpers.js';
-import { findSkill, findAgent, findMcp, findBundle, loadBundleConfig, loadMcpConfig } from './catalog.js';
+import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
+import {
+  findSkill,
+  findAgent,
+  findMcp,
+  findBundle,
+  loadBundleConfig,
+  loadMcpConfig,
+  loadExternalBundleConfig,
+} from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
-import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport, type ScanOptions } from './scanner.js';
+import { fetchExternalResources } from './sources.js';
+import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
 
 export interface InstallOptions {
   force?: boolean;
@@ -19,6 +28,108 @@ export interface InstallOptions {
 }
 
 export type LogFn = (msg: string) => void;
+
+interface ExternalResourcesLike {
+  skills: CatalogEntry[];
+  agents: CatalogEntry[];
+  mcps: CatalogEntry[];
+  bundles: CatalogEntry[];
+}
+
+function writeMcpToConfigs(
+  mcpName: string,
+  newEntry: { type: string; url: string },
+  opts: InstallOptions,
+  log: LogFn,
+): InstallResult['action'] {
+  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(f => fs.existsSync(f));
+  const configsToWrite = [...localExisting, ...GLOBAL_MCP_CONFIG_FILES];
+
+  let action: InstallResult['action'] = 'skipped';
+  for (const configPath of configsToWrite) {
+    if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
+      ensureDir(path.dirname(configPath));
+    }
+
+    let config: McpConfigFile;
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as McpConfigFile;
+    } catch {
+      if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
+        config = {};
+      } else {
+        log(`  [!] Could not parse ${configPath}, skipping`);
+        continue;
+      }
+    }
+
+    const format = getConfigFormat(configPath);
+    const section = format === 'servers' ? 'servers' : 'mcpServers';
+    if (!config[section]) config[section] = {};
+
+    const existingEntry = config[section]![mcpName];
+    if (existingEntry && !opts.force) {
+      const same = existingEntry.type === newEntry.type && existingEntry.url === newEntry.url;
+      if (same) {
+        log(`  [OK] mcp ${mcpName} (already registered in ${configPath})`);
+        continue;
+      }
+    }
+
+    config[section]![mcpName] = newEntry;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    if (existingEntry) {
+      if (action !== 'installed') action = 'updated';
+      log(`  [~] mcp ${mcpName} updated in ${configPath}`);
+    } else {
+      action = 'installed';
+      log(`  [+] mcp ${mcpName} registered in ${configPath}`);
+    }
+  }
+
+  return action;
+}
+
+function initBundleLock(bundleName: string, bundleHash: string): void {
+  const lock = readLock();
+  lock.installed[`bundle:${bundleName}`] = {
+    hash: bundleHash,
+    installedAt: new Date().toISOString(),
+    items: {},
+  };
+  writeLock(lock);
+}
+
+function installBundleEntry(
+  catalog: Catalog,
+  toolkitDir: string,
+  external: ExternalResourcesLike,
+  sourceName: string,
+  type: 'skill' | 'agent' | 'mcp',
+  name: string,
+  installOpts: InstallOptions,
+  log: LogFn,
+): InstallResult {
+  const externalEntry =
+    type === 'skill' ? external.skills.find(item => item.source === sourceName && item.name === name) :
+    type === 'agent' ? external.agents.find(item => item.source === sourceName && item.name === name) :
+    external.mcps.find(item => item.source === sourceName && item.name === name);
+
+  if (externalEntry?.path && externalEntry.hash) {
+    if (type === 'skill') {
+      return installExternalSkill(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
+    }
+    if (type === 'agent') {
+      return installExternalAgent(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
+    }
+    return installExternalMcp(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
+  }
+
+  if (type === 'skill') return installSkill(catalog, toolkitDir, name, installOpts, log);
+  if (type === 'agent') return installAgent(catalog, toolkitDir, name, installOpts, log);
+  return installMcp(catalog, toolkitDir, name, installOpts, log);
+}
 
 // ---------------------------------------------------------------------------
 // Install a skill
@@ -212,36 +323,7 @@ export function installExternalMcp(
   const newEntry = { type: mcpConfig.type, url: mcpConfig.url };
   const lock = readLock();
   const itemKey = `mcp:${mcpName}`;
-
-  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(f => fs.existsSync(f));
-  const configsToWrite = [...localExisting, ...GLOBAL_MCP_CONFIG_FILES];
-
-  let action: InstallResult['action'] = 'skipped';
-  for (const configPath of configsToWrite) {
-    if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
-      ensureDir(path.dirname(configPath));
-    }
-
-    let config: Record<string, any>;
-    try {
-      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    } catch {
-      if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
-        config = {};
-      } else {
-        continue;
-      }
-    }
-
-    const format = getConfigFormat(configPath);
-    const section = format === 'servers' ? 'servers' : 'mcpServers';
-    if (!config[section]) config[section] = {};
-
-    config[section][mcpName] = newEntry;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    log(`  [+] mcp ${mcpName} -> ${configPath}`);
-    action = 'installed';
-  }
+  const action = writeMcpToConfigs(mcpName, newEntry, opts, log);
 
   recordInstall(lock, itemKey, hash);
   writeLock(lock);
@@ -334,53 +416,8 @@ export function installMcp(
   const currentHash = entry.hash;
   const lock = readLock();
   const itemKey = `mcp:${name}`;
-
-  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(f => fs.existsSync(f));
-  const configsToWrite = [...localExisting, ...GLOBAL_MCP_CONFIG_FILES];
-
-  let action: InstallResult['action'] = 'skipped';
-  for (const configPath of configsToWrite) {
-    if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
-      ensureDir(path.dirname(configPath));
-    }
-
-    let config: Record<string, any>;
-    try {
-      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    } catch {
-      if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
-        config = {};
-      } else {
-        log(`  [!] Could not parse ${configPath}, skipping`);
-        continue;
-      }
-    }
-
-    const format = getConfigFormat(configPath);
-    const section = format === 'servers' ? 'servers' : 'mcpServers';
-    if (!config[section]) config[section] = {};
-    const existingEntry = config[section][name];
-
-    if (existingEntry && !opts.force) {
-      const same = existingEntry.type === newEntry.type && existingEntry.url === newEntry.url;
-      if (same) {
-        log(`  [OK] mcp ${name} (already registered in ${configPath})`);
-        continue;
-      }
-    }
-
-    config[section][name] = newEntry;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-
-    if (existingEntry) {
-      if (action !== 'installed') action = 'updated';
-      log(`  [~] mcp ${name} updated in ${configPath}`);
-    } else {
-      action = 'installed';
-      log(`  [+] mcp ${name} registered in ${configPath}`);
-    }
-    if (mcpConfig.setupNote) log(`      ${mcpConfig.setupNote}`);
-  }
+  const action = writeMcpToConfigs(name, newEntry, opts, log);
+  if (mcpConfig.setupNote && action !== 'skipped') log(`      ${mcpConfig.setupNote}`);
 
   recordInstall(lock, itemKey, currentHash, opts.bundleName);
   writeLock(lock);
@@ -403,11 +440,7 @@ export function installBundle(
   const bundle = loadBundleConfig(toolkitDir, entry);
 
   log(`\nInstalling bundle: ${name}`);
-
-  // Initialize bundle lock entry
-  const lock = readLock();
-  lock.installed[`bundle:${name}`] = { hash: entry.hash, installedAt: new Date().toISOString(), items: {} };
-  writeLock(lock);
+  initBundleLock(name, entry.hash);
 
   const results: InstallResult[] = [];
   const installOpts = { ...opts, bundleName: name };
@@ -420,6 +453,38 @@ export function installBundle(
   }
   for (const m of bundle.mcps || []) {
     results.push(installMcp(catalog, toolkitDir, m, installOpts, log));
+  }
+
+  return results;
+}
+
+export function installExternalBundle(
+  catalog: Catalog,
+  toolkitDir: string,
+  sourceName: string,
+  bundleName: string,
+  bundlePath: string,
+  hash: string,
+  opts: Omit<InstallOptions, 'bundleName'> = {},
+  log: LogFn = console.log,
+): InstallResult[] {
+  const bundle = loadExternalBundleConfig(sourceName, bundlePath);
+  const external = fetchExternalResources(false);
+
+  log(`\nInstalling bundle: ${bundleName}`);
+  initBundleLock(bundleName, hash);
+
+  const results: InstallResult[] = [];
+  const installOpts = { ...opts, bundleName: bundleName };
+
+  for (const skillName of bundle.skills || []) {
+    results.push(installBundleEntry(catalog, toolkitDir, external, sourceName, 'skill', skillName, installOpts, log));
+  }
+  for (const agentName of bundle.agents || []) {
+    results.push(installBundleEntry(catalog, toolkitDir, external, sourceName, 'agent', agentName, installOpts, log));
+  }
+  for (const mcpName of bundle.mcps || []) {
+    results.push(installBundleEntry(catalog, toolkitDir, external, sourceName, 'mcp', mcpName, installOpts, log));
   }
 
   return results;
