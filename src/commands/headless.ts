@@ -1,12 +1,13 @@
 import path from 'path';
 import type { Catalog, InstallResult } from '../types.js';
-import { loadCatalog, loadMcpConfig } from '../core/catalog.js';
+import { loadMcpConfig } from '../core/catalog.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
-import { fetchExternalResources } from '../core/sources.js';
+import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources } from '../core/sources.js';
+import { CACHE_DIR } from '../core/platform.js';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -210,7 +211,7 @@ function showCheck(catalog: Catalog) {
 // Scan
 // ---------------------------------------------------------------------------
 
-function showScan(catalog: Catalog, toolkitDir: string, specificSkill?: string | null) {
+function showScan(catalog: Catalog, specificSkill?: string | null) {
   showLogo();
   console.log();
   console.log(`${BOLD}Security scan${RESET}\n`);
@@ -225,35 +226,32 @@ function showScan(catalog: Catalog, toolkitDir: string, specificSkill?: string |
       console.log(`  ${RED}Skill not found: ${specificSkill}${RESET}\n`);
       return;
     }
-    const src = path.join(toolkitDir, entry.path);
-    const isInternal = !entry.source || entry.source === 'internal';
-    const report = scanSkillDir(src, specificSkill, entry.source || 'internal', { trusted: isInternal });
+    const src = path.join(CACHE_DIR, entry.source, entry.path);
+    const report = scanSkillDir(src, specificSkill, entry.source, { trusted: false });
     console.log(formatReport(report));
     blockCount += report.findings.filter(f => f.severity === 'block').length;
     warnCount += report.findings.filter(f => f.severity === 'warn').length;
   } else {
     // Scan everything
     for (const skill of catalog.skills) {
-      const src = path.join(toolkitDir, skill.path);
-      const isInternal = !skill.source || skill.source === 'internal';
-      const report = scanSkillDir(src, skill.name, skill.source || 'internal', { trusted: isInternal });
+      const src = path.join(CACHE_DIR, skill.source, skill.path);
+      const report = scanSkillDir(src, skill.name, skill.source, { trusted: false });
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;
     }
 
     for (const agent of catalog.agents) {
-      const src = path.join(toolkitDir, agent.path);
-      const isInternal = !agent.source || agent.source === 'internal';
-      const report = scanAgentFile(src, agent.name, agent.source || 'internal', { trusted: isInternal });
+      const src = path.join(CACHE_DIR, agent.source, agent.path);
+      const report = scanAgentFile(src, agent.name, agent.source, { trusted: false });
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;
     }
 
     for (const mcp of catalog.mcps) {
-      const mcpConfig = loadMcpConfig(toolkitDir, mcp);
-      const report = scanMcpConfig({ name: mcp.name, type: mcpConfig.type, url: mcpConfig.url }, mcp.source || 'internal');
+      const mcpConfig = loadMcpConfig(mcp);
+      const report = scanMcpConfig({ name: mcp.name, type: mcpConfig.type, url: mcpConfig.url }, mcp.source);
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;
@@ -331,6 +329,7 @@ function runSourceCommand(args: string[]): boolean {
 // ---------------------------------------------------------------------------
 
 export function runHeadless(args: string[], toolkitDir: string): boolean {
+  void toolkitDir;
   // --help / -h
   if (flag(args, '--help') || flag(args, '-h')) {
     usage();
@@ -380,12 +379,12 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
 
   if (!needsCatalog) return false; // not a headless command
 
-  const catalog = loadCatalog(toolkitDir);
+  const catalog = buildCatalog(fetchExternalResources(false));
 
   // Scan command: toolkit scan skill <name>
   if (isScan) {
     const scanSkillName = skillName || (args[1] === 'skill' && args[2] ? args[2] : null);
-    showScan(catalog, toolkitDir, scanSkillName);
+    showScan(catalog, scanSkillName);
     return true;
   }
 
@@ -403,7 +402,7 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
     showLogo();
     console.log();
     console.log(`${BOLD}Updating all installed items...${RESET}\n`);
-    const results = updateAll(catalog, toolkitDir, { force: isForce });
+    const results = updateAll(catalog, { force: isForce });
     printSummary(results);
     return true;
   }
@@ -421,10 +420,10 @@ export function runHeadless(args: string[], toolkitDir: string): boolean {
   // Direct install
   const results: InstallResult[] = [];
   const opts = { force: isForce };
-  if (skillName)       results.push(installSkill(catalog, toolkitDir, skillName, opts));
-  else if (agentName)  results.push(installAgent(catalog, toolkitDir, agentName, opts));
-  else if (mcpName)    results.push(installMcp(catalog, toolkitDir, mcpName, opts));
-  else if (bundleName) results.push(...installBundle(catalog, toolkitDir, bundleName, opts));
+  if (skillName)       results.push(installSkill(catalog, skillName, opts));
+  else if (agentName)  results.push(installAgent(catalog, agentName, opts));
+  else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));
+  else if (bundleName) results.push(...installBundle(catalog, bundleName, opts));
 
   if (results.length > 0) {
     printSummary(results);

@@ -14,17 +14,12 @@ import {
   installAgent,
   installMcp,
   installBundle,
-  installExternalSkill,
-  installExternalAgent,
-  installExternalMcp,
-  installExternalBundle,
 } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
 
 interface CatalogTabProps {
   items: ItemData[];
   catalog: Catalog;
-  toolkitDir: string;
   onRefresh: () => void;
   onUpdateItem: (item: ItemData) => void;
   onUpdateAll: () => void;
@@ -33,7 +28,6 @@ interface CatalogTabProps {
 export const CatalogTab: React.FC<CatalogTabProps> = ({
   items,
   catalog,
-  toolkitDir,
   onRefresh,
   onUpdateItem,
   onUpdateAll,
@@ -137,17 +131,12 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       return;
     }
 
-    const { type, name, source } = item;
+    const { type, name } = item;
     try {
-      if (source !== 'internal' && item.path && item.hash) {
-        if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: false }, () => {});
-        else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: false }, () => {});
-        else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: false }, () => {});
-        else if (type === 'bundle') installExternalBundle(catalog, toolkitDir, source, name, item.path, item.hash, { force: false }, () => {});
-      } else if (type === 'skill')  installSkill(catalog, toolkitDir, name, { force: false }, () => {});
-      else if (type === 'agent')    installAgent(catalog, toolkitDir, name, { force: false }, () => {});
-      else if (type === 'mcp')      installMcp(catalog, toolkitDir, name, { force: false }, () => {});
-      else if (type === 'bundle')   installBundle(catalog, toolkitDir, name, { force: false }, () => {});
+      if (type === 'skill')  installSkill(catalog, name, { force: false }, () => {});
+      else if (type === 'agent')    installAgent(catalog, name, { force: false }, () => {});
+      else if (type === 'mcp')      installMcp(catalog, name, { force: false }, () => {});
+      else if (type === 'bundle')   installBundle(catalog, name, { force: false }, () => {});
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -157,7 +146,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     } catch (e: any) {
       setMessage(`Error: ${e.message}`);
     }
-  }, [catalog, toolkitDir, items, filtered, onRefresh]);
+  }, [catalog, items, filtered, onRefresh]);
 
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);

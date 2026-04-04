@@ -82,16 +82,15 @@ export function checkForUpdates(catalog: Catalog): UpdateStatus[] {
 
 export function updateSelected(
   catalog: Catalog,
-  toolkitDir: string,
   items: Array<{ type: string; name: string }>,
   log: LogFn = console.log,
 ): InstallResult[] {
   const results: InstallResult[] = [];
   for (const { type, name } of items) {
     try {
-      if (type === 'skill')      results.push(installSkill(catalog, toolkitDir, name, { force: true }, log));
-      else if (type === 'agent') results.push(installAgent(catalog, toolkitDir, name, { force: true }, log));
-      else if (type === 'mcp')   results.push(installMcp(catalog, toolkitDir, name, { force: true }, log));
+      if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
+      else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
+      else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
     } catch (e: any) {
       log(`  [!] Failed to update ${type} ${name}: ${e.message}`);
     }
@@ -105,7 +104,6 @@ export function updateSelected(
 
 export function updateAll(
   catalog: Catalog,
-  toolkitDir: string,
   opts: { force?: boolean } = {},
   log: LogFn = console.log,
 ): InstallResult[] {
@@ -131,7 +129,7 @@ export function updateAll(
     }
 
     if (opts.force || catalogEntry.hash !== lockEntry.hash) {
-      results.push(...installBundle(catalog, toolkitDir, name, { force: true }, log));
+      results.push(...installBundle(catalog, name, { force: true }, log));
       continue;
     }
 
@@ -155,9 +153,9 @@ export function updateAll(
       }
       if (catalogItem.hash !== itemEntry.hash) {
         const installOpts = { force: true, bundleName: name };
-        if (type === 'skill')      results.push(installSkill(catalog, toolkitDir, itemName, installOpts, log));
-        else if (type === 'agent') results.push(installAgent(catalog, toolkitDir, itemName, installOpts, log));
-        else if (type === 'mcp')   results.push(installMcp(catalog, toolkitDir, itemName, installOpts, log));
+        if (type === 'skill')      results.push(installSkill(catalog, itemName, installOpts, log));
+        else if (type === 'agent') results.push(installAgent(catalog, itemName, installOpts, log));
+        else if (type === 'mcp')   results.push(installMcp(catalog, itemName, installOpts, log));
         allUpToDate = false;
       }
     }
@@ -186,9 +184,9 @@ export function updateAll(
       log(`  [OK] ${type} ${name} (up to date)`);
       continue;
     }
-    if (type === 'skill')      results.push(installSkill(catalog, toolkitDir, name, { force: true }, log));
-    else if (type === 'agent') results.push(installAgent(catalog, toolkitDir, name, { force: true }, log));
-    else if (type === 'mcp')   results.push(installMcp(catalog, toolkitDir, name, { force: true }, log));
+    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
+    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
+    else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
   }
 
   return results;

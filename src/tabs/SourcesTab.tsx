@@ -9,7 +9,7 @@ import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
-import { installExternalSkill, installExternalAgent, installExternalMcp, installExternalBundle } from '../core/installer.js';
+import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
@@ -17,7 +17,6 @@ const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 interface SourcesTabProps {
   allItems: ItemData[];
   catalog: Catalog;
-  toolkitDir: string;
   onRefresh: () => void;
   onRefreshSources: (forceRefresh?: boolean) => void;
 }
@@ -25,7 +24,6 @@ interface SourcesTabProps {
 export const SourcesTab: React.FC<SourcesTabProps> = ({
   allItems,
   catalog,
-  toolkitDir,
   onRefresh,
   onRefreshSources,
 }) => {
@@ -122,17 +120,15 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       setMessage(`\u2715 Blocked: ${item.scanSummary || 'Security issues detected'}`);
       return;
     }
-    const { type, name, source } = item;
+    const { type, name } = item;
     try {
-      if (item.path && item.hash) {
-        if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: false }, () => {});
-        else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: false }, () => {});
-        else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: false }, () => {});
-        else if (type === 'bundle') installExternalBundle(catalog, toolkitDir, source, name, item.path, item.hash, { force: false }, () => {});
-        else {
-          setMessage(`Error: ${type} ${name} cannot be installed`);
-          return;
-        }
+      if (type === 'skill') installSkill(catalog, name, { force: false }, () => {});
+      else if (type === 'agent') installAgent(catalog, name, { force: false }, () => {});
+      else if (type === 'mcp') installMcp(catalog, name, { force: false }, () => {});
+      else if (type === 'bundle') installBundle(catalog, name, { force: false }, () => {});
+      else {
+        setMessage(`Error: ${type} ${name} cannot be installed`);
+        return;
       }
       setMessage(`Installed ${type} ${name}`);
       onRefresh();

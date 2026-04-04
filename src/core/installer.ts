@@ -5,7 +5,7 @@ import {
   SKILL_TARGETS, AGENT_TARGETS,
   LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES,
   CACHE_DIR,
-  getConfigFormat, isNpxRun,
+  getConfigFormat,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import {
@@ -15,7 +15,6 @@ import {
   findBundle,
   loadBundleConfig,
   loadMcpConfig,
-  loadExternalBundleConfig,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources } from './sources.js';
@@ -103,7 +102,6 @@ function initBundleLock(bundleName: string, bundleHash: string): void {
 
 function installBundleEntry(
   catalog: Catalog,
-  toolkitDir: string,
   external: ExternalResourcesLike,
   sourceName: string,
   type: 'skill' | 'agent' | 'mcp',
@@ -126,9 +124,9 @@ function installBundleEntry(
     return installExternalMcp(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
   }
 
-  if (type === 'skill') return installSkill(catalog, toolkitDir, name, installOpts, log);
-  if (type === 'agent') return installAgent(catalog, toolkitDir, name, installOpts, log);
-  return installMcp(catalog, toolkitDir, name, installOpts, log);
+  if (type === 'skill') return installSkill(catalog, name, installOpts, log);
+  if (type === 'agent') return installAgent(catalog, name, installOpts, log);
+  return installMcp(catalog, name, installOpts, log);
 }
 
 // ---------------------------------------------------------------------------
@@ -137,54 +135,13 @@ function installBundleEntry(
 
 export function installSkill(
   catalog: Catalog,
-  toolkitDir: string,
   name: string,
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
   const entry = findSkill(catalog, name);
   if (!entry) throw new Error(`Skill not found in catalog: ${name}`);
-  const src = path.join(toolkitDir, entry.path);
-
-  // Security scan (internal content is trusted — blocks downgraded to warnings)
-  const isInternal = !entry.source || entry.source === 'internal';
-  const report = scanSkillDir(src, name, entry.source || 'internal', { trusted: isInternal });
-  if (!report.passed && !opts.force) {
-    log(formatReport(report));
-    log(`      Skipped — use --force to override`);
-    return { type: 'skill', name, action: 'blocked' };
-  }
-  if (report.findings.length > 0) log(formatReport(report));
-
-  const forceCopy = isNpxRun(toolkitDir);
-  const currentHash = entry.hash;
-  const lock = readLock();
-  const itemKey = `skill:${name}`;
-
-  const lockEntry = opts.bundleName
-    ? lock.installed[`bundle:${opts.bundleName}`]?.items?.[itemKey]
-    : lock.installed[itemKey];
-  const needsUpdate = lockEntry && lockEntry.hash !== currentHash;
-  const shouldForce = opts.force || needsUpdate;
-
-  let action: InstallResult['action'] = 'skipped';
-  for (const dir of SKILL_TARGETS) {
-    const dest = path.join(dir, name);
-    const result = linkOrCopyDir(src, dest, shouldForce || false, forceCopy);
-    if (result === 'updated') {
-      log(`  [~] skill ${name} updated in ${dest}`);
-      action = 'updated';
-    } else if (result === 'installed') {
-      log(`  [+] skill ${name} -> ${dest}`);
-      action = 'installed';
-    } else {
-      log(`  [OK] skill ${name} (up to date)`);
-    }
-  }
-
-  recordInstall(lock, itemKey, currentHash, opts.bundleName);
-  writeLock(lock);
-  return { type: 'skill', name, action };
+  return installExternalSkill(entry.source, name, entry.path, entry.hash, opts, log);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,55 +293,13 @@ export function installExternalMcp(
 
 export function installAgent(
   catalog: Catalog,
-  toolkitDir: string,
   name: string,
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
   const entry = findAgent(catalog, name);
   if (!entry) throw new Error(`Agent not found in catalog: ${name}`);
-  const src = path.join(toolkitDir, entry.path);
-
-  // Security scan (internal content is trusted)
-  const isInternal = !entry.source || entry.source === 'internal';
-  const report = scanAgentFile(src, name, entry.source || 'internal', { trusted: isInternal });
-  if (!report.passed && !opts.force) {
-    log(formatReport(report));
-    log(`      Skipped — use --force to override`);
-    return { type: 'agent', name, action: 'blocked' };
-  }
-  if (report.findings.length > 0) log(formatReport(report));
-
-  const filename = path.basename(entry.path);
-  const forceCopy = isNpxRun(toolkitDir);
-  const currentHash = entry.hash;
-  const lock = readLock();
-  const itemKey = `agent:${name}`;
-
-  const lockEntry = opts.bundleName
-    ? lock.installed[`bundle:${opts.bundleName}`]?.items?.[itemKey]
-    : lock.installed[itemKey];
-  const needsUpdate = lockEntry && lockEntry.hash !== currentHash;
-  const shouldForce = opts.force || needsUpdate;
-
-  let action: InstallResult['action'] = 'skipped';
-  for (const dir of AGENT_TARGETS) {
-    const dest = path.join(dir, filename);
-    const result = linkOrCopyFile(src, dest, shouldForce || false, forceCopy);
-    if (result === 'updated') {
-      log(`  [~] agent ${name} updated in ${dest}`);
-      action = 'updated';
-    } else if (result === 'installed') {
-      log(`  [+] agent ${name} -> ${dest}`);
-      action = 'installed';
-    } else {
-      log(`  [OK] agent ${name} (up to date)`);
-    }
-  }
-
-  recordInstall(lock, itemKey, currentHash, opts.bundleName);
-  writeLock(lock);
-  return { type: 'agent', name, action };
+  return installExternalAgent(entry.source, name, entry.path, entry.hash, opts, log);
 }
 
 // ---------------------------------------------------------------------------
@@ -393,7 +308,6 @@ export function installAgent(
 
 export function installMcp(
   catalog: Catalog,
-  toolkitDir: string,
   name: string,
   opts: InstallOptions = {},
   log: LogFn = console.log,
@@ -401,10 +315,9 @@ export function installMcp(
   const entry = findMcp(catalog, name);
   if (!entry) throw new Error(`MCP not found in catalog: ${name}`);
 
-  const mcpConfig = loadMcpConfig(toolkitDir, entry);
+  const mcpConfig = loadMcpConfig(entry);
 
-  // Security scan
-  const report = scanMcpConfig({ name, type: mcpConfig.type, url: mcpConfig.url }, entry.source || 'internal');
+  const report = scanMcpConfig({ name, type: mcpConfig.type, url: mcpConfig.url }, entry.source);
   if (!report.passed && !opts.force) {
     log(formatReport(report));
     log(`      Skipped — use --force to override`);
@@ -430,37 +343,17 @@ export function installMcp(
 
 export function installBundle(
   catalog: Catalog,
-  toolkitDir: string,
   name: string,
   opts: Omit<InstallOptions, 'bundleName'> = {},
   log: LogFn = console.log,
 ): InstallResult[] {
   const entry = findBundle(catalog, name);
   if (!entry) throw new Error(`Bundle not found in catalog: ${name}`);
-  const bundle = loadBundleConfig(toolkitDir, entry);
-
-  log(`\nInstalling bundle: ${name}`);
-  initBundleLock(name, entry.hash);
-
-  const results: InstallResult[] = [];
-  const installOpts = { ...opts, bundleName: name };
-
-  for (const s of bundle.skills || []) {
-    results.push(installSkill(catalog, toolkitDir, s, installOpts, log));
-  }
-  for (const a of bundle.agents || []) {
-    results.push(installAgent(catalog, toolkitDir, a, installOpts, log));
-  }
-  for (const m of bundle.mcps || []) {
-    results.push(installMcp(catalog, toolkitDir, m, installOpts, log));
-  }
-
-  return results;
+  return installExternalBundle(catalog, entry.source, name, entry.path, entry.hash, opts, log);
 }
 
 export function installExternalBundle(
   catalog: Catalog,
-  toolkitDir: string,
   sourceName: string,
   bundleName: string,
   bundlePath: string,
@@ -468,7 +361,7 @@ export function installExternalBundle(
   opts: Omit<InstallOptions, 'bundleName'> = {},
   log: LogFn = console.log,
 ): InstallResult[] {
-  const bundle = loadExternalBundleConfig(sourceName, bundlePath);
+  const bundle = loadBundleConfig({ name: bundleName, description: '', hash, path: bundlePath, source: sourceName });
   const external = fetchExternalResources(false);
 
   log(`\nInstalling bundle: ${bundleName}`);
@@ -478,13 +371,13 @@ export function installExternalBundle(
   const installOpts = { ...opts, bundleName: bundleName };
 
   for (const skillName of bundle.skills || []) {
-    results.push(installBundleEntry(catalog, toolkitDir, external, sourceName, 'skill', skillName, installOpts, log));
+    results.push(installBundleEntry(catalog, external, sourceName, 'skill', skillName, installOpts, log));
   }
   for (const agentName of bundle.agents || []) {
-    results.push(installBundleEntry(catalog, toolkitDir, external, sourceName, 'agent', agentName, installOpts, log));
+    results.push(installBundleEntry(catalog, external, sourceName, 'agent', agentName, installOpts, log));
   }
   for (const mcpName of bundle.mcps || []) {
-    results.push(installBundleEntry(catalog, toolkitDir, external, sourceName, 'mcp', mcpName, installOpts, log));
+    results.push(installBundleEntry(catalog, external, sourceName, 'mcp', mcpName, installOpts, log));
   }
 
   return results;
