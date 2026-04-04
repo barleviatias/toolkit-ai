@@ -82,7 +82,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
       <Box marginTop={1} gap={2}>
         {item.installed ? (
           <>
-            <Text color="green">● Installed</Text>
+            <Text color="green">{item.trackedByLock === false ? '● Detected on disk' : '● Installed'}</Text>
             <Text dimColor>  Press </Text>
             <Text color="red" bold>r</Text>
             <Text dimColor> to remove</Text>
@@ -96,6 +96,12 @@ export const DetailView: React.FC<DetailViewProps> = ({
           </>
         )}
       </Box>
+
+      {item.installed && item.trackedByLock === false && (
+        <Box>
+          <Text dimColor>This item exists in the target app folders, but the lock file does not currently track it.</Text>
+        </Box>
+      )}
 
       {item.hasUpdate && onUpdate && (
         <Box gap={2}>

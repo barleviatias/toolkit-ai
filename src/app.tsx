@@ -10,22 +10,18 @@ import {
   installSkill,
   installAgent,
   installMcp,
-  installExternalSkill,
-  installExternalAgent,
-  installExternalMcp,
-  installExternalBundle,
+  installBundle,
 } from './core/installer.js';
 import { updateAll } from './core/updater.js';
 import type { ItemData } from './components/ItemRow.js';
 
 interface AppProps {
-  toolkitDir: string;
   initialTab: TabId;
 }
 
 const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources'];
 
-const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
+const App: React.FC<AppProps> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const { exit } = useApp();
 
@@ -35,7 +31,7 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
     installedItems,
     refreshLock,
     refreshExternal,
-  } = useCatalog(toolkitDir);
+  } = useCatalog();
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
 
@@ -50,27 +46,20 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
   }, [refreshLock]);
 
   const handleUpdateItem = useCallback((item: ItemData) => {
-    const { type, name, source } = item;
+    const { type, name } = item;
     try {
-      if (source !== 'internal' && item.path && item.hash) {
-        // External resource — reinstall from cache
-        if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: true }, () => {});
-        else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: true }, () => {});
-        else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: true }, () => {});
-        else if (type === 'bundle') installExternalBundle(catalog, toolkitDir, source, name, item.path, item.hash, { force: true }, () => {});
-      } else {
-        if (type === 'skill')      installSkill(catalog, toolkitDir, name, { force: true }, () => {});
-        else if (type === 'agent') installAgent(catalog, toolkitDir, name, { force: true }, () => {});
-        else if (type === 'mcp')   installMcp(catalog, toolkitDir, name, { force: true }, () => {});
-      }
+      if (type === 'skill')      installSkill(catalog, name, { force: true }, () => {});
+      else if (type === 'agent') installAgent(catalog, name, { force: true }, () => {});
+      else if (type === 'mcp')   installMcp(catalog, name, { force: true }, () => {});
+      else if (type === 'bundle') installBundle(catalog, name, { force: true }, () => {});
       refreshLock();
     } catch {}
-  }, [catalog, toolkitDir, refreshLock]);
+  }, [catalog, refreshLock]);
 
   const handleUpdateAll = useCallback(() => {
-    updateAll(catalog, toolkitDir, { force: true }, () => {});
+    updateAll(catalog, { force: true }, () => {});
     refreshLock();
-  }, [catalog, toolkitDir, refreshLock]);
+  }, [catalog, refreshLock]);
 
   useInput((input, key) => {
     if (key.tab) {
@@ -96,7 +85,6 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
         <CatalogTab
           items={allItems}
           catalog={catalog}
-          toolkitDir={toolkitDir}
           onRefresh={handleRefresh}
           onUpdateItem={handleUpdateItem}
           onUpdateAll={handleUpdateAll}
@@ -113,7 +101,6 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
         <SourcesTab
           allItems={allItems}
           catalog={catalog}
-          toolkitDir={toolkitDir}
           onRefresh={handleRefresh}
           onRefreshSources={refreshExternal}
         />
@@ -124,6 +111,7 @@ const App: React.FC<AppProps> = ({ toolkitDir, initialTab }) => {
 
 export async function renderApp(toolkitDir: string, initialTab: string = 'catalog') {
   const tab = TAB_ORDER.includes(initialTab as TabId) ? (initialTab as TabId) : 'catalog';
-  const { waitUntilExit } = render(<App toolkitDir={toolkitDir} initialTab={tab} />);
+  void toolkitDir;
+  const { waitUntilExit } = render(<App initialTab={tab} />);
   await waitUntilExit();
 }

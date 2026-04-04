@@ -50,11 +50,3 @@ export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' {
   const isIntelliJ = configPath.includes('intellij');
   return (isVsCode || isIntelliJ) ? 'servers' : 'mcpServers';
 }
-
-/** Detect if running via npx (symlinks would break) */
-export function isNpxRun(toolkitDir: string): boolean {
-  return toolkitDir.includes('_npx') ||
-    toolkitDir.includes('npm-cache') ||
-    toolkitDir.includes('.pnpm') ||
-    toolkitDir.includes('.yarn');
-}

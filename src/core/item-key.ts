@@ -22,7 +22,7 @@ export function parseKey(key: string): ParsedKey {
   const colonParts = key.split(':');
   return {
     type: colonParts[0],
-    source: 'internal',
+    source: 'legacy',
     name: colonParts[colonParts.length - 1],
   };
 }

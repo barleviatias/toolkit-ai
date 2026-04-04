@@ -3,7 +3,7 @@ export interface CatalogEntry {
   description: string;
   hash: string;
   path: string;
-  source?: string; // 'internal' or external source name
+  source: string;
 }
 
 export interface Catalog {

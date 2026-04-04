@@ -1,18 +1,13 @@
 import path from 'path';
 import { useState, useMemo } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
-import {
-  loadCatalog,
-  loadMcpConfig,
-  loadBundleConfig,
-  loadExternalBundleConfig,
-  loadExternalMcpConfig,
-} from '../core/catalog.js';
+import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import { readLock } from '../core/lock.js';
-import { fetchExternalResources, type ExternalResources } from '../core/sources.js';
+import { fetchExternalResources, buildCatalog, type ExternalResources } from '../core/sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
 import { CACHE_DIR } from '../core/platform.js';
 import { makeKey } from '../core/item-key.js';
+import { getInstalledState } from '../core/installed-state.js';
 import type { ItemData } from '../components/ItemRow.js';
 
 function loadExternalState(forceRefresh = false): ExternalResources {
@@ -23,25 +18,23 @@ function loadExternalState(forceRefresh = false): ExternalResources {
   }
 }
 
-export function useCatalog(toolkitDir: string) {
-  const [catalog] = useState<Catalog>(() => loadCatalog(toolkitDir));
+export function useCatalog() {
   const [external, setExternal] = useState<ExternalResources>(() => loadExternalState());
   const [lock, setLock] = useState(() => readLock());
+  const catalog: Catalog = useMemo(() => buildCatalog(external), [external]);
+  const installedState = useMemo(() => getInstalledState(catalog, lock), [catalog, lock]);
 
   const refreshLock = () => setLock(readLock());
   const refreshExternal = (forceRefresh = false) => setExternal(loadExternalState(forceRefresh));
 
   // Check if an item is installed (by lock-format key: "type:name")
   function isInstalled(lockKey: string): boolean {
-    if (lock.installed[lockKey]) return true;
-    for (const [k, v] of Object.entries(lock.installed)) {
-      if (k.startsWith('bundle:') && v.items?.[lockKey]) return true;
-    }
-    return false;
+    return installedState.installedKeys.has(lockKey);
   }
 
   // Get installed hash for an item (for update detection)
   function getInstalledHash(lockKey: string): string | null {
+    if (installedState.recoveredKeys.has(lockKey)) return null;
     if (lock.installed[lockKey]) return lock.installed[lockKey].hash;
     for (const [k, v] of Object.entries(lock.installed)) {
       if (k.startsWith('bundle:') && v.items?.[lockKey]) return v.items[lockKey].hash;
@@ -54,26 +47,19 @@ export function useCatalog(toolkitDir: string) {
     const items: ItemData[] = [];
 
     function scanItem(type: string, entry: CatalogEntry): { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string } {
-      const src = entry.source || 'internal';
-      const trusted = src === 'internal';
+      const src = entry.source;
 
       try {
         let report;
         if (type === 'skill') {
-          const skillDir = trusted
-            ? path.join(toolkitDir, entry.path)
-            : path.join(CACHE_DIR, src, entry.path);
-          report = scanSkillDir(skillDir, entry.name, src, { trusted });
+          const skillDir = path.join(CACHE_DIR, src, entry.path);
+          report = scanSkillDir(skillDir, entry.name, src, { trusted: false });
         } else if (type === 'agent') {
-          const agentPath = trusted
-            ? path.join(toolkitDir, entry.path)
-            : path.join(CACHE_DIR, src, entry.path);
-          report = scanAgentFile(agentPath, entry.name, src, { trusted });
+          const agentPath = path.join(CACHE_DIR, src, entry.path);
+          report = scanAgentFile(agentPath, entry.name, src, { trusted: false });
         } else if (type === 'mcp') {
           try {
-            const mcpConfig = trusted
-              ? loadMcpConfig(toolkitDir, entry)
-              : loadExternalMcpConfig(src, entry.path);
+            const mcpConfig = loadMcpConfig(entry);
             report = scanMcpConfig({ name: entry.name, type: mcpConfig.type, url: mcpConfig.url }, src);
           } catch {}
         }
@@ -92,7 +78,7 @@ export function useCatalog(toolkitDir: string) {
     }
 
     function toItem(type: string, entry: CatalogEntry): ItemData {
-      const src = entry.source || 'internal';
+      const src = entry.source;
       const uiKey = makeKey(type, src, entry.name);
       const lockKey = `${type}:${entry.name}`;
       const installed = isInstalled(lockKey);
@@ -112,19 +98,13 @@ export function useCatalog(toolkitDir: string) {
         hash: entry.hash,
         scanStatus,
         scanSummary,
+        trackedByLock: !installedState.recoveredKeys.has(lockKey),
       };
 
       // Enrich MCP items with config details
-      if (type === 'mcp' && src === 'internal') {
+      if (type === 'mcp') {
         try {
-          const mcpConfig = loadMcpConfig(toolkitDir, entry);
-          item.mcpType = mcpConfig.type;
-          item.url = mcpConfig.url;
-          item.setupNote = mcpConfig.setupNote;
-        } catch {}
-      } else if (type === 'mcp' && src !== 'internal') {
-        try {
-          const mcpConfig = loadExternalMcpConfig(src, entry.path);
+          const mcpConfig = loadMcpConfig(entry);
           item.mcpType = mcpConfig.type;
           item.url = mcpConfig.url;
           item.setupNote = mcpConfig.setupNote;
@@ -134,9 +114,7 @@ export function useCatalog(toolkitDir: string) {
       // Enrich bundle items with contents
       if (type === 'bundle') {
         try {
-          const bundleConfig = src === 'internal'
-            ? loadBundleConfig(toolkitDir, entry)
-            : loadExternalBundleConfig(src, entry.path);
+          const bundleConfig = loadBundleConfig(entry);
           item.bundleContents = {
             skills: bundleConfig.skills || [],
             agents: bundleConfig.agents || [],
@@ -148,20 +126,13 @@ export function useCatalog(toolkitDir: string) {
       return item;
     }
 
-    // Internal items (from bundled resources — may be empty)
     for (const s of catalog.skills) items.push(toItem('skill', s));
     for (const a of catalog.agents) items.push(toItem('agent', a));
-    for (const m of catalog.mcps)   items.push(toItem('mcp', m));
+    for (const m of catalog.mcps) items.push(toItem('mcp', m));
     for (const b of catalog.bundles) items.push(toItem('bundle', b));
 
-    // External resources from configured sources
-    for (const s of external.skills) items.push(toItem('skill', s));
-    for (const a of external.agents) items.push(toItem('agent', a));
-    for (const m of external.mcps)   items.push(toItem('mcp', m));
-    for (const b of external.bundles) items.push(toItem('bundle', b));
-
     return items;
-  }, [catalog, external, lock]);
+  }, [catalog, lock, installedState]);
 
   // Installed items for the Installed tab
   const installedItems: ItemData[] = useMemo(() => {

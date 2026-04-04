@@ -29,6 +29,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   const [focus, setFocus] = useState<'list' | 'search'>('list');
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
+  const recoveredCount = useMemo(() => items.filter(item => item.trackedByLock === false).length, [items]);
 
   const filtered = useMemo(() => {
     let result = items;
@@ -179,6 +180,12 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   return (
     <Box flexDirection="column">
       <Text bold>Installed ({items.length})</Text>
+      {recoveredCount > 0 && (
+        <Text dimColor>
+          {'  '}
+          {recoveredCount} item{recoveredCount > 1 ? 's are' : ' is'} detected from disk because the lock file is missing or out of sync.
+        </Text>
+      )}
       <SearchInput
         value={query}
         onChange={setQuery}

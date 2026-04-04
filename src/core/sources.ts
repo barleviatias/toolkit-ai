@@ -359,6 +359,15 @@ export interface ExternalResources {
   bundles: CatalogEntry[];
 }
 
+export function buildCatalog(resources: ExternalResources): { skills: CatalogEntry[]; agents: CatalogEntry[]; mcps: CatalogEntry[]; bundles: CatalogEntry[] } {
+  return {
+    skills: resources.skills,
+    agents: resources.agents,
+    mcps: resources.mcps,
+    bundles: resources.bundles,
+  };
+}
+
 export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
   const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [] };

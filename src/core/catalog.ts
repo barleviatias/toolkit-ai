@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { spawnSync } from 'child_process';
 import type { Catalog, CatalogEntry, BundleConfig, McpConfig } from '../types.js';
 import { CACHE_DIR } from './platform.js';
 
@@ -59,31 +58,6 @@ export function hashDir(dirPath: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog loading
-// ---------------------------------------------------------------------------
-
-/**
- * Generate and load the catalog from disk.
- * If lazy=true, skips regeneration and just reads the existing file.
- */
-export function loadCatalog(toolkitDir: string, lazy = false): Catalog {
-  const catalogFile = path.join(toolkitDir, 'catalog.generated.json');
-  const generateScript = path.join(toolkitDir, 'scripts', 'generate-catalog.js');
-
-  if (!lazy && fs.existsSync(generateScript)) {
-    const result = spawnSync(process.execPath, [generateScript, '--output', catalogFile], {
-      cwd: toolkitDir,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    if (result.status !== 0) {
-      throw new Error(`Catalog generation failed:\n${result.stderr}`);
-    }
-  }
-
-  return JSON.parse(fs.readFileSync(catalogFile, 'utf8')) as Catalog;
-}
-
-// ---------------------------------------------------------------------------
 // Lookup helpers
 // ---------------------------------------------------------------------------
 
@@ -103,18 +77,10 @@ export function findBundle(catalog: Catalog, name: string): CatalogEntry | undef
   return catalog.bundles.find(p => p.name === name);
 }
 
-export function loadBundleConfig(toolkitDir: string, entry: CatalogEntry): BundleConfig {
-  return JSON.parse(fs.readFileSync(path.join(toolkitDir, entry.path), 'utf8')) as BundleConfig;
+export function loadBundleConfig(entry: CatalogEntry): BundleConfig {
+  return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, entry.source, entry.path), 'utf8')) as BundleConfig;
 }
 
-export function loadMcpConfig(toolkitDir: string, entry: CatalogEntry): McpConfig {
-  return JSON.parse(fs.readFileSync(path.join(toolkitDir, entry.path), 'utf8')) as McpConfig;
-}
-
-export function loadExternalBundleConfig(sourceName: string, bundlePath: string): BundleConfig {
-  return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, sourceName, bundlePath), 'utf8')) as BundleConfig;
-}
-
-export function loadExternalMcpConfig(sourceName: string, mcpPath: string): McpConfig {
-  return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, sourceName, mcpPath), 'utf8')) as McpConfig;
+export function loadMcpConfig(entry: CatalogEntry): McpConfig {
+  return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, entry.source, entry.path), 'utf8')) as McpConfig;
 }
