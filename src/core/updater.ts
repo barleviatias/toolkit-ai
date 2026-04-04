@@ -2,7 +2,7 @@ import type { Catalog, InstallResult } from '../types.js';
 import { findSkill, findAgent, findMcp, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
 import { installSkill, installAgent, installMcp, installBundle, type LogFn } from './installer.js';
-import { removeLink } from './fs-helpers.js';
+import { removeItemFromFilesystem } from './remover.js';
 
 // ---------------------------------------------------------------------------
 // Check for updates (dry run)
@@ -123,8 +123,7 @@ export function updateAll(
       const currentLock = readLock();
       for (const itemKey of Object.keys(lockEntry.items || {})) {
         if (!isItemProtected(itemKey, lockKey, currentLock, catalog, true)) {
-          const [type, itemName] = itemKey.split(':');
-          log(`  [-] ${type} ${itemName} removed`);
+          removeItemFromFilesystem(catalog, itemKey, log);
         }
       }
       const l = readLock(); delete l.installed[lockKey]; writeLock(l);
@@ -148,7 +147,7 @@ export function updateAll(
       if (!catalogItem) {
         const currentLock = readLock();
         if (!isItemProtected(itemKey, lockKey, currentLock, catalog, true)) {
-          log(`  [-] ${type} ${itemName} removed (no longer in catalog)`);
+          removeItemFromFilesystem(catalog, itemKey, log);
         }
         const l = readLock(); delete l.installed[lockKey].items![itemKey]; writeLock(l);
         allUpToDate = false;
@@ -177,8 +176,8 @@ export function updateAll(
     if (!catalogEntry) {
       log(`  [!] ${type} ${name} no longer in catalog, removing`);
       const currentLock = readLock();
-      if (!isItemProtected(lockKey, null, currentLock, catalog, true)) {
-        log(`  [-] ${type} ${name} removed`);
+      if (!isItemProtected(lockKey, null, currentLock, catalog, false)) {
+        removeItemFromFilesystem(catalog, lockKey, log);
       }
       const l = readLock(); delete l.installed[lockKey]; writeLock(l);
       continue;

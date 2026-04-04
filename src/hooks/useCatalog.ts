@@ -1,7 +1,13 @@
 import path from 'path';
 import { useState, useMemo } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
-import { loadCatalog, loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
+import {
+  loadCatalog,
+  loadMcpConfig,
+  loadBundleConfig,
+  loadExternalBundleConfig,
+  loadExternalMcpConfig,
+} from '../core/catalog.js';
 import { readLock } from '../core/lock.js';
 import { fetchExternalResources, type ExternalResources } from '../core/sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
@@ -9,14 +15,21 @@ import { CACHE_DIR } from '../core/platform.js';
 import { makeKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 
+function loadExternalState(forceRefresh = false): ExternalResources {
+  try {
+    return fetchExternalResources(forceRefresh);
+  } catch {
+    return { skills: [], agents: [], mcps: [], bundles: [] };
+  }
+}
+
 export function useCatalog(toolkitDir: string) {
   const [catalog] = useState<Catalog>(() => loadCatalog(toolkitDir));
-  const [external] = useState<ExternalResources>(() => {
-    try { return fetchExternalResources(); } catch { return { skills: [], agents: [], mcps: [], bundles: [] }; }
-  });
+  const [external, setExternal] = useState<ExternalResources>(() => loadExternalState());
   const [lock, setLock] = useState(() => readLock());
 
   const refreshLock = () => setLock(readLock());
+  const refreshExternal = (forceRefresh = false) => setExternal(loadExternalState(forceRefresh));
 
   // Check if an item is installed (by lock-format key: "type:name")
   function isInstalled(lockKey: string): boolean {
@@ -57,11 +70,10 @@ export function useCatalog(toolkitDir: string) {
             : path.join(CACHE_DIR, src, entry.path);
           report = scanAgentFile(agentPath, entry.name, src, { trusted });
         } else if (type === 'mcp') {
-          const mcpPath = trusted
-            ? path.join(toolkitDir, entry.path)
-            : path.join(CACHE_DIR, src, entry.path);
           try {
-            const mcpConfig = JSON.parse(require('fs').readFileSync(mcpPath, 'utf8'));
+            const mcpConfig = trusted
+              ? loadMcpConfig(toolkitDir, entry)
+              : loadExternalMcpConfig(src, entry.path);
             report = scanMcpConfig({ name: entry.name, type: mcpConfig.type, url: mcpConfig.url }, src);
           } catch {}
         }
@@ -112,8 +124,7 @@ export function useCatalog(toolkitDir: string) {
         } catch {}
       } else if (type === 'mcp' && src !== 'internal') {
         try {
-          const mcpPath = path.join(CACHE_DIR, src, entry.path);
-          const mcpConfig = JSON.parse(require('fs').readFileSync(mcpPath, 'utf8'));
+          const mcpConfig = loadExternalMcpConfig(src, entry.path);
           item.mcpType = mcpConfig.type;
           item.url = mcpConfig.url;
           item.setupNote = mcpConfig.setupNote;
@@ -123,7 +134,9 @@ export function useCatalog(toolkitDir: string) {
       // Enrich bundle items with contents
       if (type === 'bundle') {
         try {
-          const bundleConfig = loadBundleConfig(toolkitDir, entry);
+          const bundleConfig = src === 'internal'
+            ? loadBundleConfig(toolkitDir, entry)
+            : loadExternalBundleConfig(src, entry.path);
           item.bundleContents = {
             skills: bundleConfig.skills || [],
             agents: bundleConfig.agents || [],
@@ -155,5 +168,5 @@ export function useCatalog(toolkitDir: string) {
     return allItems.filter(i => i.installed);
   }, [allItems]);
 
-  return { catalog, lock, allItems, installedItems, refreshLock };
+  return { catalog, lock, allItems, installedItems, refreshLock, refreshExternal };
 }

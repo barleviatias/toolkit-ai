@@ -8,8 +8,8 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, parseSourceInput, fetchExternalResources } from '../core/sources.js';
-import { installExternalSkill, installExternalAgent, installExternalMcp } from '../core/installer.js';
+import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
+import { installExternalSkill, installExternalAgent, installExternalMcp, installExternalBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
@@ -19,6 +19,7 @@ interface SourcesTabProps {
   catalog: Catalog;
   toolkitDir: string;
   onRefresh: () => void;
+  onRefreshSources: (forceRefresh?: boolean) => void;
 }
 
 export const SourcesTab: React.FC<SourcesTabProps> = ({
@@ -26,6 +27,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   catalog,
   toolkitDir,
   onRefresh,
+  onRefreshSources,
 }) => {
   const [config, setConfig] = useState<SourcesConfig>(() => loadSources());
   const [mode, setMode] = useState<'list' | 'add' | 'browse'>('list');
@@ -55,7 +57,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       if (ch === 'f') {
         setMessage('Refreshing sources...');
         try {
-          fetchExternalResources(true);
+          onRefreshSources(true);
           setMessage('Sources refreshed');
           refresh();
         } catch (e: any) {
@@ -70,6 +72,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           removeSource(source.name);
           setMessage(`Removed source: ${source.name}`);
           setCursor(c => Math.max(0, c - 1));
+          onRefreshSources(true);
           refresh();
         }
       } else if (key.upArrow) {
@@ -93,6 +96,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         setMessage(`Added source: ${source.name} (${source.type}: ${source.repo})`);
         setInput('');
         setMode('list');
+        onRefreshSources(true);
         refresh();
       }
     } else if (mode === 'browse') {
@@ -124,6 +128,11 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: false }, () => {});
         else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: false }, () => {});
         else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: false }, () => {});
+        else if (type === 'bundle') installExternalBundle(catalog, toolkitDir, source, name, item.path, item.hash, { force: false }, () => {});
+        else {
+          setMessage(`Error: ${type} ${name} cannot be installed`);
+          return;
+        }
       }
       setMessage(`Installed ${type} ${name}`);
       onRefresh();

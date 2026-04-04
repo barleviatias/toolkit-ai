@@ -9,7 +9,16 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
-import { installSkill, installAgent, installMcp, installBundle, installExternalSkill, installExternalAgent, installExternalMcp } from '../core/installer.js';
+import {
+  installSkill,
+  installAgent,
+  installMcp,
+  installBundle,
+  installExternalSkill,
+  installExternalAgent,
+  installExternalMcp,
+  installExternalBundle,
+} from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
 
 interface CatalogTabProps {
@@ -134,10 +143,15 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         if (type === 'skill')      installExternalSkill(source, name, item.path, item.hash, { force: false }, () => {});
         else if (type === 'agent') installExternalAgent(source, name, item.path, item.hash, { force: false }, () => {});
         else if (type === 'mcp')   installExternalMcp(source, name, item.path, item.hash, { force: false }, () => {});
+        else if (type === 'bundle') installExternalBundle(catalog, toolkitDir, source, name, item.path, item.hash, { force: false }, () => {});
       } else if (type === 'skill')  installSkill(catalog, toolkitDir, name, { force: false }, () => {});
       else if (type === 'agent')    installAgent(catalog, toolkitDir, name, { force: false }, () => {});
       else if (type === 'mcp')      installMcp(catalog, toolkitDir, name, { force: false }, () => {});
       else if (type === 'bundle')   installBundle(catalog, toolkitDir, name, { force: false }, () => {});
+      else {
+        setMessage(`Error: ${type} ${name} cannot be installed`);
+        return;
+      }
       setMessage(`Installed ${type} ${name}`);
       onRefresh();
     } catch (e: any) {
