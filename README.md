@@ -12,7 +12,7 @@
 
 **toolkit-ai**
 
-Manage AI skills, agents, MCPs, and bundles across Claude Code, Copilot, and Cursor — from any GitHub or Bitbucket source.
+Manage AI skills, agents, MCPs, and bundles across Claude Code, Codex, Copilot, and Cursor — from any GitHub or Bitbucket source.
 
 [![npm](https://img.shields.io/npm/v/toolkit-ai)](https://www.npmjs.com/package/toolkit-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -90,7 +90,7 @@ Apply these conventions when designing new endpoints or reviewing API PRs.
 - Include pagination for list endpoints
 ```
 
-**Installs to:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agent/skills/`
+**Installs to:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`
 
 ### Agents
 
@@ -119,11 +119,11 @@ You are a code review agent. Given a set of file changes, you:
 4. Suggest concrete improvements with code examples
 ```
 
-**Installs to:** `~/.claude/agents/`, `~/.copilot/agents/`, `~/.agent/agents/`
+**Installs to:** `~/.claude/agents/`, `~/.copilot/agents/`, plus generated Codex custom agents in `~/.codex/agents/*.toml`
 
 ### MCPs
 
-Model Context Protocol server configurations. The toolkit reads these JSON files and registers the MCP server into each AI tool's config file — it does **not** run the server itself.
+Model Context Protocol server configurations. The toolkit reads these JSON files and registers the MCP server into each AI tool's config file. For Codex, it writes TOML under `~/.codex/config.toml`; for the other tools, it writes JSON config entries. The toolkit does **not** run the server itself.
 
 **Example `supabase-mcp.json`:**
 
@@ -141,20 +141,24 @@ Model Context Protocol server configurations. The toolkit reads these JSON files
 |-------|----------|-------------|
 | `name` | Yes | Identifier — used as the key in target config files |
 | `description` | Yes | Shown in the TUI catalog |
-| `type` | Yes | Protocol type (`sse`, `stdio`, etc.) |
-| `url` | Yes | Server endpoint URL |
+| `type` | No | Transport hint for tools that expect it |
+| `url` | No | Streamable HTTP server URL |
+| `command` | No | STDIO server command |
+| `args` | No | Command arguments for STDIO servers |
+| `env` | No | Environment variables for STDIO servers |
 | `setupNote` | No | Shown to the user after install (e.g. "restart your agent") |
 
-**What happens on install:** The toolkit writes `{ "type": "<type>", "url": "<url>" }` into each tool's MCP config:
+**What happens on install:** The toolkit writes MCP settings into each tool's native config format:
 
 ```
 ~/.claude/settings.json    → mcpServers.<name>
 ~/.cursor/mcp.json         → mcpServers.<name>
 ~/.vscode/mcp.json         → servers.<name>
 ~/.claude.json             → mcpServers.<name>
+~/.codex/config.toml       → [mcp_servers.<name>]
 ```
 
-Only config files that already exist locally are updated (the toolkit won't create `~/.vscode/mcp.json` if VS Code isn't set up). Global configs (`~/.claude.json`) are always created if missing.
+Only config files that already exist locally are updated for editor-specific integrations. Global configs such as `~/.claude.json` and `~/.codex/config.toml` are created if missing.
 
 ### Bundles
 
@@ -446,7 +450,7 @@ toolkit source add your-org/my-skills
     anthropics/          #   cached clone of anthropics/skills
 ```
 
-Installed items are **copied** to each tool's config directory:
+Installed items are **copied or generated** into each tool's config directory:
 
 ```
 ~/.claude/
@@ -457,6 +461,13 @@ Installed items are **copied** to each tool's config directory:
 ~/.copilot/
   skills/api-design/SKILL.md          # Same skill, mirrored
   agents/code-reviewer.agent.md
+
+~/.agents/
+  skills/api-design/SKILL.md          # Codex-discoverable shared skill
+
+~/.codex/
+  agents/code-reviewer.toml           # Generated Codex custom agent
+  config.toml                         # MCP servers registered here
 
 ~/.cursor/mcp.json                    # MCP servers registered here
 ~/.vscode/mcp.json                    # MCP servers registered here

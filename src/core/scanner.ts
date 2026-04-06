@@ -246,11 +246,17 @@ export interface McpConfigInput {
   name: string;
   type?: string;
   url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  envVars?: string[];
+  httpHeaders?: Record<string, string>;
+  envHttpHeaders?: Record<string, string>;
 }
 
 export function scanMcpConfig(config: McpConfigInput, source: string): ScanReport {
   const findings: ScanFinding[] = [];
-  const { name, url } = config;
+  const { name, url, command, args, env, envVars, httpHeaders, envHttpHeaders } = config;
 
   if (url) {
     // Protocol check
@@ -291,6 +297,23 @@ export function scanMcpConfig(config: McpConfigInput, source: string): ScanRepor
         message: `MCP URL uses http:// instead of https://`,
       });
     }
+  }
+
+  if (command) {
+    scanTextContent(
+      [
+        command,
+        ...(args || []),
+        ...Object.values(env || {}),
+        ...(envVars || []),
+        ...Object.values(httpHeaders || {}),
+        ...Object.keys(httpHeaders || {}),
+        ...Object.values(envHttpHeaders || {}),
+        ...Object.keys(envHttpHeaders || {}),
+      ].join('\n'),
+      `${name}.mcp`,
+      findings,
+    );
   }
 
   return {

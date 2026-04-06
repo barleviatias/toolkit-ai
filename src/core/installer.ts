@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import type { Catalog, CatalogEntry, InstallResult, McpConfigFile } from '../types.js';
+import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry } from '../types.js';
 import {
   SKILL_TARGETS, AGENT_TARGETS,
+  CODEX_AGENT_TARGET,
   LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES,
   CACHE_DIR,
   getConfigFormat,
@@ -19,6 +20,7 @@ import {
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources } from './sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
+import { renderCodexAgent, writeCodexMcpServer } from './codex-config.js';
 
 export interface InstallOptions {
   force?: boolean;
@@ -35,9 +37,22 @@ interface ExternalResourcesLike {
   bundles: CatalogEntry[];
 }
 
+function toSharedMcpEntry(entry: McpServerEntry): McpServerEntry {
+  return {
+    type: entry.type,
+    url: entry.url,
+    command: entry.command,
+    args: entry.args,
+    env: entry.env,
+    cwd: entry.cwd,
+    bearerTokenEnvVar: entry.bearerTokenEnvVar,
+    startupTimeoutSec: entry.startupTimeoutSec,
+  };
+}
+
 function writeMcpToConfigs(
   mcpName: string,
-  newEntry: { type: string; url: string },
+  newEntry: McpServerEntry,
   opts: InstallOptions,
   log: LogFn,
 ): InstallResult['action'] {
@@ -48,6 +63,21 @@ function writeMcpToConfigs(
   for (const configPath of configsToWrite) {
     if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
       ensureDir(path.dirname(configPath));
+    }
+
+    const format = getConfigFormat(configPath);
+    if (format === 'codex-mcp') {
+      const result = writeCodexMcpServer(configPath, mcpName, newEntry, opts.force);
+      if (result === 'updated') {
+        if (action !== 'installed') action = 'updated';
+        log(`  [~] mcp ${mcpName} updated in ${configPath}`);
+      } else if (result === 'installed') {
+        action = 'installed';
+        log(`  [+] mcp ${mcpName} registered in ${configPath}`);
+      } else {
+        log(`  [OK] mcp ${mcpName} (already registered in ${configPath})`);
+      }
+      continue;
     }
 
     let config: McpConfigFile;
@@ -62,20 +92,20 @@ function writeMcpToConfigs(
       }
     }
 
-    const format = getConfigFormat(configPath);
     const section = format === 'servers' ? 'servers' : 'mcpServers';
     if (!config[section]) config[section] = {};
+    const sharedEntry = toSharedMcpEntry(newEntry);
 
     const existingEntry = config[section]![mcpName];
     if (existingEntry && !opts.force) {
-      const same = existingEntry.type === newEntry.type && existingEntry.url === newEntry.url;
+      const same = JSON.stringify(existingEntry) === JSON.stringify(sharedEntry);
       if (same) {
         log(`  [OK] mcp ${mcpName} (already registered in ${configPath})`);
         continue;
       }
     }
 
-    config[section]![mcpName] = newEntry;
+    config[section]![mcpName] = sharedEntry;
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
     if (existingEntry) {
@@ -222,6 +252,7 @@ export function installExternalAgent(
   const lock = readLock();
   const itemKey = `agent:${agentName}`;
   const filename = path.basename(agentPath);
+  const codexAgent = renderCodexAgent(src);
 
   const lockEntry = lock.installed[itemKey];
   const needsUpdate = lockEntry && lockEntry.hash !== hash;
@@ -240,6 +271,22 @@ export function installExternalAgent(
     } else {
       log(`  [OK] agent ${agentName} (up to date)`);
     }
+  }
+
+  const codexDest = path.join(CODEX_AGENT_TARGET, `${codexAgent.name}.toml`);
+  ensureDir(path.dirname(codexDest));
+  const codexExists = fs.existsSync(codexDest);
+  if (!codexExists || shouldForce) {
+    fs.writeFileSync(codexDest, codexAgent.content, 'utf8');
+    if (codexExists) {
+      if (action !== 'installed') action = 'updated';
+      log(`  [~] agent ${agentName} updated in ${codexDest}`);
+    } else {
+      action = 'installed';
+      log(`  [+] agent ${agentName} -> ${codexDest}`);
+    }
+  } else {
+    log(`  [OK] agent ${agentName} (up to date)`);
   }
 
   recordInstall(lock, itemKey, hash);
@@ -269,7 +316,17 @@ export function installExternalMcp(
     throw new Error(`Failed to parse MCP config: ${src}`);
   }
 
-  const report = scanMcpConfig({ name: mcpName, type: mcpConfig.type, url: mcpConfig.url }, sourceName);
+  const report = scanMcpConfig({
+    name: mcpName,
+    type: mcpConfig.type,
+    url: mcpConfig.url,
+    command: mcpConfig.command,
+    args: mcpConfig.args,
+    env: mcpConfig.env,
+    envVars: mcpConfig.envVars,
+    httpHeaders: mcpConfig.httpHeaders,
+    envHttpHeaders: mcpConfig.envHttpHeaders,
+  }, sourceName);
   if (!report.passed && !opts.force) {
     log(formatReport(report));
     log(`      Skipped — use --force to override`);
@@ -277,7 +334,24 @@ export function installExternalMcp(
   }
   if (report.findings.length > 0) log(formatReport(report));
 
-  const newEntry = { type: mcpConfig.type, url: mcpConfig.url };
+  const newEntry = {
+    type: mcpConfig.type,
+    url: mcpConfig.url,
+    command: mcpConfig.command,
+    args: mcpConfig.args,
+    env: mcpConfig.env,
+    envVars: mcpConfig.envVars,
+    cwd: mcpConfig.cwd,
+    bearerTokenEnvVar: mcpConfig.bearerTokenEnvVar,
+    httpHeaders: mcpConfig.httpHeaders,
+    envHttpHeaders: mcpConfig.envHttpHeaders,
+    startupTimeoutSec: mcpConfig.startupTimeoutSec,
+    toolTimeoutSec: mcpConfig.toolTimeoutSec,
+    enabled: mcpConfig.enabled,
+    required: mcpConfig.required,
+    enabledTools: mcpConfig.enabledTools,
+    disabledTools: mcpConfig.disabledTools,
+  };
   const lock = readLock();
   const itemKey = `mcp:${mcpName}`;
   const action = writeMcpToConfigs(mcpName, newEntry, opts, log);
@@ -317,7 +391,17 @@ export function installMcp(
 
   const mcpConfig = loadMcpConfig(entry);
 
-  const report = scanMcpConfig({ name, type: mcpConfig.type, url: mcpConfig.url }, entry.source);
+  const report = scanMcpConfig({
+    name,
+    type: mcpConfig.type,
+    url: mcpConfig.url,
+    command: mcpConfig.command,
+    args: mcpConfig.args,
+    env: mcpConfig.env,
+    envVars: mcpConfig.envVars,
+    httpHeaders: mcpConfig.httpHeaders,
+    envHttpHeaders: mcpConfig.envHttpHeaders,
+  }, entry.source);
   if (!report.passed && !opts.force) {
     log(formatReport(report));
     log(`      Skipped — use --force to override`);
@@ -325,7 +409,24 @@ export function installMcp(
   }
   if (report.findings.length > 0) log(formatReport(report));
 
-  const newEntry = { type: mcpConfig.type, url: mcpConfig.url };
+  const newEntry = {
+    type: mcpConfig.type,
+    url: mcpConfig.url,
+    command: mcpConfig.command,
+    args: mcpConfig.args,
+    env: mcpConfig.env,
+    envVars: mcpConfig.envVars,
+    cwd: mcpConfig.cwd,
+    bearerTokenEnvVar: mcpConfig.bearerTokenEnvVar,
+    httpHeaders: mcpConfig.httpHeaders,
+    envHttpHeaders: mcpConfig.envHttpHeaders,
+    startupTimeoutSec: mcpConfig.startupTimeoutSec,
+    toolTimeoutSec: mcpConfig.toolTimeoutSec,
+    enabled: mcpConfig.enabled,
+    required: mcpConfig.required,
+    enabledTools: mcpConfig.enabledTools,
+    disabledTools: mcpConfig.disabledTools,
+  };
   const currentHash = entry.hash;
   const lock = readLock();
   const itemKey = `mcp:${name}`;

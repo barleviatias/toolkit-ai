@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { AGENT_TARGETS, MCP_CONFIG_FILES, SKILL_TARGETS, getConfigFormat } from './platform.js';
+import { AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, SKILL_TARGETS, getConfigFormat } from './platform.js';
+import { parseCodexMcpSection } from './codex-config.js';
 
 export interface InstalledState {
   installedKeys: Set<string>;
@@ -24,14 +25,20 @@ function hasInstalledSkill(skillName: string): boolean {
   return SKILL_TARGETS.some(dir => fs.existsSync(path.join(dir, skillName)));
 }
 
-function hasInstalledAgent(agentPath: string): boolean {
+function hasInstalledAgent(agentName: string, agentPath: string): boolean {
   const filename = path.basename(agentPath);
-  return AGENT_TARGETS.some(dir => fs.existsSync(path.join(dir, filename)));
+  return AGENT_TARGETS.some(dir => fs.existsSync(path.join(dir, filename))) ||
+    fs.existsSync(path.join(CODEX_AGENT_TARGET, `${agentName}.toml`));
 }
 
 function hasInstalledMcp(mcpName: string): boolean {
   for (const configPath of MCP_CONFIG_FILES) {
     if (!fs.existsSync(configPath)) continue;
+    if (getConfigFormat(configPath) === 'codex-mcp') {
+      const text = fs.readFileSync(configPath, 'utf8');
+      if (parseCodexMcpSection(text, mcpName)) return true;
+      continue;
+    }
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, any>;
       const section = getConfigFormat(configPath) === 'servers' ? 'servers' : 'mcpServers';
@@ -59,7 +66,7 @@ export function getInstalledState(catalog: Catalog, lock: LockFile): InstalledSt
 
   for (const agent of catalog.agents) {
     const key = `agent:${agent.name}`;
-    if (!installedKeys.has(key) && hasInstalledAgent(agent.path)) {
+    if (!installedKeys.has(key) && hasInstalledAgent(agent.name, agent.path)) {
       installedKeys.add(key);
       recoveredKeys.add(key);
     }
