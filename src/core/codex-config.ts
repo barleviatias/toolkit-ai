@@ -4,6 +4,9 @@ import { ensureDir } from './fs-helpers.js';
 import { parseFrontmatter } from './catalog.js';
 import type { McpServerEntry } from '../types.js';
 
+// Reads, updates, and removes Codex TOML config blocks for MCP servers and agents.
+
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -16,6 +19,7 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
+// Codex stores agent instructions as TOML multiline strings.
 function tomlMultiline(value: string): string {
   return `"""\n${value.replace(/\r\n/g, '\n').replace(/"""/g, '\\"""')}\n"""`;
 }
@@ -29,6 +33,7 @@ function sortRecord(record?: Record<string, string>): Record<string, string> | u
   return Object.fromEntries(Object.keys(record).sort().map(key => [key, record[key]]));
 }
 
+// Normalize optional fields so comparisons and writes stay deterministic.
 function normalizeCodexMcpEntry(entry: McpServerEntry): McpServerEntry {
   return {
     url: entry.url,
@@ -53,7 +58,9 @@ function getCodexSectionPatterns(name: string): { main: RegExp; owned: RegExp } 
   const bare = escapeRegex(name);
   const quoted = escapeRegex(JSON.stringify(name));
   return {
+    // Match either [mcp_servers.foo] or [mcp_servers."foo bar"].
     main: new RegExp(`^\\[mcp_servers\\.(?:${bare}|${quoted})\\]\\s*$`),
+    // Treat nested tables under the same server as part of the same owned block.
     owned: new RegExp(`^\\[mcp_servers\\.(?:${bare}|${quoted})(?:\\..+)?\\]\\s*$`),
   };
 }
@@ -71,6 +78,7 @@ function findCodexSectionBounds(text: string, name: string): { start: number; en
   }
   if (start === -1) return null;
 
+  // Stop when the next top-level section begins, unless it still belongs to this server.
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     const trimmed = lines[i].trim();
@@ -121,6 +129,7 @@ export function parseCodexMcpSection(text: string, name: string): McpServerEntry
     const key = match[1];
     const value = parseTomlValue(match[2]);
 
+    // Nested TOML tables map to object fields on the MCP entry.
     if (section === 'env') {
       if (!config.env) config.env = {};
       config.env[key] = String(value);
@@ -209,6 +218,7 @@ export function writeCodexMcpServer(
   const bounds = findCodexSectionBounds(existingText, name);
   let nextText: string;
   if (!bounds) {
+    // Append a new server block when no entry exists yet.
     nextText = existingText.trimEnd()
       ? `${existingText.trimEnd()}\n\n${sectionText}`
       : sectionText;
@@ -217,6 +227,7 @@ export function writeCodexMcpServer(
   }
 
   const currentLines = existingText.split(/\r?\n/);
+  // Replace the whole owned block so removed nested tables do not linger.
   const replacement = sectionText.trimEnd().split('\n');
   currentLines.splice(bounds.start, bounds.end - bounds.start, ...replacement);
   nextText = `${currentLines.join('\n').trimEnd()}\n`;
@@ -241,6 +252,7 @@ export function renderCodexAgent(agentPath: string): { name: string; description
   const meta = parseFrontmatter(source);
   const name = meta.name || path.basename(agentPath, '.agent.md');
   const description = meta.description || '';
+  // Codex agent files keep TOML metadata in frontmatter and the prompt body below it.
   const developerInstructions = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
 
   const content = [
