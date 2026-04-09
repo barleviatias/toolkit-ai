@@ -6,14 +6,15 @@ export const HOME = os.homedir();
 export const SKILL_TARGETS = [
   path.join(HOME, '.claude', 'skills'),
   path.join(HOME, '.copilot', 'skills'),
-  path.join(HOME, '.agent', 'skills'),
+  path.join(HOME, '.agents', 'skills'),
 ];
 
 export const AGENT_TARGETS = [
   path.join(HOME, '.claude', 'agents'),
   path.join(HOME, '.copilot', 'agents'),
-  path.join(HOME, '.agent', 'agents'),
 ];
+
+export const CODEX_AGENT_TARGET = path.join(HOME, '.codex', 'agents');
 
 // MCP config file paths
 // Local: only written to if the file already exists (tool must be installed)
@@ -28,6 +29,7 @@ const GLOBAL_MCP_CONFIGS_ALL: { path: string; platform: NodeJS.Platform[] }[] = 
   { path: path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'), platform: ['win32'] },
   { path: path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'), platform: ['win32'] },
   { path: path.join(HOME, '.claude.json'), platform: ['darwin', 'linux', 'win32'] },
+  { path: path.join(HOME, '.codex', 'config.toml'), platform: ['darwin', 'linux', 'win32'] },
 ];
 
 // Filter global configs to current platform
@@ -44,7 +46,8 @@ export const LOCK_FILE = path.join(TOOLKIT_HOME, 'lock.json');
 export const SOURCES_FILE = path.join(TOOLKIT_HOME, 'sources.json');
 export const CACHE_DIR = path.join(TOOLKIT_HOME, 'cache');
 
-export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' {
+export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' | 'codex-mcp' {
+  if (configPath.endsWith(path.join('.codex', 'config.toml'))) return 'codex-mcp';
   const isVsCode = configPath.includes('.vscode') ||
     (configPath.includes('AppData') && configPath.includes('Code'));
   const isIntelliJ = configPath.includes('intellij');

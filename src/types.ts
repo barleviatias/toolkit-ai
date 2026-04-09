@@ -25,10 +25,48 @@ export interface BundleConfig {
 export interface McpConfig {
   name: string;
   description: string;
-  type: string;
-  url: string;
+  type?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  envVars?: string[];
+  cwd?: string;
+  bearerTokenEnvVar?: string;
+  httpHeaders?: Record<string, string>;
+  envHttpHeaders?: Record<string, string>;
+  startupTimeoutSec?: number;
+  toolTimeoutSec?: number;
+  enabled?: boolean;
+  required?: boolean;
+  enabledTools?: string[];
+  disabledTools?: string[];
   setupNote?: string;
   docsUrl?: string;
+}
+
+export interface McpServerEntry {
+  type?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  envVars?: string[];
+  cwd?: string;
+  bearerTokenEnvVar?: string;
+  httpHeaders?: Record<string, string>;
+  envHttpHeaders?: Record<string, string>;
+  startupTimeoutSec?: number;
+  toolTimeoutSec?: number;
+  enabled?: boolean;
+  required?: boolean;
+  enabledTools?: string[];
+  disabledTools?: string[];
+}
+
+export interface McpConfigFile {
+  mcpServers?: Record<string, McpServerEntry>;
+  servers?: Record<string, McpServerEntry>;
 }
 
 export interface LockEntry {

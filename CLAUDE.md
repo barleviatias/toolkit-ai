@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-A source-driven toolkit CLI with a React Ink TUI for managing AI skills, agents, and MCP connections across Claude Code, GitHub Copilot, and Cursor. All resources come from external GitHub/Bitbucket sources — no bundled content.
+A source-driven toolkit CLI with a React Ink TUI for managing AI skills, agents, and MCP connections across Claude Code, Codex, GitHub Copilot, and Cursor. All resources come from external GitHub/Bitbucket sources — no bundled content.
 
 > **Important:** Keep [README.md](README.md) up to date with any changes to commands, setup, or usage.
 
@@ -114,9 +114,9 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 
 ### Install targets
 
-- Skills: `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agent/skills/`
-- Agents: `~/.claude/agents/`, `~/.copilot/agents/`, `~/.agent/agents/`
-- MCPs: `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`
+- Skills: `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`
+- Agents: `~/.claude/agents/`, `~/.copilot/agents/`, generated Codex agents in `~/.codex/agents/*.toml`
+- MCPs: `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`, `~/.codex/config.toml`
 
 ### CI checks (GitHub Actions)
 
@@ -129,4 +129,4 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 - All names are lowercase-hyphenated (e.g., `test-driven-development`)
 - Skills require `name` and `description` in YAML frontmatter
 - Agents use `*.agent.md` naming with YAML frontmatter
-- MCPs are JSON with `name`, `description`, `type`, `url` fields
+- MCPs are JSON manifests that can describe either URL-based or command-based servers
