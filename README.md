@@ -12,7 +12,7 @@
 
 **toolkit-ai**
 
-Manage AI skills, agents, MCPs, and bundles across Claude Code, Copilot, and Cursor — from any GitHub or Bitbucket source.
+Manage AI skills, agents, MCPs, and bundles across Codex, Claude Code, Copilot, and Cursor — from any GitHub or Bitbucket source.
 
 [![npm](https://img.shields.io/npm/v/toolkit-ai)](https://www.npmjs.com/package/toolkit-ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -90,7 +90,7 @@ Apply these conventions when designing new endpoints or reviewing API PRs.
 - Include pagination for list endpoints
 ```
 
-**Installs to:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agent/skills/`
+**Installs to:** `~/.codex/skills/`, `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agent/skills/`
 
 ### Agents
 
@@ -119,7 +119,7 @@ You are a code review agent. Given a set of file changes, you:
 4. Suggest concrete improvements with code examples
 ```
 
-**Installs to:** `~/.claude/agents/`, `~/.copilot/agents/`, `~/.agent/agents/`
+**Installs to:** `~/.codex/agents/`, `~/.claude/agents/`, `~/.copilot/agents/`, `~/.agent/agents/`
 
 ### MCPs
 

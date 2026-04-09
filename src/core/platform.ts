@@ -4,12 +4,14 @@ import os from 'os';
 export const HOME = os.homedir();
 
 export const SKILL_TARGETS = [
+  path.join(HOME, '.codex', 'skills'),
   path.join(HOME, '.claude', 'skills'),
   path.join(HOME, '.copilot', 'skills'),
   path.join(HOME, '.agent', 'skills'),
 ];
 
 export const AGENT_TARGETS = [
+  path.join(HOME, '.codex', 'agents'),
   path.join(HOME, '.claude', 'agents'),
   path.join(HOME, '.copilot', 'agents'),
   path.join(HOME, '.agent', 'agents'),
