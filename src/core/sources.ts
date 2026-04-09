@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import type { Source, SourcesConfig, CatalogEntry } from '../types.js';
-import { SOURCES_FILE, CACHE_DIR } from './platform.js';
+import { SOURCES_FILE, CACHE_DIR, assertSafePathSegment } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 import { parseFrontmatter, hashDir, hashFile } from './catalog.js';
 
@@ -46,6 +46,7 @@ export function parseSourceInput(input: string): Source {
   }
 
   const name = repo.split('/').pop() || repo;
+  assertSafePathSegment(name, 'source name');
   return { name, type, repo };
 }
 
@@ -88,7 +89,7 @@ export function removeSource(name: string): void {
 // ---------------------------------------------------------------------------
 
 function getCacheDir(source: Source): string {
-  return path.join(CACHE_DIR, source.name);
+  return path.join(CACHE_DIR, assertSafePathSegment(source.name, 'source name'));
 }
 
 function isCacheStale(source: Source, ttl: number): boolean {

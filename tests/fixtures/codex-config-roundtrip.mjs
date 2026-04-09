@@ -5,7 +5,7 @@ import { pathToFileURL } from 'url';
 const [, , tempDir] = process.argv;
 const buildDir = process.env.TEST_BUILD_DIR;
 const { writeCodexMcpServer, parseCodexMcpSection, removeCodexMcpServer } =
-  await import(pathToFileURL(path.join(buildDir, 'core', 'codex-config.js')).href);
+  await import(pathToFileURL(path.join(buildDir, 'core', 'platform.js')).href);
 
 const configPath = path.join(tempDir, 'config.toml');
 fs.writeFileSync(configPath, 'model = "gpt-5.4"\n');
@@ -27,7 +27,9 @@ const entry = {
 const firstWrite = writeCodexMcpServer(configPath, 'example', entry);
 const secondWrite = writeCodexMcpServer(configPath, 'example', entry);
 const parsed = parseCodexMcpSection(fs.readFileSync(configPath, 'utf8'), 'example');
-const removed = removeCodexMcpServer(configPath, 'example');
+const removedText = removeCodexMcpServer(fs.readFileSync(configPath, 'utf8'), 'example');
+if (removedText !== null) fs.writeFileSync(configPath, removedText);
+const removed = removedText !== null;
 const afterRemove = parseCodexMcpSection(fs.readFileSync(configPath, 'utf8'), 'example');
 
 process.stdout.write(JSON.stringify({ firstWrite, secondWrite, parsed, removed, afterRemove }));

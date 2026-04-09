@@ -7,6 +7,8 @@ import {
   LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES,
   CACHE_DIR,
   getConfigFormat,
+  writeCodexMcpServer,
+  assertSafePathSegment,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import {
@@ -16,11 +18,11 @@ import {
   findBundle,
   loadBundleConfig,
   loadMcpConfig,
+  parseFrontmatter,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources } from './sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
-import { renderCodexAgent, writeCodexMcpServer } from './codex-config.js';
 
 export interface InstallOptions {
   force?: boolean;
@@ -35,6 +37,27 @@ interface ExternalResourcesLike {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+}
+
+function renderCodexAgent(agentPath: string): { name: string; description: string; content: string } {
+  const source = fs.readFileSync(agentPath, 'utf8');
+  const meta = parseFrontmatter(source);
+  const name = assertSafePathSegment(meta.name || path.basename(agentPath, '.agent.md'), 'agent name');
+  const description = meta.description || '';
+  const developerInstructions = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+  const tomlMultiline = (value: string) => `"""\n${value.replace(/\r\n/g, '\n').replace(/"""/g, '\\"""')}\n"""`;
+  const tomlString = (value: string) => JSON.stringify(value);
+
+  return {
+    name,
+    description,
+    content: [
+      `name = ${tomlString(name)}`,
+      `description = ${tomlString(description)}`,
+      `developer_instructions = ${tomlMultiline(developerInstructions)}`,
+      '',
+    ].join('\n'),
+  };
 }
 
 function toSharedMcpEntry(entry: McpServerEntry): McpServerEntry {
@@ -186,6 +209,7 @@ export function installExternalSkill(
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
+  assertSafePathSegment(skillName, 'skill name');
   const src = path.join(CACHE_DIR, sourceName, skillPath);
   if (!fs.existsSync(src)) throw new Error(`External skill not found at: ${src}`);
 
@@ -238,6 +262,7 @@ export function installExternalAgent(
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
+  assertSafePathSegment(agentName, 'agent name');
   const src = path.join(CACHE_DIR, sourceName, agentPath);
   if (!fs.existsSync(src)) throw new Error(`External agent not found at: ${src}`);
 

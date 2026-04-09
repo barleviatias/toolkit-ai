@@ -299,22 +299,19 @@ export function scanMcpConfig(config: McpConfigInput, source: string): ScanRepor
     }
   }
 
-  if (command) {
-    scanTextContent(
-      [
-        command,
-        ...(args || []),
-        ...Object.values(env || {}),
-        ...(envVars || []),
-        ...Object.values(httpHeaders || {}),
-        ...Object.keys(httpHeaders || {}),
-        ...Object.values(envHttpHeaders || {}),
-        ...Object.keys(envHttpHeaders || {}),
-      ].join('\n'),
-      `${name}.mcp`,
-      findings,
-    );
-  }
+  const suspiciousText = [
+    command,
+    ...(args || []),
+    ...Object.values(env || {}),
+    ...(envVars || []),
+    ...Object.values(httpHeaders || {}),
+    ...Object.keys(httpHeaders || {}),
+    ...Object.values(envHttpHeaders || {}),
+    ...Object.keys(envHttpHeaders || {}),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  if (suspiciousText) scanTextContent(suspiciousText, `${name}.mcp`, findings);
 
   return {
     item: `mcp:${name}`,

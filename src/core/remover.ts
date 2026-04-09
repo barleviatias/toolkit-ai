@@ -1,11 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat } from './platform.js';
+import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat, removeCodexMcpServer, assertSafePathSegment } from './platform.js';
 import { removeLink } from './fs-helpers.js';
 import { findAgent, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
-import { removeCodexMcpServer } from './codex-config.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -21,6 +20,7 @@ export function removeItemFromFilesystem(
   const [type, name] = itemKey.split(':');
 
   if (type === 'skill') {
+    assertSafePathSegment(name, 'skill name');
     let removed = false;
     for (const dir of SKILL_TARGETS) {
       const dest = path.join(dir, name);
@@ -28,6 +28,7 @@ export function removeItemFromFilesystem(
     }
     if (!removed) log(`  skill ${name} was not installed`);
   } else if (type === 'agent') {
+    assertSafePathSegment(name, 'agent name');
     const entry = findAgent(catalog, name);
     const filename = entry ? path.basename(entry.path) : `${name}.agent.md`;
     let removed = false;
@@ -43,7 +44,10 @@ export function removeItemFromFilesystem(
     let removed = false;
     for (const configPath of existing) {
       if (getConfigFormat(configPath) === 'codex-mcp') {
-        if (removeCodexMcpServer(configPath, name)) {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const next = removeCodexMcpServer(raw, name);
+        if (next !== null) {
+          fs.writeFileSync(configPath, next);
           log(`  [-] mcp ${name} removed from ${configPath}`);
           removed = true;
         }
