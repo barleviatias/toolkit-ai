@@ -12,6 +12,7 @@ export type LogFn = (msg: string) => void;
 // Remove an item from the filesystem only (no lock changes)
 // ---------------------------------------------------------------------------
 
+/** Remove an item's files from all install targets and deregister from MCP configs. */
 export function removeItemFromFilesystem(
   catalog: Catalog,
   itemKey: string,
@@ -72,6 +73,7 @@ export function removeItemFromFilesystem(
 // Public remove functions
 // ---------------------------------------------------------------------------
 
+/** Remove a skill by name, cleaning up all install targets and the lock file. */
 export function removeSkill(catalog: Catalog, name: string, log?: LogFn): void {
   const lock = readLock();
   const itemKey = `skill:${name}`;
@@ -84,6 +86,7 @@ export function removeSkill(catalog: Catalog, name: string, log?: LogFn): void {
   writeLock(lock);
 }
 
+/** Remove an agent by name, cleaning up all install targets and the lock file. */
 export function removeAgent(catalog: Catalog, name: string, log?: LogFn): void {
   const lock = readLock();
   const itemKey = `agent:${name}`;
@@ -96,6 +99,7 @@ export function removeAgent(catalog: Catalog, name: string, log?: LogFn): void {
   writeLock(lock);
 }
 
+/** Remove an MCP by name, deregistering from all config files and the lock. */
 export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
   const lock = readLock();
   const itemKey = `mcp:${name}`;
@@ -108,6 +112,7 @@ export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
   writeLock(lock);
 }
 
+/** Remove a bundle and all its items (unless protected by another bundle). */
 export function removeBundle(catalog: Catalog, name: string, log: LogFn = console.log): void {
   log(`\nRemoving bundle: ${name}`);
   const lock = readLock();

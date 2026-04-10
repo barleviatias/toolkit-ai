@@ -5,6 +5,7 @@ import { LOCK_FILE } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 import { findBundle } from './catalog.js';
 
+/** Read the lock file from disk, returning an empty lock if it doesn't exist. */
 export function readLock(): LockFile {
   try {
     return JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')) as LockFile;
@@ -13,6 +14,7 @@ export function readLock(): LockFile {
   }
 }
 
+/** Persist the lock file to disk with an updated timestamp. */
 export function writeLock(lock: LockFile): void {
   ensureDir(path.dirname(LOCK_FILE));
   lock.lastUpdated = new Date().toISOString();

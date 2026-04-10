@@ -8,6 +8,7 @@ import { CACHE_DIR } from './platform.js';
 // Frontmatter parser (YAML --- blocks, zero deps)
 // ---------------------------------------------------------------------------
 
+/** Parse YAML frontmatter from a `---` delimited block. Returns key-value pairs. */
 export function parseFrontmatter(content: string): Record<string, string> {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -38,10 +39,12 @@ export function parseFrontmatter(content: string): Record<string, string> {
 // Hash helpers
 // ---------------------------------------------------------------------------
 
+/** Compute MD5 hash of a single file's contents. */
 export function hashFile(filePath: string): string {
   return crypto.createHash('md5').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+/** Compute a deterministic MD5 hash over all files in a directory (sorted by relative path). */
 export function hashDir(dirPath: string): string {
   const h = crypto.createHash('md5');
   const files: { rel: string; abs: string }[] = [];
@@ -61,26 +64,32 @@ export function hashDir(dirPath: string): string {
 // Lookup helpers
 // ---------------------------------------------------------------------------
 
+/** Find a skill entry by name in the catalog. */
 export function findSkill(catalog: Catalog, name: string): CatalogEntry | undefined {
   return catalog.skills.find(s => s.name === name);
 }
 
+/** Find an agent entry by name in the catalog. */
 export function findAgent(catalog: Catalog, name: string): CatalogEntry | undefined {
   return catalog.agents.find(a => a.name === name);
 }
 
+/** Find an MCP entry by name in the catalog. */
 export function findMcp(catalog: Catalog, name: string): CatalogEntry | undefined {
   return catalog.mcps.find(m => m.name === name);
 }
 
+/** Find a bundle entry by name in the catalog. */
 export function findBundle(catalog: Catalog, name: string): CatalogEntry | undefined {
   return catalog.bundles.find(p => p.name === name);
 }
 
+/** Load and parse a bundle's JSON config from the source cache. */
 export function loadBundleConfig(entry: CatalogEntry): BundleConfig {
   return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, entry.source, entry.path), 'utf8')) as BundleConfig;
 }
 
+/** Load and parse an MCP's JSON config from the source cache. */
 export function loadMcpConfig(entry: CatalogEntry): McpConfig {
   return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, entry.source, entry.path), 'utf8')) as McpConfig;
 }

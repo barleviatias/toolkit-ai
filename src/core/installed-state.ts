@@ -51,6 +51,7 @@ function hasInstalledMcp(mcpName: string): boolean {
   return false;
 }
 
+/** Build installed state by merging lock file data with filesystem discovery. Recovers items missing from the lock. */
 export function getInstalledState(catalog: Catalog, lock: LockFile): InstalledState {
   const installedKeys = new Set<string>();
   addLockEntries(lock, installedKeys);

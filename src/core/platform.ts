@@ -48,6 +48,7 @@ export const LOCK_FILE = path.join(TOOLKIT_HOME, 'lock.json');
 export const SOURCES_FILE = path.join(TOOLKIT_HOME, 'sources.json');
 export const CACHE_DIR = path.join(TOOLKIT_HOME, 'cache');
 
+/** Validate that a string is safe to use as a single path segment (no traversal, no slashes). */
 export function assertSafePathSegment(value: string, label = 'path segment'): string {
   if (!value || value === '.' || value === '..') {
     throw new Error(`Unsafe ${label}: ${value}`);
@@ -58,6 +59,7 @@ export function assertSafePathSegment(value: string, label = 'path segment'): st
   return value;
 }
 
+/** Determine the MCP config format for a given config file path. */
 export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' | 'codex-mcp' {
   if (configPath.endsWith(path.join('.codex', 'config.toml'))) return 'codex-mcp';
   const isVsCode = configPath.includes('.vscode') ||
@@ -150,6 +152,7 @@ function parseTomlValue(raw: string): string | number | boolean | string[] {
   return Number(value);
 }
 
+/** Parse a `[mcp_servers.<name>]` section from Codex TOML config into an MCP entry. */
 export function parseCodexMcpSection(text: string, name: string): McpServerEntry | null {
   const bounds = findCodexSectionBounds(text, name);
   if (!bounds) return null;
@@ -208,6 +211,7 @@ export function parseCodexMcpSection(text: string, name: string): McpServerEntry
   return normalizeCodexMcpEntry(config);
 }
 
+/** Write (or update) an MCP server entry into a Codex TOML config file. */
 export function writeCodexMcpServer(
   configPath: string,
   name: string,
@@ -270,6 +274,7 @@ export function writeCodexMcpServer(
   return 'updated';
 }
 
+/** Remove an MCP server section from Codex TOML config text. Returns modified text or null if not found. */
 export function removeCodexMcpServer(text: string, name: string): string | null {
   const bounds = findCodexSectionBounds(text, name);
   if (!bounds) return null;

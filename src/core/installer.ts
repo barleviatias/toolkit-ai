@@ -186,6 +186,7 @@ function installBundleEntry(
 // Install a skill
 // ---------------------------------------------------------------------------
 
+/** Install a skill by name from the catalog (looks up source, scans, copies to targets). */
 export function installSkill(
   catalog: Catalog,
   name: string,
@@ -201,6 +202,7 @@ export function installSkill(
 // Install a skill from an external source (cached repo)
 // ---------------------------------------------------------------------------
 
+/** Install a skill from an external source cache. Runs security scan before copying. */
 export function installExternalSkill(
   sourceName: string,
   skillName: string,
@@ -254,6 +256,7 @@ export function installExternalSkill(
 // Install an external agent (from cached source)
 // ---------------------------------------------------------------------------
 
+/** Install an agent from an external source cache. Runs security scan before copying. */
 export function installExternalAgent(
   sourceName: string,
   agentName: string,
@@ -323,6 +326,7 @@ export function installExternalAgent(
 // Install an external MCP (from cached source)
 // ---------------------------------------------------------------------------
 
+/** Install an MCP from an external source cache. Writes config to all target files. */
 export function installExternalMcp(
   sourceName: string,
   mcpName: string,
@@ -390,6 +394,7 @@ export function installExternalMcp(
 // Install an agent
 // ---------------------------------------------------------------------------
 
+/** Install an agent by name from the catalog. */
 export function installAgent(
   catalog: Catalog,
   name: string,
@@ -405,6 +410,7 @@ export function installAgent(
 // Install an MCP
 // ---------------------------------------------------------------------------
 
+/** Install an MCP server by name from the catalog. */
 export function installMcp(
   catalog: Catalog,
   name: string,
@@ -467,6 +473,7 @@ export function installMcp(
 // Install a bundle (collection of skills + agents + mcps)
 // ---------------------------------------------------------------------------
 
+/** Install all items in a bundle (skills + agents + MCPs) by name. */
 export function installBundle(
   catalog: Catalog,
   name: string,
@@ -478,6 +485,7 @@ export function installBundle(
   return installExternalBundle(catalog, entry.source, name, entry.path, entry.hash, opts, log);
 }
 
+/** Install a bundle from an external source cache, resolving each item from the catalog. */
 export function installExternalBundle(
   catalog: Catalog,
   sourceName: string,

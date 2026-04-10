@@ -7,6 +7,7 @@ import { TypeFilter } from '../components/TypeFilter.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
+import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
 import {
@@ -42,47 +43,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
 
   const updateCount = useMemo(() => items.filter(i => i.hasUpdate).length, [items]);
 
-  const filtered = useMemo(() => {
-    let result = items;
-    if (typeFilter.size > 0) {
-      result = result.filter(i => typeFilter.has(i.type));
-    }
-    if (query) {
-      const q = query.toLowerCase();
-      result = result.filter(
-        i => i.name.toLowerCase().includes(q) ||
-             i.description.toLowerCase().includes(q) ||
-             i.type.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [items, query, typeFilter]);
-
-  const typeCounts = useMemo(() => {
-    const searchFiltered = query
-      ? items.filter(i => {
-          const q = query.toLowerCase();
-          return i.name.toLowerCase().includes(q) ||
-                 i.description.toLowerCase().includes(q) ||
-                 i.type.toLowerCase().includes(q);
-        })
-      : items;
-    const counts: Record<string, number> = {};
-    for (const item of searchFiltered) {
-      counts[item.type] = (counts[item.type] || 0) + 1;
-    }
-    return counts;
-  }, [items, query]);
-
-  const searchFilteredTotal = useMemo(() => {
-    if (!query) return items.length;
-    const q = query.toLowerCase();
-    return items.filter(
-      i => i.name.toLowerCase().includes(q) ||
-           i.description.toLowerCase().includes(q) ||
-           i.type.toLowerCase().includes(q)
-    ).length;
-  }, [items, query]);
+  const { filtered, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(items, query, typeFilter);
 
   // Focus switching + global keys
   useInput((input, key) => {
@@ -143,8 +104,8 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       }
       setMessage(`Installed ${type} ${name}`);
       onRefresh();
-    } catch (e: any) {
-      setMessage(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [catalog, items, filtered, onRefresh]);
 
@@ -157,8 +118,8 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (type === 'bundle') removeBundle(catalog, name, () => {});
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
-    } catch (e: any) {
-      setMessage(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [catalog, onRefresh]);
 

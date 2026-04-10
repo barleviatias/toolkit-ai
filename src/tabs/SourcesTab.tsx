@@ -58,8 +58,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           onRefreshSources(true);
           setMessage('Sources refreshed');
           refresh();
-        } catch (e: any) {
-          setMessage(`Error: ${e.message}`);
+        } catch (e: unknown) {
+          setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
         }
       } else if (ch === 'a') {
         setMode('add');
@@ -132,8 +132,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       }
       setMessage(`Installed ${type} ${name}`);
       onRefresh();
-    } catch (e: any) {
-      setMessage(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [onRefresh]);
 
@@ -149,8 +149,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           else if (type === 'mcp')    removeMcp(catalog, name, () => {});
           setMessage(`Removed ${type} ${name}`);
           onRefresh();
-        } catch (e: any) {
-          setMessage(`Error: ${e.message}`);
+        } catch (e: unknown) {
+          setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
         }
         setConfirmAction(null);
       },
