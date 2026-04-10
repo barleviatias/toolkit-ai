@@ -14,6 +14,9 @@ Tests use Node.js built-in test runner (`node:test`). The test runner (`tests/ru
 
 To add tests: create a fixture in `tests/fixtures/` that imports from the compiled build (`process.env.TEST_BUILD_DIR`), runs assertions, and outputs JSON. Then add a `test()` call in the appropriate `tests/*.test.mjs` file that calls `runFixture()` and asserts on the JSON output. Run `npm test` to validate.
 
+## Releasing
+Use `npm version` (patch/minor/major) to bump, commit, and tag — then `git push && git push --tags`. CI publishes automatically via OIDC trusted publishing. Do not manually edit the version in `package.json` or create tags by hand.
+
 ## Commit & Pull Request Guidelines
 Use short, imperative commit subjects that describe behavior, not implementation. Keep commits scoped to one logical change. PRs should use the template in `.github/PULL_REQUEST_TEMPLATE.md` — include a summary, test plan with checkboxes, and link issues when relevant.
 

@@ -137,7 +137,20 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 ### CI (GitHub Actions)
 
 - **ci.yml** — runs on PRs: typecheck + tests on Node 20 and 22
-- **publish.yml** — runs on push to main: tests + npm publish (skips if version already published)
+- **publish.yml** — runs on `v*` tag push: tests + npm publish via OIDC trusted publishing (tokenless, Node 24)
+
+### Releasing
+
+Use `npm version` to bump, commit, and tag in one command — then push:
+
+```bash
+npm version patch    # bug fix:    2.1.0 → 2.1.1
+npm version minor    # new feature: 2.1.0 → 2.2.0
+npm version major    # breaking:   2.1.0 → 3.0.0
+git push && git push --tags   # CI publishes automatically
+```
+
+Do not manually edit the version in `package.json` or create tags by hand.
 
 ## Content Conventions
 
