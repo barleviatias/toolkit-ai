@@ -7,6 +7,7 @@ import { TypeFilter } from '../components/TypeFilter.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
+import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
@@ -31,47 +32,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
   const recoveredCount = useMemo(() => items.filter(item => item.trackedByLock === false).length, [items]);
 
-  const filtered = useMemo(() => {
-    let result = items;
-    if (typeFilter.size > 0) {
-      result = result.filter(i => typeFilter.has(i.type));
-    }
-    if (query) {
-      const q = query.toLowerCase();
-      result = result.filter(
-        i => i.name.toLowerCase().includes(q) ||
-             i.description.toLowerCase().includes(q) ||
-             i.type.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [items, query, typeFilter]);
-
-  const typeCounts = useMemo(() => {
-    const searchFiltered = query
-      ? items.filter(i => {
-          const q = query.toLowerCase();
-          return i.name.toLowerCase().includes(q) ||
-                 i.description.toLowerCase().includes(q) ||
-                 i.type.toLowerCase().includes(q);
-        })
-      : items;
-    const counts: Record<string, number> = {};
-    for (const item of searchFiltered) {
-      counts[item.type] = (counts[item.type] || 0) + 1;
-    }
-    return counts;
-  }, [items, query]);
-
-  const searchFilteredTotal = useMemo(() => {
-    if (!query) return items.length;
-    const q = query.toLowerCase();
-    return items.filter(
-      i => i.name.toLowerCase().includes(q) ||
-           i.description.toLowerCase().includes(q) ||
-           i.type.toLowerCase().includes(q)
-    ).length;
-  }, [items, query]);
+  const { filtered, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(items, query, typeFilter);
 
   const toggleType = useCallback((type: string) => {
     setTypeFilter(prev => {
@@ -112,8 +73,8 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (type === 'agent')  removeAgent(catalog, name, () => {});
       else if (type === 'mcp')    removeMcp(catalog, name, () => {});
       else if (type === 'bundle') removeBundle(catalog, name, () => {});
-    } catch (e: any) {
-      setMessage(`Error removing ${name}: ${e.message}`);
+    } catch (e: unknown) {
+      setMessage(`Error removing ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [catalog]);
 

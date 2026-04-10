@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import type { Source, SourcesConfig, CatalogEntry } from '../types.js';
-import { SOURCES_FILE, CACHE_DIR } from './platform.js';
+import { SOURCES_FILE, CACHE_DIR, assertSafePathSegment } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 import { parseFrontmatter, hashDir, hashFile } from './catalog.js';
 
@@ -20,6 +20,7 @@ function loadDefaultConfig(): SourcesConfig {
 // Parse source input — accepts URLs, owner/repo, or shorthand
 // ---------------------------------------------------------------------------
 
+/** Parse a GitHub/Bitbucket URL or shorthand into a Source object. */
 export function parseSourceInput(input: string): Source {
   let repo: string;
   let type: Source['type'] = 'github';
@@ -46,6 +47,7 @@ export function parseSourceInput(input: string): Source {
   }
 
   const name = repo.split('/').pop() || repo;
+  assertSafePathSegment(name, 'source name');
   return { name, type, repo };
 }
 
@@ -53,6 +55,7 @@ export function parseSourceInput(input: string): Source {
 // Sources config CRUD
 // ---------------------------------------------------------------------------
 
+/** Load the sources config from the user's `~/.toolkit/sources.json` (or bundled defaults). */
 export function loadSources(): SourcesConfig {
   try {
     return JSON.parse(fs.readFileSync(SOURCES_FILE, 'utf8')) as SourcesConfig;
@@ -61,11 +64,13 @@ export function loadSources(): SourcesConfig {
   }
 }
 
+/** Persist the sources config to `~/.toolkit/sources.json`. */
 export function saveSources(config: SourcesConfig): void {
   ensureDir(path.dirname(SOURCES_FILE));
   fs.writeFileSync(SOURCES_FILE, JSON.stringify(config, null, 2));
 }
 
+/** Add an external source and immediately fetch it. */
 export function addSource(source: Source): void {
   const config = loadSources();
   const existing = config.sources.findIndex(s => s.name === source.name);
@@ -77,6 +82,7 @@ export function addSource(source: Source): void {
   saveSources(config);
 }
 
+/** Remove a source by name and delete its cache directory. */
 export function removeSource(name: string): void {
   const config = loadSources();
   config.sources = config.sources.filter(s => s.name !== name);
@@ -88,7 +94,7 @@ export function removeSource(name: string): void {
 // ---------------------------------------------------------------------------
 
 function getCacheDir(source: Source): string {
-  return path.join(CACHE_DIR, source.name);
+  return path.join(CACHE_DIR, assertSafePathSegment(source.name, 'source name'));
 }
 
 function isCacheStale(source: Source, ttl: number): boolean {
@@ -128,6 +134,7 @@ function fetchSource(source: Source): void {
 }
 
 /** Force-refresh one or all sources (re-clone from remote) */
+/** Refresh one or all sources by re-cloning from remote. Returns per-source status. */
 export function refreshSources(sourceName?: string): { name: string; ok: boolean; error?: string }[] {
   const config = loadSources();
   const targets = sourceName
@@ -139,8 +146,8 @@ export function refreshSources(sourceName?: string): { name: string; ok: boolean
     try {
       fetchSource(source);
       results.push({ name: source.name, ok: true });
-    } catch (e: any) {
-      results.push({ name: source.name, ok: false, error: e.message });
+    } catch (e: unknown) {
+      results.push({ name: source.name, ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
   return results;
@@ -359,6 +366,7 @@ export interface ExternalResources {
   bundles: CatalogEntry[];
 }
 
+/** Build a unified catalog from discovered external resources. */
 export function buildCatalog(resources: ExternalResources): { skills: CatalogEntry[]; agents: CatalogEntry[]; mcps: CatalogEntry[]; bundles: CatalogEntry[] } {
   return {
     skills: resources.skills,
@@ -368,6 +376,7 @@ export function buildCatalog(resources: ExternalResources): { skills: CatalogEnt
   };
 }
 
+/** Fetch all external sources and scan for resources. Optionally force a re-clone. */
 export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
   const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [] };

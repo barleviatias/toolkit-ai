@@ -133,6 +133,7 @@ export interface ScanOptions {
   trusted?: boolean;
 }
 
+/** Scan a skill directory for security issues (RCE patterns, symlink escapes, size limits). */
 export function scanSkillDir(skillDir: string, name: string, source: string, opts: ScanOptions = {}): ScanReport {
   const findings: ScanFinding[] = [];
   const files = walkDir(skillDir);
@@ -204,6 +205,7 @@ export function scanSkillDir(skillDir: string, name: string, source: string, opt
   };
 }
 
+/** Scan a single agent file for security issues. */
 export function scanAgentFile(agentPath: string, name: string, source: string, opts: ScanOptions = {}): ScanReport {
   const findings: ScanFinding[] = [];
 
@@ -254,6 +256,7 @@ export interface McpConfigInput {
   envHttpHeaders?: Record<string, string>;
 }
 
+/** Scan an MCP server config for dangerous URLs, private IPs, and injection patterns. */
 export function scanMcpConfig(config: McpConfigInput, source: string): ScanReport {
   const findings: ScanFinding[] = [];
   const { name, url, command, args, env, envVars, httpHeaders, envHttpHeaders } = config;
@@ -299,22 +302,19 @@ export function scanMcpConfig(config: McpConfigInput, source: string): ScanRepor
     }
   }
 
-  if (command) {
-    scanTextContent(
-      [
-        command,
-        ...(args || []),
-        ...Object.values(env || {}),
-        ...(envVars || []),
-        ...Object.values(httpHeaders || {}),
-        ...Object.keys(httpHeaders || {}),
-        ...Object.values(envHttpHeaders || {}),
-        ...Object.keys(envHttpHeaders || {}),
-      ].join('\n'),
-      `${name}.mcp`,
-      findings,
-    );
-  }
+  const suspiciousText = [
+    command,
+    ...(args || []),
+    ...Object.values(env || {}),
+    ...(envVars || []),
+    ...Object.values(httpHeaders || {}),
+    ...Object.keys(httpHeaders || {}),
+    ...Object.values(envHttpHeaders || {}),
+    ...Object.keys(envHttpHeaders || {}),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  if (suspiciousText) scanTextContent(suspiciousText, `${name}.mcp`, findings);
 
   return {
     item: `mcp:${name}`,
@@ -336,6 +336,7 @@ const YELLOW = '\x1b[33m';
 const GREEN  = '\x1b[32m';
 const DIM    = '\x1b[2m';
 
+/** Format a scan report as a colored terminal string. */
 export function formatReport(report: ScanReport): string {
   if (report.findings.length === 0) {
     return `  ${GREEN}[OK]${RESET} ${report.item}`;

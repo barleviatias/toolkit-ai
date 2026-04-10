@@ -10,6 +10,11 @@ import { makeKey } from '../core/item-key.js';
 import { getInstalledState } from '../core/installed-state.js';
 import type { ItemData } from '../components/ItemRow.js';
 
+// Module-level cache for security scan results, keyed by "type:source:hash".
+// Scan results only change when item content changes (new hash), so this is safe
+// to persist across renders and avoids expensive filesystem I/O on every state change.
+const scanCache = new Map<string, { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string }>();
+
 function loadExternalState(forceRefresh = false): ExternalResources {
   try {
     return fetchExternalResources(forceRefresh);
@@ -25,7 +30,10 @@ export function useCatalog() {
   const installedState = useMemo(() => getInstalledState(catalog, lock), [catalog, lock]);
 
   const refreshLock = () => setLock(readLock());
-  const refreshExternal = (forceRefresh = false) => setExternal(loadExternalState(forceRefresh));
+  const refreshExternal = (forceRefresh = false) => {
+    if (forceRefresh) scanCache.clear();
+    setExternal(loadExternalState(forceRefresh));
+  };
 
   // Check if an item is installed (by lock-format key: "type:name")
   function isInstalled(lockKey: string): boolean {
@@ -47,7 +55,12 @@ export function useCatalog() {
     const items: ItemData[] = [];
 
     function scanItem(type: string, entry: CatalogEntry): { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string } {
+      const cacheKey = `${type}:${entry.source}:${entry.hash}`;
+      const cached = scanCache.get(cacheKey);
+      if (cached) return cached;
+
       const src = entry.source;
+      let result: { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string };
 
       try {
         let report;
@@ -61,20 +74,28 @@ export function useCatalog() {
           try {
             const mcpConfig = loadMcpConfig(entry);
             report = scanMcpConfig({ name: entry.name, type: mcpConfig.type, url: mcpConfig.url }, src);
-          } catch {}
+          } catch {
+            // MCP config not loadable — treat as clean
+          }
         }
 
-        if (!report || report.findings.length === 0) return { scanStatus: 'ok' };
-        const hasBlock = report.findings.some(f => f.severity === 'block');
-        const count = report.findings.length;
-        const summary = report.findings.map(f => f.message).join('; ');
-        return {
-          scanStatus: hasBlock ? 'block' : 'warn',
-          scanSummary: `${count} issue${count > 1 ? 's' : ''}: ${summary}`,
-        };
+        if (!report || report.findings.length === 0) {
+          result = { scanStatus: 'ok' };
+        } else {
+          const hasBlock = report.findings.some(f => f.severity === 'block');
+          const count = report.findings.length;
+          const summary = report.findings.map(f => f.message).join('; ');
+          result = {
+            scanStatus: hasBlock ? 'block' : 'warn',
+            scanSummary: `${count} issue${count > 1 ? 's' : ''}: ${summary}`,
+          };
+        }
       } catch {
-        return { scanStatus: 'ok' };
+        result = { scanStatus: 'ok' };
       }
+
+      scanCache.set(cacheKey, result);
+      return result;
     }
 
     function toItem(type: string, entry: CatalogEntry): ItemData {
@@ -108,7 +129,9 @@ export function useCatalog() {
           item.mcpType = mcpConfig.type;
           item.url = mcpConfig.url;
           item.setupNote = mcpConfig.setupNote;
-        } catch {}
+        } catch {
+          // MCP config not loadable — skip enrichment
+        }
       }
 
       // Enrich bundle items with contents
@@ -120,7 +143,9 @@ export function useCatalog() {
             agents: bundleConfig.agents || [],
             mcps: bundleConfig.mcps || [],
           };
-        } catch {}
+        } catch {
+          // Bundle config not loadable — skip enrichment
+        }
       }
 
       return item;

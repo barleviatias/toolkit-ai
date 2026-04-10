@@ -1,11 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat } from './platform.js';
+import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat, removeCodexMcpServer, assertSafePathSegment } from './platform.js';
 import { removeLink } from './fs-helpers.js';
 import { findAgent, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
-import { removeCodexMcpServer } from './codex-config.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -13,6 +12,7 @@ export type LogFn = (msg: string) => void;
 // Remove an item from the filesystem only (no lock changes)
 // ---------------------------------------------------------------------------
 
+/** Remove an item's files from all install targets and deregister from MCP configs. */
 export function removeItemFromFilesystem(
   catalog: Catalog,
   itemKey: string,
@@ -21,6 +21,7 @@ export function removeItemFromFilesystem(
   const [type, name] = itemKey.split(':');
 
   if (type === 'skill') {
+    assertSafePathSegment(name, 'skill name');
     let removed = false;
     for (const dir of SKILL_TARGETS) {
       const dest = path.join(dir, name);
@@ -28,6 +29,7 @@ export function removeItemFromFilesystem(
     }
     if (!removed) log(`  skill ${name} was not installed`);
   } else if (type === 'agent') {
+    assertSafePathSegment(name, 'agent name');
     const entry = findAgent(catalog, name);
     const filename = entry ? path.basename(entry.path) : `${name}.agent.md`;
     let removed = false;
@@ -43,7 +45,10 @@ export function removeItemFromFilesystem(
     let removed = false;
     for (const configPath of existing) {
       if (getConfigFormat(configPath) === 'codex-mcp') {
-        if (removeCodexMcpServer(configPath, name)) {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const next = removeCodexMcpServer(raw, name);
+        if (next !== null) {
+          fs.writeFileSync(configPath, next);
           log(`  [-] mcp ${name} removed from ${configPath}`);
           removed = true;
         }
@@ -68,6 +73,7 @@ export function removeItemFromFilesystem(
 // Public remove functions
 // ---------------------------------------------------------------------------
 
+/** Remove a skill by name, cleaning up all install targets and the lock file. */
 export function removeSkill(catalog: Catalog, name: string, log?: LogFn): void {
   const lock = readLock();
   const itemKey = `skill:${name}`;
@@ -80,6 +86,7 @@ export function removeSkill(catalog: Catalog, name: string, log?: LogFn): void {
   writeLock(lock);
 }
 
+/** Remove an agent by name, cleaning up all install targets and the lock file. */
 export function removeAgent(catalog: Catalog, name: string, log?: LogFn): void {
   const lock = readLock();
   const itemKey = `agent:${name}`;
@@ -92,6 +99,7 @@ export function removeAgent(catalog: Catalog, name: string, log?: LogFn): void {
   writeLock(lock);
 }
 
+/** Remove an MCP by name, deregistering from all config files and the lock. */
 export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
   const lock = readLock();
   const itemKey = `mcp:${name}`;
@@ -104,6 +112,7 @@ export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
   writeLock(lock);
 }
 
+/** Remove a bundle and all its items (unless protected by another bundle). */
 export function removeBundle(catalog: Catalog, name: string, log: LogFn = console.log): void {
   log(`\nRemoving bundle: ${name}`);
   const lock = readLock();

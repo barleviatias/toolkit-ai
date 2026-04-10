@@ -15,7 +15,7 @@ const { removeSkill, removeAgent, removeMcp } =
 const { getInstalledState } =
   await import(pathToFileURL(path.join(buildDir, 'core', 'installed-state.js')).href);
 const { parseCodexMcpSection } =
-  await import(pathToFileURL(path.join(buildDir, 'core', 'codex-config.js')).href);
+  await import(pathToFileURL(path.join(buildDir, 'core', 'platform.js')).href);
 const noop = () => {};
 
 const sourceName = 'testsrc';

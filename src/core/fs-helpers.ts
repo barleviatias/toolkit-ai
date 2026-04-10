@@ -1,10 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 
+/** Create a directory and all parent directories if they don't exist. */
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+/** Recursively copy a directory tree from `src` to `dest`. */
 export function copyDirRecursive(src: string, dest: string): void {
   ensureDir(dest);
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
@@ -18,6 +20,7 @@ export function copyDirRecursive(src: string, dest: string): void {
   }
 }
 
+/** Symlink (or copy as fallback) a directory. Returns install status. */
 export function linkOrCopyDir(
   src: string,
   dest: string,
@@ -41,6 +44,7 @@ export function linkOrCopyDir(
   return force ? 'updated' : 'installed';
 }
 
+/** Symlink (or copy as fallback) a single file. Returns install status. */
 export function linkOrCopyFile(
   src: string,
   dest: string,
@@ -64,6 +68,7 @@ export function linkOrCopyFile(
   return force ? 'updated' : 'installed';
 }
 
+/** Remove a file, symlink, or directory. Returns true if something was removed. */
 export function removeLink(p: string): boolean {
   if (!fs.existsSync(p)) return false;
   const stat = fs.lstatSync(p);

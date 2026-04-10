@@ -9,10 +9,12 @@ export interface ParsedKey {
   name: string;
 }
 
+/** Create a UI key in the format `type::source::name`. */
 export function makeKey(type: string, source: string, name: string): string {
   return `${type}::${source}::${name}`;
 }
 
+/** Parse a UI key back into its components. Handles legacy `type:name` format. */
 export function parseKey(key: string): ParsedKey {
   const parts = key.split('::');
   if (parts.length === 3) {

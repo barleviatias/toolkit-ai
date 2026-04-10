@@ -7,6 +7,8 @@ import {
   LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES,
   CACHE_DIR,
   getConfigFormat,
+  writeCodexMcpServer,
+  assertSafePathSegment,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import {
@@ -16,11 +18,11 @@ import {
   findBundle,
   loadBundleConfig,
   loadMcpConfig,
+  parseFrontmatter,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources } from './sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
-import { renderCodexAgent, writeCodexMcpServer } from './codex-config.js';
 
 export interface InstallOptions {
   force?: boolean;
@@ -35,6 +37,27 @@ interface ExternalResourcesLike {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+}
+
+function renderCodexAgent(agentPath: string): { name: string; description: string; content: string } {
+  const source = fs.readFileSync(agentPath, 'utf8');
+  const meta = parseFrontmatter(source);
+  const name = assertSafePathSegment(meta.name || path.basename(agentPath, '.agent.md'), 'agent name');
+  const description = meta.description || '';
+  const developerInstructions = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+  const tomlMultiline = (value: string) => `"""\n${value.replace(/\r\n/g, '\n').replace(/"""/g, '\\"""')}\n"""`;
+  const tomlString = (value: string) => JSON.stringify(value);
+
+  return {
+    name,
+    description,
+    content: [
+      `name = ${tomlString(name)}`,
+      `description = ${tomlString(description)}`,
+      `developer_instructions = ${tomlMultiline(developerInstructions)}`,
+      '',
+    ].join('\n'),
+  };
 }
 
 function toSharedMcpEntry(entry: McpServerEntry): McpServerEntry {
@@ -163,6 +186,7 @@ function installBundleEntry(
 // Install a skill
 // ---------------------------------------------------------------------------
 
+/** Install a skill by name from the catalog (looks up source, scans, copies to targets). */
 export function installSkill(
   catalog: Catalog,
   name: string,
@@ -178,6 +202,7 @@ export function installSkill(
 // Install a skill from an external source (cached repo)
 // ---------------------------------------------------------------------------
 
+/** Install a skill from an external source cache. Runs security scan before copying. */
 export function installExternalSkill(
   sourceName: string,
   skillName: string,
@@ -186,6 +211,7 @@ export function installExternalSkill(
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
+  assertSafePathSegment(skillName, 'skill name');
   const src = path.join(CACHE_DIR, sourceName, skillPath);
   if (!fs.existsSync(src)) throw new Error(`External skill not found at: ${src}`);
 
@@ -230,6 +256,7 @@ export function installExternalSkill(
 // Install an external agent (from cached source)
 // ---------------------------------------------------------------------------
 
+/** Install an agent from an external source cache. Runs security scan before copying. */
 export function installExternalAgent(
   sourceName: string,
   agentName: string,
@@ -238,6 +265,7 @@ export function installExternalAgent(
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
+  assertSafePathSegment(agentName, 'agent name');
   const src = path.join(CACHE_DIR, sourceName, agentPath);
   if (!fs.existsSync(src)) throw new Error(`External agent not found at: ${src}`);
 
@@ -298,6 +326,7 @@ export function installExternalAgent(
 // Install an external MCP (from cached source)
 // ---------------------------------------------------------------------------
 
+/** Install an MCP from an external source cache. Writes config to all target files. */
 export function installExternalMcp(
   sourceName: string,
   mcpName: string,
@@ -365,6 +394,7 @@ export function installExternalMcp(
 // Install an agent
 // ---------------------------------------------------------------------------
 
+/** Install an agent by name from the catalog. */
 export function installAgent(
   catalog: Catalog,
   name: string,
@@ -380,6 +410,7 @@ export function installAgent(
 // Install an MCP
 // ---------------------------------------------------------------------------
 
+/** Install an MCP server by name from the catalog. */
 export function installMcp(
   catalog: Catalog,
   name: string,
@@ -442,6 +473,7 @@ export function installMcp(
 // Install a bundle (collection of skills + agents + mcps)
 // ---------------------------------------------------------------------------
 
+/** Install all items in a bundle (skills + agents + MCPs) by name. */
 export function installBundle(
   catalog: Catalog,
   name: string,
@@ -453,6 +485,7 @@ export function installBundle(
   return installExternalBundle(catalog, entry.source, name, entry.path, entry.hash, opts, log);
 }
 
+/** Install a bundle from an external source cache, resolving each item from the catalog. */
 export function installExternalBundle(
   catalog: Catalog,
   sourceName: string,

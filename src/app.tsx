@@ -53,7 +53,10 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
       else if (type === 'mcp')   installMcp(catalog, name, { force: true }, () => {});
       else if (type === 'bundle') installBundle(catalog, name, { force: true }, () => {});
       refreshLock();
-    } catch {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`[toolkit] update failed for ${type} ${name}: ${msg}\n`);
+    }
   }, [catalog, refreshLock]);
 
   const handleUpdateAll = useCallback(() => {
@@ -109,9 +112,8 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   );
 };
 
-export async function renderApp(toolkitDir: string, initialTab: string = 'catalog') {
+export async function renderApp(_toolkitDir: string, initialTab: string = 'catalog') {
   const tab = TAB_ORDER.includes(initialTab as TabId) ? (initialTab as TabId) : 'catalog';
-  void toolkitDir;
   const { waitUntilExit } = render(<App initialTab={tab} />);
   await waitUntilExit();
 }

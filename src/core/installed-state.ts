@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, SKILL_TARGETS, getConfigFormat } from './platform.js';
-import { parseCodexMcpSection } from './codex-config.js';
+import { AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, SKILL_TARGETS, getConfigFormat, parseCodexMcpSection, assertSafePathSegment } from './platform.js';
 
 export interface InstalledState {
   installedKeys: Set<string>;
@@ -22,10 +21,12 @@ function addLockEntries(lock: LockFile, installedKeys: Set<string>): void {
 }
 
 function hasInstalledSkill(skillName: string): boolean {
+  try { assertSafePathSegment(skillName, 'skill name'); } catch { return false; }
   return SKILL_TARGETS.some(dir => fs.existsSync(path.join(dir, skillName)));
 }
 
 function hasInstalledAgent(agentName: string, agentPath: string): boolean {
+  try { assertSafePathSegment(agentName, 'agent name'); } catch { return false; }
   const filename = path.basename(agentPath);
   return AGENT_TARGETS.some(dir => fs.existsSync(path.join(dir, filename))) ||
     fs.existsSync(path.join(CODEX_AGENT_TARGET, `${agentName}.toml`));
@@ -50,6 +51,7 @@ function hasInstalledMcp(mcpName: string): boolean {
   return false;
 }
 
+/** Build installed state by merging lock file data with filesystem discovery. Recovers items missing from the lock. */
 export function getInstalledState(catalog: Catalog, lock: LockFile): InstalledState {
   const installedKeys = new Set<string>();
   addLockEntries(lock, installedKeys);

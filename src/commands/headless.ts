@@ -328,8 +328,7 @@ function runSourceCommand(args: string[]): boolean {
 // Main headless dispatch
 // ---------------------------------------------------------------------------
 
-export function runHeadless(args: string[], toolkitDir: string): boolean {
-  void toolkitDir;
+export function runHeadless(args: string[], _toolkitDir: string): boolean {
   // --help / -h
   if (flag(args, '--help') || flag(args, '-h')) {
     usage();

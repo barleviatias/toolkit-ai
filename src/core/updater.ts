@@ -16,6 +16,7 @@ export interface UpdateStatus {
   parent?: string; // bundle name if sub-item
 }
 
+/** Compare installed item hashes against catalog to detect available updates. */
 export function checkForUpdates(catalog: Catalog): UpdateStatus[] {
   const lock = readLock();
   const results: UpdateStatus[] = [];
@@ -80,6 +81,7 @@ export function checkForUpdates(catalog: Catalog): UpdateStatus[] {
 // Update specific items by type:name
 // ---------------------------------------------------------------------------
 
+/** Force-reinstall a specific list of items. */
 export function updateSelected(
   catalog: Catalog,
   items: Array<{ type: string; name: string }>,
@@ -91,8 +93,8 @@ export function updateSelected(
       if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
       else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
       else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
-    } catch (e: any) {
-      log(`  [!] Failed to update ${type} ${name}: ${e.message}`);
+    } catch (e: unknown) {
+      log(`  [!] Failed to update ${type} ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   return results;
@@ -102,6 +104,7 @@ export function updateSelected(
 // Update all installed items
 // ---------------------------------------------------------------------------
 
+/** Update all installed items that have newer versions in the catalog. */
 export function updateAll(
   catalog: Catalog,
   opts: { force?: boolean } = {},
