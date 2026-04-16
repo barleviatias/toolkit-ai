@@ -32,6 +32,21 @@ test('Rejects unsafe source and install path segments, and scans MCP headers wit
   const data = runFixture('security-paths.mjs', [tempHome]);
 
   assert.match(data.parseSourceError, /Unsafe source name/);
+  assert.deepEqual(data.parsedBitbucketSsh, {
+    name: 'awesome-copilot',
+    type: 'bitbucket',
+    repo: 'rdwrcloud/awesome-copilot',
+  });
+  assert.deepEqual(data.parsedBitbucketHttps, {
+    name: 'awesome-copilot',
+    type: 'bitbucket',
+    repo: 'rdwrcloud/awesome-copilot',
+  });
+  assert.deepEqual(data.parsedGitHubWithDot, {
+    name: 'repo.name',
+    type: 'github',
+    repo: 'org/repo.name',
+  });
   assert.match(data.skillInstallError, /Unsafe skill name/);
   assert.match(data.agentInstallError, /Unsafe agent name/);
   assert.equal(data.scannerBlocked, true);

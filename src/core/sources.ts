@@ -22,28 +22,38 @@ function loadDefaultConfig(): SourcesConfig {
 
 /** Parse a GitHub/Bitbucket URL or shorthand into a Source object. */
 export function parseSourceInput(input: string): Source {
+  const normalized = input.trim();
   let repo: string;
   let type: Source['type'] = 'github';
 
   // Full URL: https://github.com/owner/repo or https://bitbucket.org/owner/repo
-  const urlMatch = input.match(/^https?:\/\/(github\.com|bitbucket\.org)\/([^/]+\/[^/.]+)/);
-  if (urlMatch) {
-    type = urlMatch[1] === 'bitbucket.org' ? 'bitbucket' : 'github';
-    repo = urlMatch[2];
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    try {
+      const parsed = new URL(normalized);
+      const parts = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/');
+      if ((parsed.hostname === 'github.com' || parsed.hostname === 'bitbucket.org') && parts.length >= 2) {
+        type = parsed.hostname === 'bitbucket.org' ? 'bitbucket' : 'github';
+        repo = `${parts[0]}/${parts[1].replace(/\.git$/, '')}`;
+      } else {
+        repo = normalized.replace(/\.git$/, '');
+      }
+    } catch {
+      repo = normalized.replace(/\.git$/, '');
+    }
   }
   // SSH: git@github.com:owner/repo.git or git@bitbucket.org:owner/repo.git
-  else if (input.match(/^git@/)) {
-    const sshMatch = input.match(/git@(github\.com|bitbucket\.org):([^/]+\/[^/.]+)/);
+  else if (normalized.match(/^git@/)) {
+    const sshMatch = normalized.match(/^git@(github\.com|bitbucket\.org):([^/]+)\/(.+?)(?:\.git)?$/);
     if (sshMatch) {
       type = sshMatch[1] === 'bitbucket.org' ? 'bitbucket' : 'github';
-      repo = sshMatch[2];
+      repo = `${sshMatch[2]}/${sshMatch[3]}`;
     } else {
-      repo = input;
+      repo = normalized;
     }
   }
   // owner/repo shorthand (default to github)
   else {
-    repo = input.replace(/\.git$/, '');
+    repo = normalized.replace(/\.git$/, '');
   }
 
   const name = repo.split('/').pop() || repo;
@@ -113,24 +123,30 @@ function fetchSource(source: Source): void {
 
   const cacheDir = getCacheDir(source);
   const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
-  const repoUrl = `https://${host}/${source.repo}.git`;
+  const cloneUrls = [`https://${host}/${source.repo}.git`, `git@${host}:${source.repo}.git`];
+  const errors: string[] = [];
 
-  if (fs.existsSync(cacheDir)) {
-    fs.rmSync(cacheDir, { recursive: true, force: true });
+  for (const repoUrl of cloneUrls) {
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+    }
+    ensureDir(cacheDir);
+
+    const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, cacheDir], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60000,
+    });
+
+    if (result.status === 0) {
+      fs.writeFileSync(path.join(cacheDir, '.fetched'), new Date().toISOString());
+      return;
+    }
+
+    const stderr = result.stderr?.toString().trim() || 'unknown error';
+    errors.push(`${repoUrl}: ${stderr}`);
   }
-  ensureDir(cacheDir);
 
-  const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, cacheDir], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 60000,
-  });
-
-  if (result.status !== 0) {
-    const stderr = result.stderr?.toString() || 'unknown error';
-    throw new Error(`Failed to fetch ${source.repo}: ${stderr}`);
-  }
-
-  fs.writeFileSync(path.join(cacheDir, '.fetched'), new Date().toISOString());
+  throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
 }
 
 /** Force-refresh one or all sources (re-clone from remote) */
