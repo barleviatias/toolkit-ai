@@ -36,11 +36,36 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
+  // Busy state — git clone in fetchExternalResources is a blocking spawnSync
+  // that freezes the TUI for seconds at a time. We mark busy + render a
+  // visible indicator, then yield to the event loop via setTimeout so Ink
+  // actually paints the indicator before the blocking call starts.
+  const [busy, setBusy] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     setConfig(loadSources());
     onRefresh();
   }, [onRefresh]);
+
+  /**
+   * Run a synchronous, potentially-long operation while showing a busy
+   * indicator. Defers the blocking work by a frame so React/Ink has a
+   * chance to paint the "⟳ <label>..." line before the event loop stalls.
+   */
+  const runBusy = useCallback((label: string, fn: () => void) => {
+    setBusy(label);
+    setMessage('');
+    // ~1 frame @ 60fps — enough for Ink to flush the busy render
+    setTimeout(() => {
+      try {
+        fn();
+      } catch (e: unknown) {
+        setMessage(`\u2715 ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    }, 16);
+  }, []);
 
   // Items from the active source
   const sourceItems = useMemo(() => {
@@ -50,28 +75,29 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
   useInput((ch, key) => {
     if (detailItem || confirmAction) return;
+    // Block all input while a blocking op is running — prevents double-submit
+    if (busy) return;
 
     if (mode === 'list') {
       if (ch === 'f') {
-        setMessage('Refreshing sources...');
-        try {
+        runBusy('Refreshing all sources', () => {
           onRefreshSources(true);
-          setMessage('Sources refreshed');
           refresh();
-        } catch (e: unknown) {
-          setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
-        }
+          setMessage('Sources refreshed');
+        });
       } else if (ch === 'a') {
         setMode('add');
         setInput('');
       } else if (ch === 'd' && config.sources.length > 0) {
         const source = config.sources[cursor];
         if (source) {
-          removeSource(source.name);
-          setMessage(`Removed source: ${source.name}`);
-          setCursor(c => Math.max(0, c - 1));
-          onRefreshSources(true);
-          refresh();
+          runBusy(`Removing ${source.name}`, () => {
+            removeSource(source.name);
+            setCursor(c => Math.max(0, c - 1));
+            onRefreshSources(true);
+            refresh();
+            setMessage(`Removed source: ${source.name}`);
+          });
         }
       } else if (key.upArrow) {
         setCursor(c => Math.max(0, c - 1));
@@ -90,12 +116,14 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         setMode('list');
       } else if (key.return && input.trim()) {
         const source = parseSourceInput(input.trim());
-        addSource(source);
-        setMessage(`Added source: ${source.name} (${source.type}: ${source.repo})`);
-        setInput('');
-        setMode('list');
-        onRefreshSources(true);
-        refresh();
+        runBusy(`Cloning ${source.repo || source.name}`, () => {
+          addSource(source);
+          onRefreshSources(true);
+          refresh();
+          setMessage(`Added source: ${source.name} (${source.type}: ${source.repo})`);
+          setInput('');
+          setMode('list');
+        });
       }
     } else if (mode === 'browse') {
       if (key.escape) {
@@ -280,12 +308,22 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         </Box>
       )}
 
-      {message && <Text color="green">  {message}</Text>}
+      {busy && (
+        <Box>
+          <Text color="yellow">  ⟳ {busy}...</Text>
+          <Text dimColor>  (blocking, please wait)</Text>
+        </Box>
+      )}
+      {!busy && message && (
+        <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>
+      )}
 
       <StatusBar hints={
-        mode === 'add'
-          ? 'Enter to confirm · Esc to cancel'
-          : 'Enter browse · a add · d delete · f refresh sources · Tab switch · q quit'
+        busy
+          ? 'Working…'
+          : mode === 'add'
+            ? 'Enter to confirm · Esc to cancel'
+            : 'Enter browse · a add · d delete · f refresh sources · Tab switch · q quit'
       } />
     </Box>
   );
