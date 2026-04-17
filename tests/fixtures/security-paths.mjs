@@ -46,6 +46,10 @@ try {
   parseSourceError = error instanceof Error ? error.message : String(error);
 }
 
+const parsedBitbucketSsh = parseSourceInput('git@bitbucket.org:rdwrcloud/awesome-copilot.git');
+const parsedBitbucketHttps = parseSourceInput('https://bitbucket.org/rdwrcloud/awesome-copilot');
+const parsedGitHubWithDot = parseSourceInput('https://github.com/org/repo.name.git');
+
 let skillInstallError = '';
 try {
   installExternalSkill(sourceName, '../escape', 'resources/skills/safe-skill', 'skill-hash', {}, () => {});
@@ -68,6 +72,9 @@ const scanReport = scanMcpConfig({
 
 process.stdout.write(JSON.stringify({
   parseSourceError,
+  parsedBitbucketSsh,
+  parsedBitbucketHttps,
+  parsedGitHubWithDot,
   skillInstallError,
   agentInstallError,
   scannerBlocked: !scanReport.passed,
