@@ -44,11 +44,14 @@ function useStdoutRows(): number {
  */
 function computeMaxVisible(rows: number): number {
   const CHROME_RESERVE = rows >= 30
-    ? 20  // with logo: logo 8 + tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 2
-    : 12; // no logo: tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 2
+    ? 22  // with logo: logo 9 + tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 3
+    : 14; // no logo:  tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 4
   const ROWS_PER_ITEM = 2;
-  const available = Math.max(3, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
-  return Math.min(10, available);
+  const available = Math.max(2, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
+  // Conservative cap — we'd rather scroll a 6-item window than let the frame
+  // overflow. Ink's diff algorithm breaks the instant any frame exceeds the
+  // terminal height, pushing the header off-screen.
+  return Math.min(6, available);
 }
 
 export const ItemList: React.FC<ItemListProps> = ({

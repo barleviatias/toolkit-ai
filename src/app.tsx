@@ -107,35 +107,46 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   // viewport and breaking Ink's in-place diff rendering.
   const showLogo = termRows >= 30;
 
+  // CRITICAL: `overflow="hidden"` is what actually clips children to the
+  // parent height. Without it, `height={X}` is merely a hint and Ink flex
+  // will render children at their natural size, blowing through the terminal
+  // bottom and breaking the cursor-up diff. This is the single most important
+  // line of the TUI — keep overflow="hidden" on the root.
   return (
-    <Box flexDirection="column" height={termRows - 1}>
+    <Box flexDirection="column" height={termRows} overflow="hidden">
       {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
 
-      {activeTab === 'catalog' && (
-        <CatalogTab
-          items={allItems}
-          catalog={catalog}
-          onRefresh={handleRefresh}
-          onUpdateItem={handleUpdateItem}
-          onUpdateAll={handleUpdateAll}
-        />
-      )}
-      {activeTab === 'installed' && (
-        <InstalledTab
-          items={installedItems}
-          catalog={catalog}
-          onRefresh={handleRefresh}
-        />
-      )}
-      {activeTab === 'sources' && (
-        <SourcesTab
-          allItems={allItems}
-          catalog={catalog}
-          onRefresh={handleRefresh}
-          onRefreshSources={refreshExternal}
-        />
-      )}
+      {/*
+        Inner content area also clips — ensures per-tab components can't
+        overflow even if they mis-measure their own children.
+      */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {activeTab === 'catalog' && (
+          <CatalogTab
+            items={allItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+            onUpdateItem={handleUpdateItem}
+            onUpdateAll={handleUpdateAll}
+          />
+        )}
+        {activeTab === 'installed' && (
+          <InstalledTab
+            items={installedItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+          />
+        )}
+        {activeTab === 'sources' && (
+          <SourcesTab
+            allItems={allItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+            onRefreshSources={refreshExternal}
+          />
+        )}
+      </Box>
     </Box>
   );
 };
