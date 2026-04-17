@@ -11,7 +11,7 @@ import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
-import { useMarkEscConsumed } from '../app.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface InstalledTabProps {
   items: ItemData[];

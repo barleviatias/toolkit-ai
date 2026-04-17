@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
-import { useMarkEscConsumed } from '../app.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface ConfirmDialogProps {
   title: string;

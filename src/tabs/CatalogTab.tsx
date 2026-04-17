@@ -17,7 +17,7 @@ import {
   installBundle,
 } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
-import { useMarkEscConsumed } from '../app.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface CatalogTabProps {
   items: ItemData[];

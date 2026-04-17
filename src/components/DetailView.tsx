@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text, Box, useInput } from 'ink';
 import type { ItemData } from './ItemRow.js';
-import { useMarkEscConsumed } from '../app.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface DetailViewProps {
   item: ItemData;

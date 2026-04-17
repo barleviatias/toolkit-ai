@@ -15,7 +15,7 @@ interface TabBarProps {
 }
 
 /** In-flight build marker — mirrors BUILD_TAG in Logo.tsx so the tag is visible even when the logo is auto-hidden. */
-const BUILD_TAG = 'tui-fix-9';
+const BUILD_TAG = 'tui-fix-10';
 
 export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTab }) => (
   <Box gap={2} marginBottom={1}>

@@ -11,7 +11,7 @@ import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
-import { useMarkEscConsumed } from '../app.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
