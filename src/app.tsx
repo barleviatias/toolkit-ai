@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, createContext, useContext } from 'react';
 import { render, Box, useInput, useApp } from 'ink';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
@@ -17,6 +17,23 @@ import type { ItemData } from './components/ItemRow.js';
 
 interface AppProps {
   initialTab: TabId;
+}
+
+/**
+ * Shared "Esc was consumed" ref. Child components (detail views, confirm
+ * dialogs, search mode, add-source mode) set it during their Esc handler
+ * so the app's Esc-to-exit handler knows NOT to exit when a subview just
+ * closed. Ink's useInput fires all hooks synchronously with no bubble/
+ * capture, so we coordinate via a shared ref and a microtask check.
+ */
+interface EscContextValue {
+  markConsumed: () => void;
+}
+const EscContext = createContext<EscContextValue>({ markConsumed: () => {} });
+
+/** Call this in a child's Esc handler right before doing the "go back" action. */
+export function useMarkEscConsumed(): () => void {
+  return useContext(EscContext).markConsumed;
 }
 
 const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources'];
@@ -47,6 +64,10 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const { exit } = useApp();
   const { rows: termRows } = useTerminalSize();
+  const escConsumedRef = useRef(false);
+  const escContextValue = useMemo<EscContextValue>(() => ({
+    markConsumed: () => { escConsumedRef.current = true; },
+  }), []);
 
   const {
     catalog,
@@ -97,6 +118,16 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         return TAB_ORDER[next];
       });
     }
+    if (key.escape) {
+      // Clear flag first, then let child Esc handlers (which fire in the same
+      // synchronous useInput pass) set it via markConsumed if they handled the
+      // key. Check in a microtask — if no child consumed, exit the app.
+      escConsumedRef.current = false;
+      queueMicrotask(() => {
+        if (!escConsumedRef.current) exit();
+        escConsumedRef.current = false;
+      });
+    }
     if (input === 'q' || (key.ctrl && input === 'c')) {
       exit();
     }
@@ -114,6 +145,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   // strict content sizing (maxVisible in ItemList) to keep the frame within
   // the viewport.
   return (
+    <EscContext.Provider value={escContextValue}>
     <Box flexDirection="column" height={termRows}>
       {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
@@ -133,6 +165,8 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             items={installedItems}
             catalog={catalog}
             onRefresh={handleRefresh}
+            onUpdateItem={handleUpdateItem}
+            onUpdateAll={handleUpdateAll}
           />
         )}
         {activeTab === 'sources' && (
@@ -145,6 +179,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         )}
       </Box>
     </Box>
+    </EscContext.Provider>
   );
 };
 

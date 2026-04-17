@@ -17,6 +17,7 @@ import {
   installBundle,
 } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { useMarkEscConsumed } from '../app.js';
 
 interface CatalogTabProps {
   items: ItemData[];
@@ -44,12 +45,16 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   const updateCount = useMemo(() => items.filter(i => i.hasUpdate).length, [items]);
 
   const { filtered, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(items, query, typeFilter);
+  const markEscConsumed = useMarkEscConsumed();
 
   // Focus switching + global keys
   useInput((input, key) => {
     if (detailItem || confirmAction) return;
     if (focus === 'search') {
-      if (key.escape || key.downArrow) setFocus('list');
+      if (key.escape || key.downArrow) {
+        if (key.escape) markEscConsumed();
+        setFocus('list');
+      }
     } else {
       if (input === '/') setFocus('search');
       else if (input === '1') toggleType('skill');

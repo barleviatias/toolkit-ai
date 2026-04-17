@@ -11,6 +11,7 @@ import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
+import { useMarkEscConsumed } from '../app.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
@@ -41,6 +42,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   // visible indicator, then yield to the event loop via setTimeout so Ink
   // actually paints the indicator before the blocking call starts.
   const [busy, setBusy] = useState<string | null>(null);
+  const markEscConsumed = useMarkEscConsumed();
 
   const refresh = useCallback(() => {
     setConfig(loadSources());
@@ -113,6 +115,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       }
     } else if (mode === 'add') {
       if (key.escape) {
+        markEscConsumed();
         setMode('list');
       } else if (key.return && input.trim()) {
         const source = parseSourceInput(input.trim());
@@ -127,6 +130,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       }
     } else if (mode === 'browse') {
       if (key.escape) {
+        markEscConsumed();
         setMode('list');
         setActiveSource(null);
         setSelected(new Set());

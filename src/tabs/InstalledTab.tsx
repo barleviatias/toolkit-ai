@@ -11,17 +11,22 @@ import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { useMarkEscConsumed } from '../app.js';
 
 interface InstalledTabProps {
   items: ItemData[];
   catalog: Catalog;
   onRefresh: () => void;
+  onUpdateItem: (item: ItemData) => void;
+  onUpdateAll: () => void;
 }
 
 export const InstalledTab: React.FC<InstalledTabProps> = ({
   items,
   catalog,
   onRefresh,
+  onUpdateItem,
+  onUpdateAll,
 }) => {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -30,7 +35,26 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   const [focus, setFocus] = useState<'list' | 'search'>('list');
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
+  // Blocking update operations (install*/updateAll) get a busy indicator — see SourcesTab for pattern
+  const [busy, setBusy] = useState<string | null>(null);
   const recoveredCount = useMemo(() => items.filter(item => item.trackedByLock === false).length, [items]);
+  const updateCount = useMemo(() => items.filter(item => item.hasUpdate).length, [items]);
+
+  const markEscConsumed = useMarkEscConsumed();
+
+  const runBusy = useCallback((label: string, fn: () => void) => {
+    setBusy(label);
+    setMessage('');
+    setTimeout(() => {
+      try {
+        fn();
+      } catch (e: unknown) {
+        setMessage(`\u2715 ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    }, 16);
+  }, []);
 
   const { filtered, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(items, query, typeFilter);
 
@@ -45,8 +69,12 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
 
   useInput((input, key) => {
     if (detailItem || confirmAction) return;
+    if (busy) return; // input blocked while update is running
     if (focus === 'search') {
-      if (key.escape || key.downArrow) setFocus('list');
+      if (key.escape || key.downArrow) {
+        if (key.escape) markEscConsumed();
+        setFocus('list');
+      }
     } else {
       if (input === '/') setFocus('search');
       else if (input === '1') toggleType('skill');
@@ -54,6 +82,13 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (input === '3') toggleType('mcp');
       else if (input === '4') toggleType('bundle');
       else if (input === '0') setTypeFilter(new Set());
+      else if (input === 'U' && updateCount > 0) {
+        runBusy(`Updating ${updateCount} item(s)`, () => {
+          onUpdateAll();
+          onRefresh();
+          setMessage(`Updated ${updateCount} item(s)`);
+        });
+      }
     }
   });
 
@@ -114,6 +149,25 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
     });
   }, [doRemove, onRefresh]);
 
+  const handleUpdateFromList = useCallback((item: ItemData) => {
+    runBusy(`Updating ${item.type} ${item.name}`, () => {
+      onUpdateItem(item);
+      onRefresh();
+      setMessage(`Updated ${item.type} ${item.name}`);
+    });
+  }, [onUpdateItem, onRefresh, runBusy]);
+
+  const handleUpdateFromDetail = useCallback((key: string) => {
+    const item = items.find(i => i.key === key);
+    if (!item) return;
+    runBusy(`Updating ${item.type} ${item.name}`, () => {
+      onUpdateItem(item);
+      onRefresh();
+      setMessage(`Updated ${item.type} ${item.name}`);
+      setDetailItem(null);
+    });
+  }, [items, onUpdateItem, onRefresh, runBusy]);
+
   // Confirm dialog
   if (confirmAction) {
     return (
@@ -134,13 +188,19 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
         onBack={() => setDetailItem(null)}
         onInstall={() => {}} // No install from Installed tab
         onRemove={handleRemoveFromDetail}
+        onUpdate={detailItem.hasUpdate ? handleUpdateFromDetail : undefined}
       />
     );
   }
 
   return (
     <Box flexDirection="column">
-      <Text bold>Installed ({items.length})</Text>
+      <Box>
+        <Text bold>Installed ({items.length})</Text>
+        {updateCount > 0 && (
+          <Text color="yellow" bold>{'  '}· {updateCount} update{updateCount > 1 ? 's' : ''} available</Text>
+        )}
+      </Box>
       {recoveredCount > 0 && (
         <Text dimColor>
           {'  '}
@@ -161,11 +221,26 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
         onToggle={handleToggle}
         onSubmit={handleSubmit}
         onDetail={setDetailItem}
+        onUpdate={handleUpdateFromList}
         isFocused={focus === 'list'}
       />
-      {message && <Text color="green">  {message}</Text>}
+      {busy && (
+        <Box>
+          <Text color="yellow">  ⟳ {busy}...</Text>
+          <Text dimColor>  (please wait)</Text>
+        </Box>
+      )}
+      {!busy && message && (
+        <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>
+      )}
       <StatusBar
-        hints="/ search · 1-4 filter · 0 all · Space select · Enter details · r remove selected · Tab switch"
+        hints={
+          busy
+            ? 'Working…'
+            : updateCount > 0
+              ? '/ search · 1-4 filter · 0 all · Space select · Enter details · u update · U all · r remove · Tab switch'
+              : '/ search · 1-4 filter · 0 all · Space select · Enter details · r remove · Tab switch'
+        }
         selectedCount={selected.size}
       />
     </Box>

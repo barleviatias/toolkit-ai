@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
+import { useMarkEscConsumed } from '../app.js';
 
 interface ConfirmDialogProps {
   title: string;
@@ -14,10 +15,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
+  const markEscConsumed = useMarkEscConsumed();
   useInput((input, key) => {
     if (input === 'y' || key.return) {
       onConfirm();
     } else if (input === 'n' || key.escape) {
+      if (key.escape) markEscConsumed();
       onCancel();
     }
   });
