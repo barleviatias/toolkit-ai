@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { render, Box, useInput, useApp } from 'ink';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
@@ -21,9 +21,32 @@ interface AppProps {
 
 const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources'];
 
+/**
+ * Track terminal dimensions and update on SIGWINCH. Used to constrain the
+ * app's root Box to the viewport so Ink never renders past the bottom of the
+ * terminal — which is what causes the "screen goes weird" behavior when
+ * content would otherwise overflow the visible area.
+ */
+function useTerminalSize(): { rows: number; columns: number } {
+  const [size, setSize] = useState(() => ({
+    rows: process.stdout.rows || 24,
+    columns: process.stdout.columns || 80,
+  }));
+  useEffect(() => {
+    const onResize = () => setSize({
+      rows: process.stdout.rows || 24,
+      columns: process.stdout.columns || 80,
+    });
+    process.stdout.on('resize', onResize);
+    return () => { process.stdout.off('resize', onResize); };
+  }, []);
+  return size;
+}
+
 const App: React.FC<AppProps> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const { exit } = useApp();
+  const { rows: termRows } = useTerminalSize();
 
   const {
     catalog,
@@ -79,9 +102,14 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     }
   });
 
+  // Hide the ASCII logo on small terminals (< 30 rows) so the list + chrome
+  // always have enough room. This prevents the frame from overflowing the
+  // viewport and breaking Ink's in-place diff rendering.
+  const showLogo = termRows >= 30;
+
   return (
-    <Box flexDirection="column">
-      <Logo />
+    <Box flexDirection="column" height={termRows - 1}>
+      {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
 
       {activeTab === 'catalog' && (

@@ -34,15 +34,21 @@ function useStdoutRows(): number {
 /**
  * Compute the maximum list items that fit given a terminal row count, reserving
  * enough space for all chrome (logo, tabs, search, type-filter, source header,
- * status bar, and margins). Conservative so the header never scrolls out.
+ * status bar, and margins). Conservative — we'd rather scroll inside a short
+ * list than let the frame overflow the viewport and break Ink's rendering.
  *
  * Each ItemRow renders as 2 lines (title + description).
+ *
+ * Assumes the app auto-hides the logo on terminals < 30 rows; either way, a
+ * conservative 20-row reservation keeps the chrome stable.
  */
 function computeMaxVisible(rows: number): number {
-  const CHROME_RESERVE = 22; // logo 8 + tabs 2 + search 2 + filters 2 + source hdr 2 + status 2 + margins 4
+  const CHROME_RESERVE = rows >= 30
+    ? 20  // with logo: logo 8 + tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 2
+    : 12; // no logo: tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 2
   const ROWS_PER_ITEM = 2;
   const available = Math.max(3, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
-  return Math.min(12, available);
+  return Math.min(10, available);
 }
 
 export const ItemList: React.FC<ItemListProps> = ({
