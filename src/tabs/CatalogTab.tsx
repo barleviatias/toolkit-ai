@@ -15,8 +15,9 @@ import {
   installAgent,
   installMcp,
   installBundle,
+  installPlugin,
 } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removePlugin } from '../core/remover.js';
 
 interface CatalogTabProps {
   items: ItemData[];
@@ -53,9 +54,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     } else {
       if (input === '/') setFocus('search');
       else if (input === '1') toggleType('skill');
-      else if (input === '2') toggleType('agent');
-      else if (input === '3') toggleType('mcp');
-      else if (input === '4') toggleType('bundle');
+      else if (input === '2') toggleType('plugin');
+      else if (input === '3') toggleType('agent');
+      else if (input === '4') toggleType('mcp');
+      else if (input === '5') toggleType('bundle');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U') {
         onUpdateAll();
@@ -98,6 +100,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (type === 'agent')    installAgent(catalog, name, { force: false }, () => {});
       else if (type === 'mcp')      installMcp(catalog, name, { force: false }, () => {});
       else if (type === 'bundle')   installBundle(catalog, name, { force: false }, () => {});
+      else if (type === 'plugin')   installPlugin(catalog, name, { force: false }, () => {});
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -111,11 +114,17 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
 
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
+    // For plugins, the remover needs `name@marketplace` — find the item to get the marketplace
+    const item = items.find(i => i.key === key);
+    const pluginId = type === 'plugin' && item?.pluginContents?.marketplace
+      ? `${name}@${item.pluginContents.marketplace}`
+      : name;
     try {
       if (type === 'skill')       removeSkill(catalog, name, () => {});
       else if (type === 'agent')  removeAgent(catalog, name, () => {});
       else if (type === 'mcp')    removeMcp(catalog, name, () => {});
       else if (type === 'bundle') removeBundle(catalog, name, () => {});
+      else if (type === 'plugin') removePlugin(catalog, pluginId, () => {});
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
@@ -228,7 +237,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       {message && <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>}
       <StatusBar
         selectedCount={selected.size}
-        hints="/ search · 1-4 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch"
+        hints="/ search · 1-5 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch"
       />
     </Box>
   );

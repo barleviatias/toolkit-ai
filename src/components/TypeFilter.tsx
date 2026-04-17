@@ -1,10 +1,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-const TYPE_ORDER = ['skill', 'agent', 'mcp', 'bundle'] as const;
+const TYPE_ORDER = ['skill', 'plugin', 'agent', 'mcp', 'bundle'] as const;
 
 const TYPE_LABELS: Record<string, string> = {
   skill: 'Skills',
+  plugin: 'Plugins',
   agent: 'Agents',
   mcp: 'MCPs',
   bundle: 'Bundles',
@@ -12,6 +13,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const TYPE_COLORS: Record<string, string> = {
   skill: 'magenta',
+  plugin: 'green',
   agent: 'blue',
   mcp: 'yellow',
   bundle: 'cyan',

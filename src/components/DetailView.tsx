@@ -54,7 +54,6 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </Box>
       )}
 
-      {/* Bundle contents */}
       {item.bundleContents && (
         <Box marginTop={1} flexDirection="column">
           <Text bold dimColor>Contains:</Text>
@@ -70,7 +69,76 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </Box>
       )}
 
-      {/* MCP details */}
+      {item.pluginContents && (
+        <Box marginTop={1} flexDirection="column">
+          {item.pluginContents.marketplace && (
+            <Text dimColor>  Marketplace: {item.pluginContents.marketplace}</Text>
+          )}
+          {item.pluginContents.version && (
+            <Text dimColor>  Version: {item.pluginContents.version}</Text>
+          )}
+          {item.pluginContents.author && (
+            <Text dimColor>  Author: {item.pluginContents.author}</Text>
+          )}
+          {item.pluginContents.category && (
+            <Text dimColor>  Category: {item.pluginContents.category}</Text>
+          )}
+
+          {item.pluginContents.formats && (
+            <Box marginTop={1} gap={1}>
+              <Text dimColor>Targets:</Text>
+              <Text color={item.pluginContents.formats.claude ? 'green' : 'gray'}>
+                {item.pluginContents.formats.claude ? '[✓ Claude]' : '[· Claude]'}
+              </Text>
+              <Text color={item.pluginContents.formats.codex ? 'green' : 'gray'}>
+                {item.pluginContents.formats.codex ? '[✓ Codex]' : '[· Codex]'}
+              </Text>
+              <Text color={item.pluginContents.formats.copilot ? 'green' : 'gray'}>
+                {item.pluginContents.formats.copilot ? '[✓ Copilot]' : '[· Copilot]'}
+              </Text>
+              <Text color={item.pluginContents.formats.cursor ? 'green' : 'gray'}>
+                {item.pluginContents.formats.cursor ? '[✓ Cursor]' : '[· Cursor]'}
+              </Text>
+            </Box>
+          )}
+
+          {(() => {
+            const pc = item.pluginContents;
+            const total =
+              (pc.skills?.length || 0) +
+              (pc.commands?.length || 0) +
+              (pc.agents?.length || 0) +
+              (pc.mcps?.length || 0) +
+              (pc.hooks?.length || 0) +
+              (pc.lspServers?.length || 0);
+            if (total === 0) return null;
+            return (
+              <Box marginTop={1} flexDirection="column">
+                <Text bold>{item.installed ? 'Installed components:' : 'Will install:'}</Text>
+                {(pc.skills || []).map(s => (
+                  <Text key={`s-${s}`} color="magenta">  SKILL    {s}</Text>
+                ))}
+                {(pc.commands || []).map(c => (
+                  <Text key={`c-${c}`} color="magentaBright">  COMMAND  /{c}</Text>
+                ))}
+                {(pc.agents || []).map(a => (
+                  <Text key={`a-${a}`} color="blue">  AGENT    {a}</Text>
+                ))}
+                {(pc.mcps || []).map(m => (
+                  <Text key={`m-${m}`} color="yellow">  MCP      {m}</Text>
+                ))}
+                {(pc.lspServers || []).map(l => (
+                  <Text key={`l-${l}`} color="redBright">  LSP      {l}</Text>
+                ))}
+                {(pc.hooks || []).map(h => (
+                  <Text key={`h-${h}`} color="cyan">  HOOK     {h}</Text>
+                ))}
+              </Box>
+            );
+          })()}
+        </Box>
+      )}
+
       {item.mcpType && (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>Type: {item.mcpType}</Text>

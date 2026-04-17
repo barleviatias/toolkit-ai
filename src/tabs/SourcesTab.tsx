@@ -9,8 +9,8 @@ import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
-import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installPlugin } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removePlugin } from '../core/remover.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
@@ -126,6 +126,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       else if (type === 'agent') installAgent(catalog, name, { force: false }, () => {});
       else if (type === 'mcp') installMcp(catalog, name, { force: false }, () => {});
       else if (type === 'bundle') installBundle(catalog, name, { force: false }, () => {});
+      else if (type === 'plugin') installPlugin(catalog, name, { force: false }, () => {});
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -144,9 +145,13 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       items: [`${type} ${name}`],
       onConfirm: () => {
         try {
+          const pluginId = item.pluginContents?.marketplace
+            ? `${name}@${item.pluginContents.marketplace}`
+            : name;
           if (type === 'skill')       removeSkill(catalog, name, () => {});
           else if (type === 'agent')  removeAgent(catalog, name, () => {});
           else if (type === 'mcp')    removeMcp(catalog, name, () => {});
+          else if (type === 'plugin') removePlugin(catalog, pluginId, () => {});
           setMessage(`Removed ${type} ${name}`);
           onRefresh();
         } catch (e: unknown) {

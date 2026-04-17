@@ -18,6 +18,24 @@ export const AGENT_TARGETS = [
 
 export const CODEX_AGENT_TARGET = path.join(HOME, '.codex', 'agents');
 
+// Claude Code plugin paths (verified observable on disk)
+export const CLAUDE_SETTINGS_PATH = path.join(HOME, '.claude', 'settings.json');
+export const CLAUDE_PLUGIN_CACHE = path.join(HOME, '.claude', 'plugins', 'cache');
+export const CLAUDE_INSTALLED_PLUGINS = path.join(HOME, '.claude', 'plugins', 'installed_plugins.json');
+export const CLAUDE_KNOWN_MARKETPLACES = path.join(HOME, '.claude', 'plugins', 'known_marketplaces.json');
+export const CLAUDE_MARKETPLACES_DIR = path.join(HOME, '.claude', 'plugins', 'marketplaces');
+
+// Codex plugin paths (registry format per docs; install path is best-effort)
+export const CODEX_CONFIG_TOML = path.join(HOME, '.codex', 'config.toml');
+export const CODEX_PLUGINS_DIR = path.join(HOME, '.codex', 'plugins');
+
+// Copilot CLI plugin paths (verified observable on disk)
+export const COPILOT_CONFIG_PATH = path.join(HOME, '.copilot', 'config.json');
+export const COPILOT_INSTALLED_PLUGINS_DIR = path.join(HOME, '.copilot', 'installed-plugins');
+
+// Cursor plugin paths (filesystem-only, no documented registry)
+export const CURSOR_PLUGINS_DIR = path.join(HOME, '.cursor', 'plugins');
+
 // MCP config file paths
 // Local: only written to if the file already exists (tool must be installed)
 // Global: always written to, created if missing
@@ -283,3 +301,221 @@ export function removeCodexMcpServer(text: string, name: string): string | null 
   lines.splice(bounds.start, bounds.end - bounds.start);
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 }
+
+// ---------------------------------------------------------------------------
+// Plugin registry writers — one per native tool format
+// All match the real observed formats, not an invention.
+// ---------------------------------------------------------------------------
+
+/** Compose a Claude/Codex/Copilot-style plugin ID: `plugin@marketplace`. */
+export function pluginId(pluginName: string, marketplace: string): string {
+  return `${pluginName}@${marketplace}`;
+}
+
+// --- Claude Code registry writers ---
+
+interface ClaudeSettings {
+  enabledPlugins?: Record<string, boolean>;
+  [key: string]: unknown;
+}
+
+interface ClaudeInstalledPluginEntry {
+  scope: 'user' | 'project' | 'local' | 'managed';
+  installPath: string;
+  version: string;
+  installedAt: string;
+  lastUpdated: string;
+  gitCommitSha?: string;
+}
+
+interface ClaudeInstalledPluginsFile {
+  version: number;
+  plugins: Record<string, ClaudeInstalledPluginEntry[]>;
+}
+
+function readJsonFile<T>(filePath: string, fallback: T): T {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(filePath: string, data: unknown): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+/** Register a plugin install in ~/.claude/plugins/installed_plugins.json using the real observed schema. */
+export function registerClaudeInstalledPlugin(params: {
+  marketplace: string;
+  pluginName: string;
+  version: string;
+  installPath: string;
+  gitCommitSha?: string;
+}): void {
+  const file = readJsonFile<ClaudeInstalledPluginsFile>(CLAUDE_INSTALLED_PLUGINS, { version: 2, plugins: {} });
+  if (!file.plugins) file.plugins = {};
+  const id = pluginId(params.pluginName, params.marketplace);
+  const now = new Date().toISOString();
+  const entry: ClaudeInstalledPluginEntry = {
+    scope: 'user',
+    installPath: params.installPath,
+    version: params.version,
+    installedAt: file.plugins[id]?.[0]?.installedAt || now,
+    lastUpdated: now,
+    ...(params.gitCommitSha ? { gitCommitSha: params.gitCommitSha } : {}),
+  };
+  file.plugins[id] = [entry];
+  writeJsonFile(CLAUDE_INSTALLED_PLUGINS, file);
+}
+
+/** Remove a plugin from ~/.claude/plugins/installed_plugins.json. */
+export function deregisterClaudeInstalledPlugin(marketplace: string, pluginName: string): void {
+  const file = readJsonFile<ClaudeInstalledPluginsFile>(CLAUDE_INSTALLED_PLUGINS, { version: 2, plugins: {} });
+  if (!file.plugins) return;
+  const id = pluginId(pluginName, marketplace);
+  if (id in file.plugins) {
+    delete file.plugins[id];
+    writeJsonFile(CLAUDE_INSTALLED_PLUGINS, file);
+  }
+}
+
+/** Set enabledPlugins["name@mkt"] = true in ~/.claude/settings.json. */
+export function enableClaudePlugin(marketplace: string, pluginName: string): void {
+  const settings = readJsonFile<ClaudeSettings>(CLAUDE_SETTINGS_PATH, {});
+  if (!settings.enabledPlugins) settings.enabledPlugins = {};
+  settings.enabledPlugins[pluginId(pluginName, marketplace)] = true;
+  writeJsonFile(CLAUDE_SETTINGS_PATH, settings);
+}
+
+/** Remove enabledPlugins["name@mkt"] from ~/.claude/settings.json. */
+export function disableClaudePlugin(marketplace: string, pluginName: string): void {
+  const settings = readJsonFile<ClaudeSettings>(CLAUDE_SETTINGS_PATH, {});
+  if (!settings.enabledPlugins) return;
+  const id = pluginId(pluginName, marketplace);
+  if (id in settings.enabledPlugins) {
+    delete settings.enabledPlugins[id];
+    writeJsonFile(CLAUDE_SETTINGS_PATH, settings);
+  }
+}
+
+// --- Codex registry writer (TOML) ---
+
+/**
+ * Write [plugins."name@marketplace"] section with `enabled = true/false` into ~/.codex/config.toml.
+ * Uses the same string-manipulation pattern as writeCodexMcpServer for consistency.
+ */
+export function registerCodexPlugin(marketplace: string, pluginName: string, enabled: boolean): void {
+  const id = pluginId(pluginName, marketplace);
+  const sectionHeader = `[plugins.${tomlKey(id)}]`;
+  const sectionBody = `enabled = ${enabled}`;
+
+  let existingText = '';
+  try { existingText = fs.readFileSync(CODEX_CONFIG_TOML, 'utf8'); } catch { /* file may not exist yet */ }
+
+  const lines = existingText.split(/\r?\n/);
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === sectionHeader) { startIdx = i; break; }
+  }
+
+  if (startIdx === -1) {
+    const next = existingText.trimEnd()
+      ? `${existingText.trimEnd()}\n\n${sectionHeader}\n${sectionBody}\n`
+      : `${sectionHeader}\n${sectionBody}\n`;
+    const dir = path.dirname(CODEX_CONFIG_TOML);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(CODEX_CONFIG_TOML, next);
+    return;
+  }
+
+  // Body assumed single-line (`enabled = ...`); extend here if Codex adds more fields later
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (lines[i].trim().startsWith('[')) { endIdx = i; break; }
+  }
+  lines.splice(startIdx, endIdx - startIdx, sectionHeader, sectionBody);
+  fs.writeFileSync(CODEX_CONFIG_TOML, lines.join('\n').trimEnd() + '\n');
+}
+
+/** Remove [plugins."name@marketplace"] section from ~/.codex/config.toml. */
+export function deregisterCodexPlugin(marketplace: string, pluginName: string): void {
+  let text: string;
+  try { text = fs.readFileSync(CODEX_CONFIG_TOML, 'utf8'); } catch { return; }
+
+  const id = pluginId(pluginName, marketplace);
+  const sectionHeader = `[plugins.${tomlKey(id)}]`;
+  const lines = text.split(/\r?\n/);
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === sectionHeader) { startIdx = i; break; }
+  }
+  if (startIdx === -1) return;
+
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (lines[i].trim().startsWith('[')) { endIdx = i; break; }
+  }
+  lines.splice(startIdx, endIdx - startIdx);
+  fs.writeFileSync(CODEX_CONFIG_TOML, lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n');
+}
+
+// --- Copilot registry writer (JSON) ---
+
+interface CopilotInstalledPluginEntry {
+  name: string;
+  marketplace: string;
+  version: string;
+  installed_at: string;
+  enabled: boolean;
+  cache_path: string;
+}
+
+interface CopilotConfig {
+  installed_plugins?: CopilotInstalledPluginEntry[];
+  [key: string]: unknown;
+}
+
+/** Add an entry to installed_plugins[] in ~/.copilot/config.json using the real observed schema. */
+export function registerCopilotPlugin(params: {
+  marketplace: string;
+  pluginName: string;
+  version: string;
+  cachePath: string;
+}): void {
+  const config = readJsonFile<CopilotConfig>(COPILOT_CONFIG_PATH, {});
+  if (!config.installed_plugins) config.installed_plugins = [];
+  const existing = config.installed_plugins.findIndex(
+    p => p.name === params.pluginName && p.marketplace === params.marketplace,
+  );
+  const entry: CopilotInstalledPluginEntry = {
+    name: params.pluginName,
+    marketplace: params.marketplace,
+    version: params.version,
+    installed_at: new Date().toISOString(),
+    enabled: true,
+    cache_path: params.cachePath,
+  };
+  if (existing >= 0) {
+    config.installed_plugins[existing] = entry;
+  } else {
+    config.installed_plugins.push(entry);
+  }
+  writeJsonFile(COPILOT_CONFIG_PATH, config);
+}
+
+/** Remove a plugin entry from installed_plugins[] in ~/.copilot/config.json. */
+export function deregisterCopilotPlugin(marketplace: string, pluginName: string): void {
+  const config = readJsonFile<CopilotConfig>(COPILOT_CONFIG_PATH, {});
+  if (!config.installed_plugins) return;
+  const before = config.installed_plugins.length;
+  config.installed_plugins = config.installed_plugins.filter(
+    p => !(p.name === pluginName && p.marketplace === marketplace),
+  );
+  if (config.installed_plugins.length < before) {
+    writeJsonFile(COPILOT_CONFIG_PATH, config);
+  }
+}
+

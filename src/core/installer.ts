@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry } from '../types.js';
+import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry, PluginFormats } from '../types.js';
 import {
   SKILL_TARGETS, AGENT_TARGETS,
   CODEX_AGENT_TARGET,
@@ -9,6 +9,12 @@ import {
   getConfigFormat,
   writeCodexMcpServer,
   assertSafePathSegment,
+  // Plugin registry writers (real native formats)
+  CLAUDE_PLUGIN_CACHE, CODEX_PLUGINS_DIR, COPILOT_INSTALLED_PLUGINS_DIR, CURSOR_PLUGINS_DIR,
+  registerClaudeInstalledPlugin, enableClaudePlugin,
+  registerCodexPlugin,
+  registerCopilotPlugin,
+  pluginId,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import {
@@ -16,18 +22,28 @@ import {
   findAgent,
   findMcp,
   findBundle,
+  findPlugin,
   loadBundleConfig,
   loadMcpConfig,
+  loadPluginManifest,
+  detectPluginFormats,
   parseFrontmatter,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources } from './sources.js';
-import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
+import { scanSkillDir, scanAgentFile, scanMcpConfig, scanPluginDir, formatReport } from './scanner.js';
 
 export interface InstallOptions {
   force?: boolean;
   bundleName?: string;
   verbose?: boolean;
+  /**
+   * Override which native tool targets a plugin installs into, regardless of
+   * what its manifests declare. Useful when a user wants to force a Claude-format
+   * plugin into Copilot (most formats are cross-compatible in practice).
+   * Example: ['claude', 'copilot'] or ['claude', 'codex', 'copilot', 'cursor']
+   */
+  targets?: Array<'claude' | 'codex' | 'copilot' | 'cursor'>;
 }
 
 export type LogFn = (msg: string) => void;
@@ -37,6 +53,7 @@ interface ExternalResourcesLike {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+  plugins: CatalogEntry[];
 }
 
 function renderCodexAgent(agentPath: string): { name: string; description: string; content: string } {
@@ -157,7 +174,7 @@ function installBundleEntry(
   catalog: Catalog,
   external: ExternalResourcesLike,
   sourceName: string,
-  type: 'skill' | 'agent' | 'mcp',
+  type: 'skill' | 'agent' | 'mcp' | 'plugin',
   name: string,
   installOpts: InstallOptions,
   log: LogFn,
@@ -165,6 +182,7 @@ function installBundleEntry(
   const externalEntry =
     type === 'skill' ? external.skills.find(item => item.source === sourceName && item.name === name) :
     type === 'agent' ? external.agents.find(item => item.source === sourceName && item.name === name) :
+    type === 'plugin' ? external.plugins.find(item => item.source === sourceName && item.name === name) :
     external.mcps.find(item => item.source === sourceName && item.name === name);
 
   if (externalEntry?.path && externalEntry.hash) {
@@ -174,11 +192,15 @@ function installBundleEntry(
     if (type === 'agent') {
       return installExternalAgent(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
     }
+    if (type === 'plugin') {
+      return installExternalPluginEntry(externalEntry, installOpts, log);
+    }
     return installExternalMcp(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
   }
 
   if (type === 'skill') return installSkill(catalog, name, installOpts, log);
   if (type === 'agent') return installAgent(catalog, name, installOpts, log);
+  if (type === 'plugin') return installPlugin(catalog, name, installOpts, log);
   return installMcp(catalog, name, installOpts, log);
 }
 
@@ -513,6 +535,205 @@ export function installExternalBundle(
   for (const mcpName of bundle.mcps || []) {
     results.push(installBundleEntry(catalog, external, sourceName, 'mcp', mcpName, installOpts, log));
   }
+  for (const pluginName of bundle.plugins || []) {
+    results.push(installBundleEntry(catalog, external, sourceName, 'plugin', pluginName, installOpts, log));
+  }
 
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Install a plugin — speaks each tool's native format
+// ---------------------------------------------------------------------------
+
+/** Install a plugin by name from the catalog. */
+export function installPlugin(
+  catalog: Catalog,
+  name: string,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+): InstallResult {
+  const entry = findPlugin(catalog, name);
+  if (!entry) throw new Error(`Plugin not found in catalog: ${name}`);
+  return installExternalPluginEntry(entry, opts, log);
+}
+
+/**
+ * Install a plugin from an external source cache using the catalog entry.
+ * This is the preferred signature since it carries marketplace + formats + version.
+ */
+export function installExternalPluginEntry(
+  entry: CatalogEntry,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+): InstallResult {
+  return installExternalPlugin(
+    entry.source,
+    entry.name,
+    entry.path,
+    entry.hash,
+    opts,
+    log,
+    {
+      marketplace: entry.marketplace,
+      formats: entry.formats,
+      version: entry.version,
+    },
+  );
+}
+
+interface PluginInstallContext {
+  marketplace?: string;
+  formats?: PluginFormats;
+  version?: string;
+}
+
+/**
+ * Install a plugin from an external source cache. Detects which native tool
+ * formats the plugin supports and copies/registers into each one using that
+ * tool's real on-disk format. Skips tools whose format isn't present.
+ */
+export function installExternalPlugin(
+  sourceName: string,
+  pluginName: string,
+  pluginPath: string,
+  hash: string,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+  ctx: PluginInstallContext = {},
+): InstallResult {
+  assertSafePathSegment(pluginName, 'plugin name');
+  const src = path.join(CACHE_DIR, sourceName, pluginPath);
+  if (!fs.existsSync(src)) throw new Error(`External plugin not found at: ${src}`);
+
+  const report = scanPluginDir(src, pluginName, sourceName);
+  if (!report.passed && !opts.force) {
+    log(formatReport(report));
+    log(`      Skipped — use --force to override`);
+    return { type: 'plugin', name: pluginName, action: 'blocked' };
+  }
+  if (report.findings.length > 0) log(formatReport(report));
+
+  const marketplace = ctx.marketplace || sourceName;
+  const manifest = loadPluginManifest(src);
+  const version = ctx.version || manifest.version || 'unknown';
+  const formats = { ...(ctx.formats || detectPluginFormats(src)) };
+  if (opts.targets && opts.targets.length > 0) {
+    // --target flag replaces detected formats entirely
+    formats.claude = opts.targets.includes('claude');
+    formats.codex = opts.targets.includes('codex');
+    formats.copilot = opts.targets.includes('copilot');
+    formats.cursor = opts.targets.includes('cursor');
+  }
+
+  const lock = readLock();
+  const itemKey = `plugin:${pluginName}@${marketplace}`;
+  const lockEntry = lock.installed[itemKey];
+  const needsUpdate = lockEntry && lockEntry.hash !== hash;
+  const shouldForce = opts.force || needsUpdate || false;
+
+  const installedTo: string[] = [];
+  if (formats.claude) {
+    installPluginToClaude(src, pluginName, marketplace, version, shouldForce, log);
+    installedTo.push('Claude');
+  }
+  if (formats.codex) {
+    installPluginToCodex(src, pluginName, marketplace, shouldForce, log);
+    installedTo.push('Codex');
+  }
+  if (formats.copilot) {
+    installPluginToCopilot(src, pluginName, marketplace, version, shouldForce, log);
+    installedTo.push('Copilot');
+  }
+  if (formats.cursor) {
+    installPluginToCursor(src, pluginName, shouldForce, log);
+    installedTo.push('Cursor');
+  }
+
+  if (installedTo.length === 0) {
+    log(`  [!] plugin ${pluginName} has no recognized native manifest — skipped`);
+    return { type: 'plugin', name: pluginName, action: 'skipped' };
+  }
+
+  log(`  [+] plugin ${pluginName}@${marketplace} installed to: ${installedTo.join(', ')}`);
+
+  recordInstall(lock, itemKey, hash, opts.bundleName);
+  writeLock(lock);
+  return { type: 'plugin', name: pluginName, action: lockEntry ? 'updated' : 'installed' };
+}
+
+// --- Per-tool installers (private) ---
+
+function installPluginToClaude(
+  src: string,
+  pluginName: string,
+  marketplace: string,
+  version: string,
+  force: boolean,
+  log: LogFn,
+): void {
+  // Matches Claude's observed cache layout: ~/.claude/plugins/cache/<mkt>/<plugin>/<version>/
+  const dest = path.join(CLAUDE_PLUGIN_CACHE, marketplace, pluginName, version);
+  ensureDir(path.dirname(dest));
+  linkOrCopyDir(src, dest, force, true);
+
+  registerClaudeInstalledPlugin({
+    marketplace,
+    pluginName,
+    version,
+    installPath: dest,
+  });
+  enableClaudePlugin(marketplace, pluginName);
+  log(`  [+] Claude: ${pluginId(pluginName, marketplace)} -> ${dest}`);
+}
+
+function installPluginToCodex(
+  src: string,
+  pluginName: string,
+  marketplace: string,
+  force: boolean,
+  log: LogFn,
+): void {
+  // Codex install path per docs: ~/.codex/plugins/<mkt>/<plugin>/
+  const dest = path.join(CODEX_PLUGINS_DIR, marketplace, pluginName);
+  ensureDir(path.dirname(dest));
+  linkOrCopyDir(src, dest, force, true);
+
+  registerCodexPlugin(marketplace, pluginName, true);
+  log(`  [+] Codex: ${pluginId(pluginName, marketplace)} -> ${dest}`);
+}
+
+function installPluginToCopilot(
+  src: string,
+  pluginName: string,
+  marketplace: string,
+  version: string,
+  force: boolean,
+  log: LogFn,
+): void {
+  // Copilot observed layout: ~/.copilot/installed-plugins/<mkt>/<plugin>/ (no version subdir)
+  const dest = path.join(COPILOT_INSTALLED_PLUGINS_DIR, marketplace, pluginName);
+  ensureDir(path.dirname(dest));
+  linkOrCopyDir(src, dest, force, true);
+
+  registerCopilotPlugin({
+    marketplace,
+    pluginName,
+    version,
+    cachePath: dest,
+  });
+  log(`  [+] Copilot: ${pluginId(pluginName, marketplace)} -> ${dest}`);
+}
+
+function installPluginToCursor(
+  src: string,
+  pluginName: string,
+  force: boolean,
+  log: LogFn,
+): void {
+  // Cursor: filesystem only (no documented registry). ~/.cursor/plugins/<name>/
+  const dest = path.join(CURSOR_PLUGINS_DIR, pluginName);
+  ensureDir(path.dirname(dest));
+  linkOrCopyDir(src, dest, force, true);
+  log(`  [+] Cursor: ${pluginName} -> ${dest}`);
 }
