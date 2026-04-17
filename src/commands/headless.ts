@@ -1,11 +1,11 @@
 import path from 'path';
 import type { Catalog, InstallResult } from '../types.js';
 import { loadMcpConfig } from '../core/catalog.js';
-import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installPlugin } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removePlugin } from '../core/remover.js';
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
-import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
+import { scanSkillDir, scanAgentFile, scanMcpConfig, scanPluginDir, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources } from '../core/sources.js';
 import { CACHE_DIR } from '../core/platform.js';
 
@@ -101,6 +101,10 @@ function listAll(catalog: Catalog) {
   for (const s of catalog.skills)
     console.log(`  ${s.name.padEnd(28)} ${DIM}${s.description}${RESET}`);
 
+  console.log(`\n${BOLD}=== Plugins ===${RESET}`);
+  for (const p of catalog.plugins)
+    console.log(`  ${p.name.padEnd(28)} ${DIM}${p.description}${RESET}`);
+
   console.log(`\n${BOLD}=== Agents ===${RESET}`);
   for (const a of catalog.agents)
     console.log(`  ${a.name.padEnd(28)} ${DIM}${a.description}${RESET}`);
@@ -151,12 +155,14 @@ ${BOLD}Install:${RESET}
   agent <name>                    Install an agent
   mcp <name>                      Register an MCP server
   bundle <name>                   Install a bundle
+  plugin <name>                   Install a plugin
 
 ${BOLD}Remove:${RESET}
   remove skill <name>             Remove a skill
   remove agent <name>             Remove an agent
   remove mcp <name>               Deregister an MCP server
   remove bundle <name>            Remove a bundle
+  remove plugin <name>            Remove a plugin
 
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
@@ -170,6 +176,10 @@ ${BOLD}Sources:${RESET}
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
   --force                         Force reinstall even if up to date
+  --target <list>                 For plugin install: override native targets.
+                                  Comma-separated from: claude, codex, copilot, cursor
+                                  e.g. --target claude,copilot
+  --all-targets, --all            For plugin install: install to Claude, Codex, Copilot, Cursor
   --version                       Show version
   --help, -h                      Show this help message
 `);
@@ -252,6 +262,14 @@ function showScan(catalog: Catalog, specificSkill?: string | null) {
     for (const mcp of catalog.mcps) {
       const mcpConfig = loadMcpConfig(mcp);
       const report = scanMcpConfig({ name: mcp.name, type: mcpConfig.type, url: mcpConfig.url }, mcp.source);
+      console.log(formatReport(report));
+      blockCount += report.findings.filter(f => f.severity === 'block').length;
+      warnCount += report.findings.filter(f => f.severity === 'warn').length;
+    }
+
+    for (const plugin of catalog.plugins) {
+      const src = path.join(CACHE_DIR, plugin.source, plugin.path);
+      const report = scanPluginDir(src, plugin.name, plugin.source, { trusted: false });
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;
@@ -348,6 +366,16 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
+  const isAllTargets = flag(args, '--all-targets') || flag(args, '--all');
+  const targetOption = option(args, '--target') || option(args, '--targets');
+  // Parse target list: "--target claude,copilot" or "--all-targets"
+  const VALID_TARGETS = ['claude', 'codex', 'copilot', 'cursor'] as const;
+  type TargetName = typeof VALID_TARGETS[number];
+  const targets: TargetName[] | undefined = isAllTargets
+    ? [...VALID_TARGETS]
+    : targetOption
+      ? targetOption.split(',').map(s => s.trim().toLowerCase()).filter((t): t is TargetName => (VALID_TARGETS as readonly string[]).includes(t))
+      : undefined;
   const isRemove   = flag(args, 'remove');
   const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');
@@ -362,19 +390,20 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   const agentName  = option(subArgs, '--agent')  || (subArgs[0] === 'agent'  && subArgs[1] ? subArgs[1] : null);
   const mcpName    = option(subArgs, '--mcp')    || (subArgs[0] === 'mcp'    && subArgs[1] ? subArgs[1] : null);
   const bundleName = option(subArgs, '--bundle') || (subArgs[0] === 'bundle' && subArgs[1] ? subArgs[1] : null);
+  const pluginName = option(subArgs, '--plugin') || (subArgs[0] === 'plugin' && subArgs[1] ? subArgs[1] : null);
 
   // Source refresh — re-fetch all external sources
   if (isRefresh) {
     const sources = loadSources();
     console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
     const resources = fetchExternalResources(true);
-    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs\n`);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.plugins.length} plugins\n`);
     return true;
   }
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||
-    skillName || agentName || mcpName || bundleName;
+    skillName || agentName || mcpName || bundleName || pluginName;
 
   if (!needsCatalog) return false; // not a headless command
 
@@ -412,17 +441,19 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     else if (agentName)  removeAgent(catalog, agentName);
     else if (mcpName)    removeMcp(catalog, mcpName);
     else if (bundleName) removeBundle(catalog, bundleName);
+    else if (pluginName) removePlugin(catalog, pluginName);
     else return false; // interactive remove -> TUI
     return true;
   }
 
   // Direct install
   const results: InstallResult[] = [];
-  const opts = { force: isForce };
+  const opts = { force: isForce, ...(targets ? { targets } : {}) };
   if (skillName)       results.push(installSkill(catalog, skillName, opts));
   else if (agentName)  results.push(installAgent(catalog, agentName, opts));
   else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));
   else if (bundleName) results.push(...installBundle(catalog, bundleName, opts));
+  else if (pluginName) results.push(installPlugin(catalog, pluginName, opts));
 
   if (results.length > 0) {
     printSummary(results);

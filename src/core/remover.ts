@@ -1,9 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat, removeCodexMcpServer, assertSafePathSegment } from './platform.js';
+import {
+  SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET,
+  MCP_CONFIG_FILES, CACHE_DIR,
+  getConfigFormat, removeCodexMcpServer, assertSafePathSegment,
+  // Plugin paths + registry deregistration (real native formats)
+  CLAUDE_PLUGIN_CACHE, CODEX_PLUGINS_DIR, COPILOT_INSTALLED_PLUGINS_DIR, CURSOR_PLUGINS_DIR,
+  deregisterClaudeInstalledPlugin, disableClaudePlugin,
+  deregisterCodexPlugin,
+  deregisterCopilotPlugin,
+} from './platform.js';
 import { removeLink } from './fs-helpers.js';
-import { findAgent, findBundle } from './catalog.js';
+import { findAgent, findBundle, findPlugin, detectPluginFormats } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
 
 export type LogFn = (msg: string) => void;
@@ -66,6 +75,63 @@ export function removeItemFromFilesystem(
       }
     }
     if (!removed) log(`  mcp ${name} was not found in any config file`);
+  } else if (type === 'plugin') {
+    // Parse "name" or "name@marketplace" form
+    const atIdx = name.indexOf('@');
+    const pluginName = atIdx > 0 ? name.slice(0, atIdx) : name;
+    // marketplace fallback: look up the catalog entry; else use source name from catalog
+    let marketplace: string | undefined = atIdx > 0 ? name.slice(atIdx + 1) : undefined;
+    if (!marketplace) {
+      const entry = findPlugin(catalog, pluginName);
+      marketplace = entry?.marketplace || entry?.source;
+    }
+    assertSafePathSegment(pluginName, 'plugin name');
+
+    let removed = false;
+
+    // --- Claude ---
+    if (marketplace) {
+      const claudeDir = path.join(CLAUDE_PLUGIN_CACHE, marketplace, pluginName);
+      if (fs.existsSync(claudeDir)) {
+        fs.rmSync(claudeDir, { recursive: true, force: true });
+        log(`  [-] Claude: removed ${claudeDir}`);
+        removed = true;
+      }
+      deregisterClaudeInstalledPlugin(marketplace, pluginName);
+      disableClaudePlugin(marketplace, pluginName);
+    }
+
+    // --- Codex ---
+    if (marketplace) {
+      const codexDir = path.join(CODEX_PLUGINS_DIR, marketplace, pluginName);
+      if (fs.existsSync(codexDir)) {
+        fs.rmSync(codexDir, { recursive: true, force: true });
+        log(`  [-] Codex: removed ${codexDir}`);
+        removed = true;
+      }
+      deregisterCodexPlugin(marketplace, pluginName);
+    }
+
+    // --- Copilot ---
+    if (marketplace) {
+      const copilotDir = path.join(COPILOT_INSTALLED_PLUGINS_DIR, marketplace, pluginName);
+      if (fs.existsSync(copilotDir)) {
+        fs.rmSync(copilotDir, { recursive: true, force: true });
+        log(`  [-] Copilot: removed ${copilotDir}`);
+        removed = true;
+      }
+      deregisterCopilotPlugin(marketplace, pluginName);
+    }
+
+    // --- Cursor (no registry, just filesystem) ---
+    const cursorDir = path.join(CURSOR_PLUGINS_DIR, pluginName);
+    if (fs.existsSync(cursorDir)) {
+      fs.rmSync(cursorDir, { recursive: true, force: true });
+      log(`  [-] Cursor: removed ${cursorDir}`);
+      removed = true;
+    }
+
+    if (!removed) log(`  plugin ${name} was not installed`);
   }
 }
 
@@ -107,6 +173,19 @@ export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
     removeItemFromFilesystem(catalog, itemKey, log);
   } else {
     (log || console.log)(`  [skip] mcp ${name} still referenced by an installed bundle`);
+  }
+  delete lock.installed[itemKey];
+  writeLock(lock);
+}
+
+/** Remove a plugin by name, cleaning up all install targets, sub-resources, and the lock file. */
+export function removePlugin(catalog: Catalog, name: string, log?: LogFn): void {
+  const lock = readLock();
+  const itemKey = `plugin:${name}`;
+  if (!isItemProtected(itemKey, null, lock, catalog)) {
+    removeItemFromFilesystem(catalog, itemKey, log);
+  } else {
+    (log || console.log)(`  [skip] plugin ${name} still referenced by an installed bundle`);
   }
   delete lock.installed[itemKey];
   writeLock(lock);

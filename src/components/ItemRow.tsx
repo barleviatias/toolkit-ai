@@ -16,6 +16,20 @@ export interface ItemData {
   trackedByLock?: boolean;
   // Bundle-specific
   bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
+  // Plugin-specific
+  pluginContents?: {
+    skills: string[];
+    agents: string[];
+    commands: string[];
+    mcps: string[];
+    hooks: string[];
+    lspServers: string[];
+    version?: string;
+    author?: string;
+    marketplace?: string;
+    category?: string;
+    formats?: { claude: boolean; codex: boolean; cursor: boolean; copilot: boolean };
+  };
   // MCP-specific
   mcpType?: string;
   url?: string;
@@ -27,6 +41,7 @@ const TYPE_COLORS: Record<string, string> = {
   agent:  'blue',
   mcp:    'yellow',
   bundle: 'cyan',
+  plugin: 'green',
 };
 
 interface ItemRowProps {

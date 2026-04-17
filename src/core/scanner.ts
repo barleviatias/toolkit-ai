@@ -325,6 +325,60 @@ export function scanMcpConfig(config: McpConfigInput, source: string): ScanRepor
   };
 }
 
+/** Scan a plugin directory for security issues. Scans plugin.json + delegates to sub-resource scanners. */
+export function scanPluginDir(pluginDir: string, name: string, source: string, opts: ScanOptions = {}): ScanReport {
+  const findings: ScanFinding[] = [];
+
+  // First scan the directory like a skill dir (size, symlinks, text content)
+  const dirReport = scanSkillDir(pluginDir, name, source, opts);
+  findings.push(...dirReport.findings);
+
+  // Then scan inline MCP configs from plugin.json
+  const manifestPath = path.join(pluginDir, 'plugin.json');
+  try {
+    const config = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+    // Scan inline MCP server configs
+    if (config.mcps && typeof config.mcps === 'object') {
+      for (const [mcpName, mcpConfig] of Object.entries(config.mcps)) {
+        const mcpInput = mcpConfig as Omit<McpConfigInput, 'name'>;
+        const mcpReport = scanMcpConfig({ ...mcpInput, name: mcpName }, source);
+        findings.push(...mcpReport.findings);
+      }
+    }
+
+    // Scan hook commands for suspicious patterns
+    if (config.hooks && typeof config.hooks === 'object') {
+      for (const [event, hookList] of Object.entries(config.hooks)) {
+        if (!Array.isArray(hookList)) continue;
+        for (const hook of hookList) {
+          const h = hook as { type?: string; command?: string };
+          if (h.command) {
+            scanTextContent(h.command, `plugin.json hooks.${event}`, findings);
+          }
+        }
+      }
+    }
+  } catch {
+    // plugin.json already validated during discovery
+  }
+
+  // Trusted sources: downgrade blocks to warnings
+  if (opts.trusted) {
+    for (const f of findings) {
+      if (f.severity === 'block') f.severity = 'warn';
+    }
+  }
+
+  return {
+    item: `plugin:${name}`,
+    source,
+    findings,
+    passed: !findings.some(f => f.severity === 'block'),
+    scannedAt: new Date().toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------

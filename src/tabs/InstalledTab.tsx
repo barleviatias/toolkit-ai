@@ -10,7 +10,7 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removePlugin } from '../core/remover.js';
 
 interface InstalledTabProps {
   items: ItemData[];
@@ -50,9 +50,10 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
     } else {
       if (input === '/') setFocus('search');
       else if (input === '1') toggleType('skill');
-      else if (input === '2') toggleType('agent');
-      else if (input === '3') toggleType('mcp');
-      else if (input === '4') toggleType('bundle');
+      else if (input === '2') toggleType('plugin');
+      else if (input === '3') toggleType('agent');
+      else if (input === '4') toggleType('mcp');
+      else if (input === '5') toggleType('bundle');
       else if (input === '0') setTypeFilter(new Set());
     }
   });
@@ -68,15 +69,21 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
 
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
+    // For plugins, the remover needs `name@marketplace` — look up the item to get the marketplace
+    const item = items.find(i => i.key === key);
+    const pluginId = type === 'plugin' && item?.pluginContents?.marketplace
+      ? `${name}@${item.pluginContents.marketplace}`
+      : name;
     try {
       if (type === 'skill')       removeSkill(catalog, name, () => {});
       else if (type === 'agent')  removeAgent(catalog, name, () => {});
       else if (type === 'mcp')    removeMcp(catalog, name, () => {});
       else if (type === 'bundle') removeBundle(catalog, name, () => {});
+      else if (type === 'plugin') removePlugin(catalog, pluginId, () => {});
     } catch (e: unknown) {
       setMessage(`Error removing ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [catalog]);
+  }, [catalog, items]);
 
   const handleSubmit = useCallback((keys: string[]) => {
     const names = keys.map(k => {
@@ -165,7 +172,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       />
       {message && <Text color="green">  {message}</Text>}
       <StatusBar
-        hints="/ search · 1-4 filter · 0 all · Space select · Enter details · r remove selected · Tab switch"
+        hints="/ search · 1-5 filter · 0 all · Space select · Enter details · r remove selected · Tab switch"
         selectedCount={selected.size}
       />
     </Box>

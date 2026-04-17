@@ -15,6 +15,17 @@ interface ItemListProps {
   maxVisible?: number;
 }
 
+/**
+ * Compute a sensible default for how many items to show in the list, based on
+ * the current terminal height. Reserves ~16 rows for logo, tabs, search, status.
+ */
+function computeMaxVisible(): number {
+  const rows = process.stdout.rows || 24;
+  // Each ItemRow takes 2 lines (header + description); leave margin for chrome.
+  const available = Math.max(3, Math.floor((rows - 16) / 2));
+  return Math.min(20, available);
+}
+
 export const ItemList: React.FC<ItemListProps> = ({
   items,
   selected,
@@ -25,7 +36,7 @@ export const ItemList: React.FC<ItemListProps> = ({
   onRemove,
   onUpdate,
   isFocused,
-  maxVisible = 8,
+  maxVisible = computeMaxVisible(),
 }) => {
   const [cursor, setCursor] = useState(0);
 

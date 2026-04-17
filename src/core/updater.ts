@@ -1,7 +1,7 @@
 import type { Catalog, InstallResult } from '../types.js';
-import { findSkill, findAgent, findMcp, findBundle } from './catalog.js';
+import { findSkill, findAgent, findMcp, findBundle, findPlugin } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
-import { installSkill, installAgent, installMcp, installBundle, type LogFn } from './installer.js';
+import { installSkill, installAgent, installMcp, installBundle, installPlugin, type LogFn } from './installer.js';
 import { removeItemFromFilesystem } from './remover.js';
 
 // ---------------------------------------------------------------------------
@@ -42,9 +42,10 @@ export function checkForUpdates(catalog: Catalog): UpdateStatus[] {
     for (const [itemKey, itemEntry] of Object.entries(lockEntry.items || {})) {
       const [type, itemName] = itemKey.split(':');
       const catalogItem =
-        type === 'skill' ? findSkill(catalog, itemName) :
-        type === 'agent' ? findAgent(catalog, itemName) :
-        type === 'mcp'   ? findMcp(catalog, itemName)   : null;
+        type === 'skill'  ? findSkill(catalog, itemName) :
+        type === 'agent'  ? findAgent(catalog, itemName) :
+        type === 'mcp'    ? findMcp(catalog, itemName)   :
+        type === 'plugin' ? findPlugin(catalog, itemName) : null;
 
       if (!catalogItem || catalogItem.hash !== itemEntry.hash) {
         results.push({ key: itemKey, type, name: itemName, status: 'update_available', parent: name });
@@ -61,9 +62,10 @@ export function checkForUpdates(catalog: Catalog): UpdateStatus[] {
     if (lockKey.startsWith('bundle:')) continue;
     const [type, name] = lockKey.split(':');
     const catalogEntry =
-      type === 'skill' ? findSkill(catalog, name) :
-      type === 'agent' ? findAgent(catalog, name) :
-      type === 'mcp'   ? findMcp(catalog, name)   : null;
+      type === 'skill'  ? findSkill(catalog, name) :
+      type === 'agent'  ? findAgent(catalog, name) :
+      type === 'mcp'    ? findMcp(catalog, name)   :
+      type === 'plugin' ? findPlugin(catalog, name) : null;
 
     if (!catalogEntry) {
       results.push({ key: lockKey, type, name, status: 'not_in_catalog' });
@@ -90,9 +92,10 @@ export function updateSelected(
   const results: InstallResult[] = [];
   for (const { type, name } of items) {
     try {
-      if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
-      else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
-      else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
+      if (type === 'skill')       results.push(installSkill(catalog, name, { force: true }, log));
+      else if (type === 'agent')  results.push(installAgent(catalog, name, { force: true }, log));
+      else if (type === 'mcp')    results.push(installMcp(catalog, name, { force: true }, log));
+      else if (type === 'plugin') results.push(installPlugin(catalog, name, { force: true }, log));
     } catch (e: unknown) {
       log(`  [!] Failed to update ${type} ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -141,9 +144,10 @@ export function updateAll(
     for (const [itemKey, itemEntry] of Object.entries(lockEntry.items || {})) {
       const [type, itemName] = itemKey.split(':');
       const catalogItem =
-        type === 'skill' ? findSkill(catalog, itemName) :
-        type === 'agent' ? findAgent(catalog, itemName) :
-        type === 'mcp'   ? findMcp(catalog, itemName)   : null;
+        type === 'skill'  ? findSkill(catalog, itemName) :
+        type === 'agent'  ? findAgent(catalog, itemName) :
+        type === 'mcp'    ? findMcp(catalog, itemName)   :
+        type === 'plugin' ? findPlugin(catalog, itemName) : null;
 
       if (!catalogItem) {
         const currentLock = readLock();
@@ -156,9 +160,10 @@ export function updateAll(
       }
       if (catalogItem.hash !== itemEntry.hash) {
         const installOpts = { force: true, bundleName: name };
-        if (type === 'skill')      results.push(installSkill(catalog, itemName, installOpts, log));
-        else if (type === 'agent') results.push(installAgent(catalog, itemName, installOpts, log));
-        else if (type === 'mcp')   results.push(installMcp(catalog, itemName, installOpts, log));
+        if (type === 'skill')       results.push(installSkill(catalog, itemName, installOpts, log));
+        else if (type === 'agent')  results.push(installAgent(catalog, itemName, installOpts, log));
+        else if (type === 'mcp')    results.push(installMcp(catalog, itemName, installOpts, log));
+        else if (type === 'plugin') results.push(installPlugin(catalog, itemName, installOpts, log));
         allUpToDate = false;
       }
     }
@@ -170,9 +175,10 @@ export function updateAll(
     if (lockKey.startsWith('bundle:')) continue;
     const [type, name] = lockKey.split(':');
     const catalogEntry =
-      type === 'skill' ? findSkill(catalog, name) :
-      type === 'agent' ? findAgent(catalog, name) :
-      type === 'mcp'   ? findMcp(catalog, name)   : null;
+      type === 'skill'  ? findSkill(catalog, name) :
+      type === 'agent'  ? findAgent(catalog, name) :
+      type === 'mcp'    ? findMcp(catalog, name)   :
+      type === 'plugin' ? findPlugin(catalog, name) : null;
 
     if (!catalogEntry) {
       log(`  [!] ${type} ${name} no longer in catalog, removing`);
@@ -187,9 +193,10 @@ export function updateAll(
       log(`  [OK] ${type} ${name} (up to date)`);
       continue;
     }
-    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
-    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
-    else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
+    if (type === 'skill')       results.push(installSkill(catalog, name, { force: true }, log));
+    else if (type === 'agent')  results.push(installAgent(catalog, name, { force: true }, log));
+    else if (type === 'mcp')    results.push(installMcp(catalog, name, { force: true }, log));
+    else if (type === 'plugin') results.push(installPlugin(catalog, name, { force: true }, log));
   }
 
   return results;
