@@ -12,6 +12,7 @@ import { loadSources, addSource, removeSource, parseSourceInput } from '../core/
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
+import { useRunBusy } from '../hooks/useRunBusy.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
@@ -37,37 +38,14 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
-  // Busy state — git clone in fetchExternalResources is a blocking spawnSync
-  // that freezes the TUI for seconds at a time. We mark busy + render a
-  // visible indicator, then yield to the event loop via setTimeout so Ink
-  // actually paints the indicator before the blocking call starts.
   const [busy, setBusy] = useState<string | null>(null);
   const markEscConsumed = useMarkEscConsumed();
+  const runBusy = useRunBusy(setBusy, setMessage);
 
   const refresh = useCallback(() => {
     setConfig(loadSources());
     onRefresh();
   }, [onRefresh]);
-
-  /**
-   * Run a synchronous, potentially-long operation while showing a busy
-   * indicator. Defers the blocking work by a frame so React/Ink has a
-   * chance to paint the "⟳ <label>..." line before the event loop stalls.
-   */
-  const runBusy = useCallback((label: string, fn: () => void) => {
-    setBusy(label);
-    setMessage('');
-    // ~1 frame @ 60fps — enough for Ink to flush the busy render
-    setTimeout(() => {
-      try {
-        fn();
-      } catch (e: unknown) {
-        setMessage(`\u2715 ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        setBusy(null);
-      }
-    }, 16);
-  }, []);
 
   // Items from the active source
   const sourceItems = useMemo(() => {
@@ -313,10 +291,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       )}
 
       {busy && (
-        <Box>
-          <Text color="yellow">  ⟳ {busy}...</Text>
-          <Text dimColor>  (blocking, please wait)</Text>
-        </Box>
+        <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (blocking, please wait)</Text></Text>
       )}
       {!busy && message && (
         <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>

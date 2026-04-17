@@ -28,21 +28,27 @@ export function useMarkEscConsumed(): () => void {
 }
 
 /**
- * App-level hook: provides the context value and the ref the app needs to
- * check in a microtask after all child handlers have run.
+ * App-level hook. Returns:
+ * - `contextValue` to pass to <EscContext.Provider>
+ * - `onEscape(fallback)` to call synchronously from the app's useInput Esc
+ *   branch. It clears the ref, then in a microtask (after all child
+ *   handlers have run) invokes `fallback()` iff no child marked consumed.
+ *   Callers get the "Esc = go back or exit" behavior with a single line.
  */
 export function useEscCoordinator(): {
   contextValue: EscContextValue;
-  wasConsumed: () => boolean;
-  reset: () => void;
+  onEscape: (fallback: () => void) => void;
 } {
   const consumedRef = useRef(false);
   const contextValue = useMemo<EscContextValue>(() => ({
     markConsumed: () => { consumedRef.current = true; },
   }), []);
-  return {
-    contextValue,
-    wasConsumed: () => consumedRef.current,
-    reset: () => { consumedRef.current = false; },
+  const onEscape = (fallback: () => void) => {
+    consumedRef.current = false;
+    queueMicrotask(() => {
+      if (!consumedRef.current) fallback();
+      consumedRef.current = false;
+    });
   };
+  return { contextValue, onEscape };
 }

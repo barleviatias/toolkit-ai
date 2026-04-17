@@ -12,6 +12,7 @@ import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
+import { useRunBusy } from '../hooks/useRunBusy.js';
 
 interface InstalledTabProps {
   items: ItemData[];
@@ -35,26 +36,11 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   const [focus, setFocus] = useState<'list' | 'search'>('list');
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
-  // Blocking update operations (install*/updateAll) get a busy indicator — see SourcesTab for pattern
   const [busy, setBusy] = useState<string | null>(null);
   const recoveredCount = useMemo(() => items.filter(item => item.trackedByLock === false).length, [items]);
   const updateCount = useMemo(() => items.filter(item => item.hasUpdate).length, [items]);
-
   const markEscConsumed = useMarkEscConsumed();
-
-  const runBusy = useCallback((label: string, fn: () => void) => {
-    setBusy(label);
-    setMessage('');
-    setTimeout(() => {
-      try {
-        fn();
-      } catch (e: unknown) {
-        setMessage(`\u2715 ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        setBusy(null);
-      }
-    }, 16);
-  }, []);
+  const runBusy = useRunBusy(setBusy, setMessage);
 
   const { filtered, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(items, query, typeFilter);
 
@@ -195,12 +181,10 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
 
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text bold>Installed ({items.length})</Text>
-        {updateCount > 0 && (
-          <Text color="yellow" bold>{'  '}· {updateCount} update{updateCount > 1 ? 's' : ''} available</Text>
-        )}
-      </Box>
+      <Text bold>
+        Installed ({items.length})
+        {updateCount > 0 && <Text color="yellow">{'  '}· {updateCount} update{updateCount > 1 ? 's' : ''} available</Text>}
+      </Text>
       {recoveredCount > 0 && (
         <Text dimColor>
           {'  '}
@@ -225,10 +209,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
         isFocused={focus === 'list'}
       />
       {busy && (
-        <Box>
-          <Text color="yellow">  ⟳ {busy}...</Text>
-          <Text dimColor>  (please wait)</Text>
-        </Box>
+        <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (please wait)</Text></Text>
       )}
       {!busy && message && (
         <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>

@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ItemRow, type ItemData } from './ItemRow.js';
+import { useTerminalRows } from '../hooks/useTerminalSize.js';
 
 interface ItemListProps {
   items: ItemData[];
@@ -16,31 +17,10 @@ interface ItemListProps {
 }
 
 /**
- * Track the terminal's row count and update on resize so the list can resize itself.
- * Reading process.stdout.rows at module load (as a default prop value) doesn't react
- * to SIGWINCH, which is exactly what the user reported: content taller than the
- * viewport pushes the header (logo, tabs) off-screen.
- */
-function useStdoutRows(): number {
-  const [rows, setRows] = useState<number>(process.stdout.rows || 24);
-  useEffect(() => {
-    const onResize = () => setRows(process.stdout.rows || 24);
-    process.stdout.on('resize', onResize);
-    return () => { process.stdout.off('resize', onResize); };
-  }, []);
-  return rows;
-}
-
-/**
- * Compute the maximum list items that fit given a terminal row count, reserving
- * enough space for all chrome (logo, tabs, search, type-filter, source header,
- * status bar, and margins). Conservative — we'd rather scroll inside a short
- * list than let the frame overflow the viewport and break Ink's rendering.
- *
- * Each ItemRow renders as 2 lines (title + description).
- *
- * Assumes the app auto-hides the logo on terminals < 30 rows; either way, a
- * conservative 20-row reservation keeps the chrome stable.
+ * Compute the maximum list items that fit given a terminal row count. Chrome
+ * reservation covers logo, tabs, search, filters, source header, status bar,
+ * and margins — each ItemRow is 2 lines. Conservative cap so transient UI
+ * (messages, confirm dialogs) never pushes the frame past the viewport.
  */
 function computeMaxVisible(rows: number): number {
   const CHROME_RESERVE = rows >= 30
@@ -63,7 +43,7 @@ export const ItemList: React.FC<ItemListProps> = ({
   isFocused,
   maxVisible: maxVisibleProp,
 }) => {
-  const terminalRows = useStdoutRows();
+  const terminalRows = useTerminalRows();
   const maxVisible = maxVisibleProp ?? computeMaxVisible(terminalRows);
   const [cursor, setCursor] = useState(0);
 

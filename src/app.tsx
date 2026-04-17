@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { render, Box, useInput, useApp } from 'ink';
 import { EscContext, useEscCoordinator } from './hooks/useEscContext.js';
+import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
 import { useCatalog } from './hooks/useCatalog.js';
@@ -21,28 +22,6 @@ interface AppProps {
 }
 
 const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources'];
-
-/**
- * Track terminal dimensions and update on SIGWINCH. Used to constrain the
- * app's root Box to the viewport so Ink never renders past the bottom of the
- * terminal — which is what causes the "screen goes weird" behavior when
- * content would otherwise overflow the visible area.
- */
-function useTerminalSize(): { rows: number; columns: number } {
-  const [size, setSize] = useState(() => ({
-    rows: process.stdout.rows || 24,
-    columns: process.stdout.columns || 80,
-  }));
-  useEffect(() => {
-    const onResize = () => setSize({
-      rows: process.stdout.rows || 24,
-      columns: process.stdout.columns || 80,
-    });
-    process.stdout.on('resize', onResize);
-    return () => { process.stdout.off('resize', onResize); };
-  }, []);
-  return size;
-}
 
 const App: React.FC<AppProps> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
@@ -99,16 +78,8 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         return TAB_ORDER[next];
       });
     }
-    if (key.escape) {
-      // Clear flag first, then let child Esc handlers (which fire in the same
-      // synchronous useInput pass) set it via markConsumed if they handled the
-      // key. Check in a microtask — if no child consumed, exit the app.
-      esc.reset();
-      queueMicrotask(() => {
-        if (!esc.wasConsumed()) exit();
-        esc.reset();
-      });
-    }
+    // Esc = go back if a subview handled it; otherwise exit the app.
+    if (key.escape) esc.onEscape(exit);
     if (input === 'q' || (key.ctrl && input === 'c')) {
       exit();
     }

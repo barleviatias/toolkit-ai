@@ -242,60 +242,50 @@ function findMcpFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Dedupe catalog entries by resolved name, first-wins. Real repos (e.g.
+ * awesome-copilot) ship multiple SKILL.md files with identical `name` in
+ * frontmatter — keeping all of them produces duplicate React keys that break
+ * the TUI's render reconciliation.
+ */
+function dedupeByName(entries: CatalogEntry[]): CatalogEntry[] {
+  const byName = new Map<string, CatalogEntry>();
+  for (const entry of entries) {
+    if (!byName.has(entry.name)) byName.set(entry.name, entry);
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function scanSourceSkills(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const skillDirs = findSkillDirs(cacheDir);
-  // Dedupe by resolved name. Real repos (e.g. awesome-copilot) ship multiple
-  // SKILL.md files with the same `name` in frontmatter — keeping all of them
-  // would produce duplicate React keys and break the TUI's render reconciliation.
-  const byName = new Map<string, CatalogEntry>();
-
-  for (const skillDir of skillDirs) {
-    const skillMd = path.join(skillDir, 'SKILL.md');
-    const meta = parseFrontmatter(fs.readFileSync(skillMd, 'utf8'));
-    const dirName = path.basename(skillDir);
-    const name = meta.name || dirName;
-
-    if (byName.has(name)) continue; // first-wins; filesystem walk order is deterministic
-
-    byName.set(name, {
-      name,
+  return dedupeByName(findSkillDirs(cacheDir).map(skillDir => {
+    const meta = parseFrontmatter(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'));
+    return {
+      name: meta.name || path.basename(skillDir),
       description: meta.description || '',
       hash: hashDir(skillDir),
       path: path.relative(cacheDir, skillDir),
       source: source.name,
-    });
-  }
-
-  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+    };
+  }));
 }
 
 function scanSourceAgents(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const agentFiles = findAgentFiles(cacheDir);
-  const byName = new Map<string, CatalogEntry>(); // dedupe by resolved name — see scanSourceSkills
-
-  for (const agentFile of agentFiles) {
+  return dedupeByName(findAgentFiles(cacheDir).map(agentFile => {
     const meta = parseFrontmatter(fs.readFileSync(agentFile, 'utf8'));
-    const fileName = path.basename(agentFile, '.agent.md');
-    const name = meta.name || fileName;
-
-    if (byName.has(name)) continue;
-
-    byName.set(name, {
-      name,
+    return {
+      name: meta.name || path.basename(agentFile, '.agent.md'),
       description: meta.description || '',
       hash: hashFile(agentFile),
       path: path.relative(cacheDir, agentFile),
       source: source.name,
-    });
-  }
-
-  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+    };
+  }));
 }
 
 function findBundleFiles(dir: string): string[] {
@@ -326,60 +316,40 @@ function scanSourceMcps(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const mcpFiles = findMcpFiles(cacheDir);
-  const byName = new Map<string, CatalogEntry>(); // dedupe by resolved name — see scanSourceSkills
-
-  for (const mcpFile of mcpFiles) {
+  const entries: CatalogEntry[] = [];
+  for (const mcpFile of findMcpFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
-      const fileName = path.basename(mcpFile, '.json');
-      const name = config.name || fileName;
-
-      if (byName.has(name)) continue;
-
-      byName.set(name, {
-        name,
+      entries.push({
+        name: config.name || path.basename(mcpFile, '.json'),
         description: config.description || '',
         hash: hashFile(mcpFile),
         path: path.relative(cacheDir, mcpFile),
         source: source.name,
       });
-    } catch {
-      // Skip malformed JSON
-    }
+    } catch { /* skip malformed JSON */ }
   }
-
-  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return dedupeByName(entries);
 }
 
 function scanSourceBundles(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const bundleFiles = findBundleFiles(cacheDir);
-  const byName = new Map<string, CatalogEntry>(); // dedupe by resolved name — see scanSourceSkills
-
-  for (const bundleFile of bundleFiles) {
+  const entries: CatalogEntry[] = [];
+  for (const bundleFile of findBundleFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
-      const fileName = path.basename(bundleFile).replace('.bundle.json', '').replace('.json', '');
-      const name = config.name || fileName;
-
-      if (byName.has(name)) continue;
-
-      byName.set(name, {
-        name,
+      entries.push({
+        name: config.name || path.basename(bundleFile).replace('.bundle.json', '').replace('.json', ''),
         description: config.description || '',
         hash: hashFile(bundleFile),
         path: path.relative(cacheDir, bundleFile),
         source: source.name,
       });
-    } catch {
-      // Skip malformed JSON
-    }
+    } catch { /* skip malformed JSON */ }
   }
-
-  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return dedupeByName(entries);
 }
 
 // ---------------------------------------------------------------------------
