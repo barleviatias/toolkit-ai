@@ -312,6 +312,48 @@ function findBundleFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Extract `[name, serverConfig]` pairs from an MCP config file, handling all
+ * three shapes seen in the wild:
+ *
+ *   1. Our custom single-server shape:
+ *      { "name": "foo", "command": "...", "args": [...] }
+ *
+ *   2. Standard Claude wrapped shape:
+ *      { "mcpServers": { "foo": { "command": "..." }, "bar": { "url": "..." } } }
+ *
+ *   3. Flat shape (used by many real plugins like Anthropic's firebase,
+ *      github/copilot-plugins' workiq):
+ *      { "foo": { "command": "..." } }
+ */
+export function extractMcpServers(config: unknown): Array<[string, Record<string, unknown>]> {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return [];
+  const obj = config as Record<string, unknown>;
+
+  if (typeof obj.name === 'string' && (obj.command || obj.url)) {
+    return [[obj.name, obj]];
+  }
+  if (obj.mcpServers && typeof obj.mcpServers === 'object') {
+    return Object.entries(obj.mcpServers as Record<string, unknown>)
+      .filter(([, v]) => v && typeof v === 'object')
+      .map(([k, v]) => [k, v as Record<string, unknown>]);
+  }
+  return Object.entries(obj)
+    .filter(([, v]) => v && typeof v === 'object' && !Array.isArray(v))
+    .map(([k, v]) => [k, v as Record<string, unknown>]);
+}
+
+/** Synthesize a readable description from an MCP server config when none is provided. */
+function describeMcpServer(cfg: Record<string, unknown>): string {
+  if (typeof cfg.description === 'string' && cfg.description) return cfg.description;
+  if (typeof cfg.url === 'string') return `Streamable HTTP MCP server · ${cfg.url}`;
+  if (typeof cfg.command === 'string') {
+    const args = Array.isArray(cfg.args) ? ` ${(cfg.args as unknown[]).join(' ')}` : '';
+    return `Stdio MCP server · ${cfg.command}${args}`.trim();
+  }
+  return '';
+}
+
 function scanSourceMcps(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
@@ -320,13 +362,19 @@ function scanSourceMcps(source: Source): CatalogEntry[] {
   for (const mcpFile of findMcpFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
-      entries.push({
-        name: config.name || path.basename(mcpFile, '.json'),
-        description: config.description || '',
-        hash: hashFile(mcpFile),
-        path: path.relative(cacheDir, mcpFile),
-        source: source.name,
-      });
+      const fileDescription = typeof config.description === 'string' ? config.description : '';
+      const fileHash = hashFile(mcpFile);
+      const relPath = path.relative(cacheDir, mcpFile);
+
+      for (const [serverName, serverCfg] of extractMcpServers(config)) {
+        entries.push({
+          name: serverName,
+          description: fileDescription || describeMcpServer(serverCfg),
+          hash: fileHash,
+          path: relPath,
+          source: source.name,
+        });
+      }
     } catch { /* skip malformed JSON */ }
   }
   return dedupeByName(entries);

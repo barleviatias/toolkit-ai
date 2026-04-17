@@ -21,7 +21,7 @@ import {
   parseFrontmatter,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
-import { fetchExternalResources } from './sources.js';
+import { fetchExternalResources, extractMcpServers } from './sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
 
 export interface InstallOptions {
@@ -338,23 +338,29 @@ export function installExternalMcp(
   const src = path.join(CACHE_DIR, sourceName, mcpPath);
   if (!fs.existsSync(src)) throw new Error(`External MCP not found at: ${src}`);
 
-  let mcpConfig;
+  let rawConfig: unknown;
   try {
-    mcpConfig = JSON.parse(fs.readFileSync(src, 'utf8'));
+    rawConfig = JSON.parse(fs.readFileSync(src, 'utf8'));
   } catch {
     throw new Error(`Failed to parse MCP config: ${src}`);
   }
 
+  // A single .mcp.json may declare many servers; pick the one matching mcpName.
+  const server = extractMcpServers(rawConfig).find(([name]) => name === mcpName)?.[1];
+  if (!server) {
+    throw new Error(`MCP server "${mcpName}" not found in ${src}`);
+  }
+
   const report = scanMcpConfig({
     name: mcpName,
-    type: mcpConfig.type,
-    url: mcpConfig.url,
-    command: mcpConfig.command,
-    args: mcpConfig.args,
-    env: mcpConfig.env,
-    envVars: mcpConfig.envVars,
-    httpHeaders: mcpConfig.httpHeaders,
-    envHttpHeaders: mcpConfig.envHttpHeaders,
+    type: server.type as string | undefined,
+    url: server.url as string | undefined,
+    command: server.command as string | undefined,
+    args: server.args as string[] | undefined,
+    env: server.env as Record<string, string> | undefined,
+    envVars: server.envVars as string[] | undefined,
+    httpHeaders: server.httpHeaders as Record<string, string> | undefined,
+    envHttpHeaders: server.envHttpHeaders as Record<string, string> | undefined,
   }, sourceName);
   if (!report.passed && !opts.force) {
     log(formatReport(report));
@@ -363,23 +369,23 @@ export function installExternalMcp(
   }
   if (report.findings.length > 0) log(formatReport(report));
 
-  const newEntry = {
-    type: mcpConfig.type,
-    url: mcpConfig.url,
-    command: mcpConfig.command,
-    args: mcpConfig.args,
-    env: mcpConfig.env,
-    envVars: mcpConfig.envVars,
-    cwd: mcpConfig.cwd,
-    bearerTokenEnvVar: mcpConfig.bearerTokenEnvVar,
-    httpHeaders: mcpConfig.httpHeaders,
-    envHttpHeaders: mcpConfig.envHttpHeaders,
-    startupTimeoutSec: mcpConfig.startupTimeoutSec,
-    toolTimeoutSec: mcpConfig.toolTimeoutSec,
-    enabled: mcpConfig.enabled,
-    required: mcpConfig.required,
-    enabledTools: mcpConfig.enabledTools,
-    disabledTools: mcpConfig.disabledTools,
+  const newEntry: McpServerEntry = {
+    type: server.type as string | undefined,
+    url: server.url as string | undefined,
+    command: server.command as string | undefined,
+    args: server.args as string[] | undefined,
+    env: server.env as Record<string, string> | undefined,
+    envVars: server.envVars as string[] | undefined,
+    cwd: server.cwd as string | undefined,
+    bearerTokenEnvVar: server.bearerTokenEnvVar as string | undefined,
+    httpHeaders: server.httpHeaders as Record<string, string> | undefined,
+    envHttpHeaders: server.envHttpHeaders as Record<string, string> | undefined,
+    startupTimeoutSec: server.startupTimeoutSec as number | undefined,
+    toolTimeoutSec: server.toolTimeoutSec as number | undefined,
+    enabled: server.enabled as boolean | undefined,
+    required: server.required as boolean | undefined,
+    enabledTools: server.enabledTools as string[] | undefined,
+    disabledTools: server.disabledTools as string[] | undefined,
   };
   const lock = readLock();
   const itemKey = `mcp:${mcpName}`;
@@ -410,7 +416,8 @@ export function installAgent(
 // Install an MCP
 // ---------------------------------------------------------------------------
 
-/** Install an MCP server by name from the catalog. */
+/** Install an MCP server by name from the catalog. Delegates to installExternalMcp
+ * which handles all three .mcp.json shapes (custom/wrapped/flat) uniformly. */
 export function installMcp(
   catalog: Catalog,
   name: string,
@@ -419,54 +426,7 @@ export function installMcp(
 ): InstallResult {
   const entry = findMcp(catalog, name);
   if (!entry) throw new Error(`MCP not found in catalog: ${name}`);
-
-  const mcpConfig = loadMcpConfig(entry);
-
-  const report = scanMcpConfig({
-    name,
-    type: mcpConfig.type,
-    url: mcpConfig.url,
-    command: mcpConfig.command,
-    args: mcpConfig.args,
-    env: mcpConfig.env,
-    envVars: mcpConfig.envVars,
-    httpHeaders: mcpConfig.httpHeaders,
-    envHttpHeaders: mcpConfig.envHttpHeaders,
-  }, entry.source);
-  if (!report.passed && !opts.force) {
-    log(formatReport(report));
-    log(`      Skipped — use --force to override`);
-    return { type: 'mcp', name, action: 'blocked' };
-  }
-  if (report.findings.length > 0) log(formatReport(report));
-
-  const newEntry = {
-    type: mcpConfig.type,
-    url: mcpConfig.url,
-    command: mcpConfig.command,
-    args: mcpConfig.args,
-    env: mcpConfig.env,
-    envVars: mcpConfig.envVars,
-    cwd: mcpConfig.cwd,
-    bearerTokenEnvVar: mcpConfig.bearerTokenEnvVar,
-    httpHeaders: mcpConfig.httpHeaders,
-    envHttpHeaders: mcpConfig.envHttpHeaders,
-    startupTimeoutSec: mcpConfig.startupTimeoutSec,
-    toolTimeoutSec: mcpConfig.toolTimeoutSec,
-    enabled: mcpConfig.enabled,
-    required: mcpConfig.required,
-    enabledTools: mcpConfig.enabledTools,
-    disabledTools: mcpConfig.disabledTools,
-  };
-  const currentHash = entry.hash;
-  const lock = readLock();
-  const itemKey = `mcp:${name}`;
-  const action = writeMcpToConfigs(name, newEntry, opts, log);
-  if (mcpConfig.setupNote && action !== 'skipped') log(`      ${mcpConfig.setupNote}`);
-
-  recordInstall(lock, itemKey, currentHash, opts.bundleName);
-  writeLock(lock);
-  return { type: 'mcp', name, action };
+  return installExternalMcp(entry.source, name, entry.path, entry.hash, opts, log);
 }
 
 // ---------------------------------------------------------------------------
