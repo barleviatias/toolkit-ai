@@ -107,40 +107,43 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   // viewport and breaking Ink's in-place diff rendering.
   const showLogo = termRows >= 30;
 
-  // Do NOT use `overflow="hidden"` here — in Ink v6 it clips children
-  // without emitting clear-to-EOL when a line shrinks, leaving stale
-  // characters from the previous frame bleeding through. Instead, we rely
-  // on strict content sizing (maxVisible in ItemList) so the total frame
-  // height never exceeds the terminal on its own.
+  // Full-screen layout: root Box takes the full terminal height, the inner
+  // content Box flex-grows to fill. Do NOT use `overflow="hidden"` — in Ink
+  // v6 it clips children without emitting clear-to-EOL, leaving stale
+  // characters from the previous frame bleeding through. Instead, we rely on
+  // strict content sizing (maxVisible in ItemList) to keep the frame within
+  // the viewport.
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={termRows}>
       {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
 
-      {activeTab === 'catalog' && (
-        <CatalogTab
-          items={allItems}
-          catalog={catalog}
-          onRefresh={handleRefresh}
-          onUpdateItem={handleUpdateItem}
-          onUpdateAll={handleUpdateAll}
-        />
-      )}
-      {activeTab === 'installed' && (
-        <InstalledTab
-          items={installedItems}
-          catalog={catalog}
-          onRefresh={handleRefresh}
-        />
-      )}
-      {activeTab === 'sources' && (
-        <SourcesTab
-          allItems={allItems}
-          catalog={catalog}
-          onRefresh={handleRefresh}
-          onRefreshSources={refreshExternal}
-        />
-      )}
+      <Box flexDirection="column" flexGrow={1}>
+        {activeTab === 'catalog' && (
+          <CatalogTab
+            items={allItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+            onUpdateItem={handleUpdateItem}
+            onUpdateAll={handleUpdateAll}
+          />
+        )}
+        {activeTab === 'installed' && (
+          <InstalledTab
+            items={installedItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+          />
+        )}
+        {activeTab === 'sources' && (
+          <SourcesTab
+            allItems={allItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+            onRefreshSources={refreshExternal}
+          />
+        )}
+      </Box>
     </Box>
   );
 };

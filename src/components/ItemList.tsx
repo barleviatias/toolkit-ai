@@ -44,13 +44,11 @@ function useStdoutRows(): number {
  */
 function computeMaxVisible(rows: number): number {
   const CHROME_RESERVE = rows >= 30
-    ? 24  // with logo: logo 9 + tabs 2 + search 2 + filters 2 + header 2 + status 2 + margins + safety
-    : 16; // no logo:  tabs 2 + search 2 + filters 2 + header 2 + status 2 + margins + safety
+    ? 20  // with logo: logo 9 + tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 1
+    : 12; // no logo:  tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 2
   const ROWS_PER_ITEM = 2;
-  const available = Math.max(2, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
-  // Hard cap at 5 to keep frame well under the terminal ceiling even when
-  // intermediate UI (transient messages, confirm dialogs) adds lines.
-  return Math.min(5, available);
+  const available = Math.max(3, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
+  return Math.min(15, available);
 }
 
 export const ItemList: React.FC<ItemListProps> = ({
