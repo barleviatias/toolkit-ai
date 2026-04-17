@@ -247,15 +247,21 @@ function scanSourceSkills(source: Source): CatalogEntry[] {
   if (!fs.existsSync(cacheDir)) return [];
 
   const skillDirs = findSkillDirs(cacheDir);
-  const entries: CatalogEntry[] = [];
+  // Dedupe by resolved name. Real repos (e.g. awesome-copilot) ship multiple
+  // SKILL.md files with the same `name` in frontmatter — keeping all of them
+  // would produce duplicate React keys and break the TUI's render reconciliation.
+  const byName = new Map<string, CatalogEntry>();
 
   for (const skillDir of skillDirs) {
     const skillMd = path.join(skillDir, 'SKILL.md');
     const meta = parseFrontmatter(fs.readFileSync(skillMd, 'utf8'));
     const dirName = path.basename(skillDir);
+    const name = meta.name || dirName;
 
-    entries.push({
-      name: meta.name || dirName,
+    if (byName.has(name)) continue; // first-wins; filesystem walk order is deterministic
+
+    byName.set(name, {
+      name,
       description: meta.description || '',
       hash: hashDir(skillDir),
       path: path.relative(cacheDir, skillDir),
@@ -263,8 +269,7 @@ function scanSourceSkills(source: Source): CatalogEntry[] {
     });
   }
 
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function scanSourceAgents(source: Source): CatalogEntry[] {
@@ -272,14 +277,17 @@ function scanSourceAgents(source: Source): CatalogEntry[] {
   if (!fs.existsSync(cacheDir)) return [];
 
   const agentFiles = findAgentFiles(cacheDir);
-  const entries: CatalogEntry[] = [];
+  const byName = new Map<string, CatalogEntry>(); // dedupe by resolved name — see scanSourceSkills
 
   for (const agentFile of agentFiles) {
     const meta = parseFrontmatter(fs.readFileSync(agentFile, 'utf8'));
     const fileName = path.basename(agentFile, '.agent.md');
+    const name = meta.name || fileName;
 
-    entries.push({
-      name: meta.name || fileName,
+    if (byName.has(name)) continue;
+
+    byName.set(name, {
+      name,
       description: meta.description || '',
       hash: hashFile(agentFile),
       path: path.relative(cacheDir, agentFile),
@@ -287,8 +295,7 @@ function scanSourceAgents(source: Source): CatalogEntry[] {
     });
   }
 
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function findBundleFiles(dir: string): string[] {
@@ -320,15 +327,18 @@ function scanSourceMcps(source: Source): CatalogEntry[] {
   if (!fs.existsSync(cacheDir)) return [];
 
   const mcpFiles = findMcpFiles(cacheDir);
-  const entries: CatalogEntry[] = [];
+  const byName = new Map<string, CatalogEntry>(); // dedupe by resolved name — see scanSourceSkills
 
   for (const mcpFile of mcpFiles) {
     try {
       const config = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
       const fileName = path.basename(mcpFile, '.json');
+      const name = config.name || fileName;
 
-      entries.push({
-        name: config.name || fileName,
+      if (byName.has(name)) continue;
+
+      byName.set(name, {
+        name,
         description: config.description || '',
         hash: hashFile(mcpFile),
         path: path.relative(cacheDir, mcpFile),
@@ -339,8 +349,7 @@ function scanSourceMcps(source: Source): CatalogEntry[] {
     }
   }
 
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function scanSourceBundles(source: Source): CatalogEntry[] {
@@ -348,15 +357,18 @@ function scanSourceBundles(source: Source): CatalogEntry[] {
   if (!fs.existsSync(cacheDir)) return [];
 
   const bundleFiles = findBundleFiles(cacheDir);
-  const entries: CatalogEntry[] = [];
+  const byName = new Map<string, CatalogEntry>(); // dedupe by resolved name — see scanSourceSkills
 
   for (const bundleFile of bundleFiles) {
     try {
       const config = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
       const fileName = path.basename(bundleFile).replace('.bundle.json', '').replace('.json', '');
+      const name = config.name || fileName;
 
-      entries.push({
-        name: config.name || fileName,
+      if (byName.has(name)) continue;
+
+      byName.set(name, {
+        name,
         description: config.description || '',
         hash: hashFile(bundleFile),
         path: path.relative(cacheDir, bundleFile),
@@ -367,8 +379,7 @@ function scanSourceBundles(source: Source): CatalogEntry[] {
     }
   }
 
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ---------------------------------------------------------------------------
