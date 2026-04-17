@@ -523,27 +523,6 @@ The **lock file** tracks every installed item with a content hash. When a resour
 
 ---
 
-## Related Projects
-
-Tools, specs, and ecosystems that `toolkit-ai` builds on or pairs with:
-
-| Project | What it is |
-|---------|------------|
-| [anthropics/skills](https://github.com/anthropics/skills) | Official skill examples from Anthropic |
-| [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) | Curated skill collection from Vercel Labs |
-| [Claude Code](https://code.claude.com/docs) | Anthropic's agentic coding CLI |
-| [OpenAI Codex CLI](https://developers.openai.com/codex/cli) | OpenAI's local coding agent |
-| [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | GitHub's agent-mode Copilot |
-| [Cursor](https://cursor.com) | AI-first code editor |
-| [Model Context Protocol](https://modelcontextprotocol.io) | The open spec for connecting AI models to tools |
-| [vadimdemedes/ink](https://github.com/vadimdemedes/ink) | React for terminal UIs — the rendering engine |
-
-### Contributing a skill, agent, or MCP
-
-Scaffold your own source repo with `toolkit init` (see [Create Your Own Resources](#create-your-own-resources)). PRs to add new default sources are welcome — open an issue first to discuss curation criteria.
-
----
-
 ## Development
 
 ```bash
