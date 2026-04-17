@@ -114,6 +114,33 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
 
 export async function renderApp(_toolkitDir: string, initialTab: string = 'catalog') {
   const tab = TAB_ORDER.includes(initialTab as TabId) ? (initialTab as TabId) : 'catalog';
+
+  // Enter the terminal's alternate screen buffer so the TUI takes over the viewport
+  // and leaves the original scrollback untouched on exit.
+  const isTTY = !!process.stdout.isTTY;
+  if (isTTY) {
+    process.stdout.write('\x1b[?1049h\x1b[H');
+  }
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (isTTY) process.stdout.write('\x1b[?1049l');
+    process.off('exit', cleanup);
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  };
+  const onSignal = () => { cleanup(); process.exit(0); };
+
+  process.once('exit', cleanup);
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+
   const { waitUntilExit } = render(<App initialTab={tab} />);
-  await waitUntilExit();
+  try {
+    await waitUntilExit();
+  } finally {
+    cleanup();
+  }
 }
