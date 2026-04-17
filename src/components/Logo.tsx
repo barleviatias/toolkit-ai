@@ -25,7 +25,7 @@ const VERSION = process.env.TOOLKIT_VERSION || 'dev';
  * confirm they're running the latest build at a glance. Remove before
  * bumping the real npm version and shipping.
  */
-const BUILD_TAG = 'tui-fix-4';
+const BUILD_TAG = 'tui-fix-5';
 
 export const Logo: React.FC = () => (
   <Box flexDirection="column" alignItems="center" marginBottom={1}>

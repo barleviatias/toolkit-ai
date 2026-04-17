@@ -107,46 +107,40 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   // viewport and breaking Ink's in-place diff rendering.
   const showLogo = termRows >= 30;
 
-  // CRITICAL: `overflow="hidden"` is what actually clips children to the
-  // parent height. Without it, `height={X}` is merely a hint and Ink flex
-  // will render children at their natural size, blowing through the terminal
-  // bottom and breaking the cursor-up diff. This is the single most important
-  // line of the TUI — keep overflow="hidden" on the root.
+  // Do NOT use `overflow="hidden"` here — in Ink v6 it clips children
+  // without emitting clear-to-EOL when a line shrinks, leaving stale
+  // characters from the previous frame bleeding through. Instead, we rely
+  // on strict content sizing (maxVisible in ItemList) so the total frame
+  // height never exceeds the terminal on its own.
   return (
-    <Box flexDirection="column" height={termRows} overflow="hidden">
+    <Box flexDirection="column">
       {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
 
-      {/*
-        Inner content area also clips — ensures per-tab components can't
-        overflow even if they mis-measure their own children.
-      */}
-      <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        {activeTab === 'catalog' && (
-          <CatalogTab
-            items={allItems}
-            catalog={catalog}
-            onRefresh={handleRefresh}
-            onUpdateItem={handleUpdateItem}
-            onUpdateAll={handleUpdateAll}
-          />
-        )}
-        {activeTab === 'installed' && (
-          <InstalledTab
-            items={installedItems}
-            catalog={catalog}
-            onRefresh={handleRefresh}
-          />
-        )}
-        {activeTab === 'sources' && (
-          <SourcesTab
-            allItems={allItems}
-            catalog={catalog}
-            onRefresh={handleRefresh}
-            onRefreshSources={refreshExternal}
-          />
-        )}
-      </Box>
+      {activeTab === 'catalog' && (
+        <CatalogTab
+          items={allItems}
+          catalog={catalog}
+          onRefresh={handleRefresh}
+          onUpdateItem={handleUpdateItem}
+          onUpdateAll={handleUpdateAll}
+        />
+      )}
+      {activeTab === 'installed' && (
+        <InstalledTab
+          items={installedItems}
+          catalog={catalog}
+          onRefresh={handleRefresh}
+        />
+      )}
+      {activeTab === 'sources' && (
+        <SourcesTab
+          allItems={allItems}
+          catalog={catalog}
+          onRefresh={handleRefresh}
+          onRefreshSources={refreshExternal}
+        />
+      )}
     </Box>
   );
 };
@@ -154,11 +148,13 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
 export async function renderApp(_toolkitDir: string, initialTab: string = 'catalog') {
   const tab = TAB_ORDER.includes(initialTab as TabId) ? (initialTab as TabId) : 'catalog';
 
-  // Enter the terminal's alternate screen buffer so the TUI takes over the viewport
-  // and leaves the original scrollback untouched on exit.
+  // Enter the terminal's alternate screen buffer, clear it, and park the
+  // cursor at the top. Clearing is important — Ghostty / iTerm can retain
+  // previous alt-screen contents across invocations, and Ink's cursor-up
+  // diff will paint on top of that garbage.
   const isTTY = !!process.stdout.isTTY;
   if (isTTY) {
-    process.stdout.write('\x1b[?1049h\x1b[H');
+    process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H');
   }
 
   let cleaned = false;
