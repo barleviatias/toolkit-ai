@@ -1,27 +1,76 @@
 # Repository Guidelines
 
+Conventions for contributors and AI coding agents (Claude Code, Codex, Copilot, Cursor). Pairs with [CLAUDE.md](CLAUDE.md) (architecture) and [README.md](README.md) (user docs).
+
 ## Project Structure & Module Organization
-`src/` contains the application code for the CLI and Ink TUI. Use `src/commands/` for command entrypoints, `src/core/` for install/update/remove/catalog logic, `src/components/` for shared UI pieces, `src/tabs/` for top-level TUI screens, and `src/hooks/` for React hooks. Static data lives in `resources/`, and repo utilities such as catalog generation live in `scripts/`. Build output is written to `bin/ai-toolkit.mjs`; do not hand-edit generated files.
+
+`src/` contains all application code for the CLI and Ink TUI:
+
+- `src/commands/` — command entrypoints (`headless.ts`, `init.ts`)
+- `src/core/` — install / update / remove / catalog / scanner / sources / platform logic
+- `src/components/` — shared UI pieces (`ItemRow`, `ItemList`, `DetailView`, `TypeFilter`, …)
+- `src/tabs/` — top-level TUI screens (`CatalogTab`, `InstalledTab`, `SourcesTab`)
+- `src/hooks/` — React hooks (`useCatalog`, `useFilteredItems`)
+
+Static data lives in `resources/` (default sources manifest); repo-level utilities live in `scripts/`. Build output is written to `bin/ai-toolkit.mjs` — do **not** hand-edit generated files.
 
 ## Build, Test, and Development Commands
-`npm install` installs dependencies. `npm run build` bundles the CLI with `tsup` into `bin/`. `npm run dev` runs `tsup --watch` for iterative development. `npm test` runs `tsc --noEmit` (typecheck) followed by all unit and integration tests via Node.js built-in test runner. Tests live in `tests/*.test.mjs` with fixtures in `tests/fixtures/*.mjs`.
+
+| Command | Purpose |
+|---------|---------|
+| `npm install` | Install dev dependencies (ink, react, tsup, typescript) |
+| `npm run build` | Bundle the CLI with tsup into `bin/ai-toolkit.mjs` |
+| `npm run dev` | `tsup --watch` for iterative development |
+| `npm test` | `tsc --noEmit` typecheck, then run all `tests/*.test.mjs` via `node:test` |
+| `npm link` | Link the CLI globally for local testing (`toolkit`, `ai-toolkit`, `toolkit-ai`) |
+
+Tests are authored against the compiled build in `.test-dist/` (see `tests/run.mjs`). Fixtures live in `tests/fixtures/*.mjs` and communicate results as JSON via stdout.
 
 ## Coding Style & Naming Conventions
-This repo uses TypeScript with `strict: true` and ES module syntax. Match the existing style: 2-space indentation, concise functions, explicit types, named exports, and JSDoc on all public functions. Use PascalCase for React components (`DetailView.tsx`), camelCase for functions and variables, and kebab-case for resource names (skills, agents, bundles, MCPs). Keep command modules focused and place filesystem or platform-specific logic in `src/core/`. All errors must be caught as `unknown` with `instanceof Error` type guards — never use `catch (e: any)`.
+
+- **TypeScript** `strict: true`, ES modules, 2-space indentation
+- **No `any`** — catch errors as `unknown` with `e instanceof Error` guards
+- **Named exports** over default; **PascalCase** for React components, **camelCase** for functions/variables, **kebab-case** for resource names (skills, agents, bundles, MCPs)
+- **JSDoc** on every exported function in `src/core/`
+- **No shell strings** — use `spawnSync(bin, [args], ...)` with array arguments; never `{shell: true}`
+- Keep command modules focused; put filesystem and platform-specific logic in `src/core/`
 
 ## Testing Guidelines
-Tests use Node.js built-in test runner (`node:test`). The test runner (`tests/run.mjs`) compiles TypeScript to `.test-dist/`, then runs all `*.test.mjs` files. Fixtures live in `tests/fixtures/` and communicate results as JSON via stdout.
 
-To add tests: create a fixture in `tests/fixtures/` that imports from the compiled build (`process.env.TEST_BUILD_DIR`), runs assertions, and outputs JSON. Then add a `test()` call in the appropriate `tests/*.test.mjs` file that calls `runFixture()` and asserts on the JSON output. Run `npm test` to validate.
+Tests use Node.js built-in runner (`node:test`). To add a test:
 
-## Releasing
-Use `npm version` (patch/minor/major) to bump, commit, and tag — then `git push && git push --tags`. CI publishes automatically via OIDC trusted publishing. Do not manually edit the version in `package.json` or create tags by hand.
+1. Create `tests/fixtures/<name>.mjs` that imports from `process.env.TEST_BUILD_DIR`, runs assertions, and outputs JSON on stdout
+2. Add a `test()` call in the appropriate `tests/*.test.mjs` that calls `runFixture()` and asserts on the JSON result
+3. Run `npm test` to typecheck + compile + execute
+
+Current coverage: 31 unit/integration tests across item-key, lock, catalog, fs-helpers, scanner (RCE / reverse shells / size limits / SSRF / protocol blocks / format), Codex config round-trip, install/remove/recovery, security paths.
 
 ## Commit & Pull Request Guidelines
-Use short, imperative commit subjects that describe behavior, not implementation. Keep commits scoped to one logical change. PRs should use the template in `.github/PULL_REQUEST_TEMPLATE.md` — include a summary, test plan with checkboxes, and link issues when relevant.
+
+- **Commit subjects**: short, imperative, describe behavior not implementation (`fix(tui): restore alt-screen on exit`, not `edit app.tsx`)
+- **Scope**: one logical change per commit; split mechanical refactors from behavior changes
+- **Conventional prefixes** are encouraged: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`, `wip:`
+- **PRs** use `.github/PULL_REQUEST_TEMPLATE.md` — include a summary, test-plan checklist, and link related issues
+
+Co-authored commits are welcome when pairing with an agent; do not let agents push directly to `main`.
+
+## Releasing
+
+```bash
+npm version patch   # bug fix:      2.1.0 → 2.1.1
+npm version minor   # new feature:  2.1.0 → 2.2.0
+npm version major   # breaking:     2.1.0 → 3.0.0
+git push && git push --tags
+```
+
+CI publishes to npm automatically via OIDC trusted publishing on `v*` tag push. Do **not** hand-edit `version` in `package.json` or create tags manually.
 
 ## Security
-All external resources are scanned before installation (see `src/core/scanner.ts`). Path segments are validated via `assertSafePathSegment()`. Never use `shell: true` or `exec()` — use `spawnSync` with array arguments. See `SECURITY.md` for the full security policy.
+
+All external resources are scanned before installation (see [`src/core/scanner.ts`](src/core/scanner.ts) and the [Security section in the README](README.md#security)). Path segments are validated via `assertSafePathSegment()`. Report vulnerabilities via [GitHub Security Advisories](https://github.com/barleviatias/toolkit-ai/security) — see [`SECURITY.md`](SECURITY.md) for the full policy.
 
 ## Contributor Notes
-Check `CONTRIBUTING.md` before adding skills, agents, bundles, or MCP definitions. If you change repository resources or generated catalog inputs, regenerate the catalog before opening a PR.
+
+- Before adding default sources, skills, agents, bundles, or MCP definitions, read [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- If you change repository resources or generated catalog inputs, regenerate the catalog before opening a PR
+- When in doubt about architecture, read [`CLAUDE.md`](CLAUDE.md)
