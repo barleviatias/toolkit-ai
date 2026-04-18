@@ -1,7 +1,7 @@
 import path from 'path';
 import { runHeadless, runBanner } from './commands/headless.js';
 import { runInit } from './commands/init.js';
-import { checkForUpdate, formatUpdateLine, getCachedUpdateInfo } from './core/update-check.js';
+import { checkForUpdate, formatUpdateLine, getCachedUpdateInfo, maybeAutoUpdate, autoUpdateInFlight } from './core/update-check.js';
 
 const TOOLKIT_DIR = path.join(__dirname, '..');
 const args = process.argv.slice(2);
@@ -10,7 +10,12 @@ async function main() {
   // Fire the background update check — non-blocking. The result lands in the
   // ~/.toolkit/update-check.json cache; the TUI's useUpdateCheck hook reads it
   // on next launch, and the headless exit path prints a line from cache below.
-  const updatePromise = checkForUpdate().catch(() => null);
+  // When we detect a newer version AND we're running from a global npm install
+  // (not npx, not link, not a user project), spawn `npm install -g` detached
+  // so the *next* launch picks up the upgrade. TOOLKIT_AUTO_UPDATE=off opts out.
+  const updatePromise = checkForUpdate()
+    .then(info => { maybeAutoUpdate(info); return info; })
+    .catch(() => null);
 
   // init command — scaffold a skill repo
   if (args[0] === 'init') {
@@ -45,7 +50,12 @@ async function main() {
 }
 
 function printUpdateLineFromCache(): void {
-  const line = formatUpdateLine(getCachedUpdateInfo());
+  const info = getCachedUpdateInfo();
+  if (autoUpdateInFlight(info)) {
+    console.log(`\n\x1b[33m↑ toolkit-ai ${info.latest} is installing in the background — restart the CLI to pick it up.\x1b[0m`);
+    return;
+  }
+  const line = formatUpdateLine(info);
   if (line) console.log(`\n\x1b[33m${line}\x1b[0m`);
 }
 

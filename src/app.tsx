@@ -107,10 +107,17 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
       <TabBar tabs={tabs} activeTab={activeTab} />
       {updateInfo.newer && updateInfo.latest && (
         <Box marginLeft={2}>
-          <Text color="yellow">
-            {' '}↑ toolkit-ai {updateInfo.latest} available
-          </Text>
-          <Text dimColor>  (you are on {updateInfo.current} — run `npm install -g toolkit-ai@latest`)</Text>
+          {updateInfo.autoUpdating ? (
+            <>
+              <Text color="cyan">↑ Upgrading to toolkit-ai {updateInfo.latest} in the background</Text>
+              <Text dimColor>  (restart the CLI to pick it up)</Text>
+            </>
+          ) : (
+            <>
+              <Text color="yellow">↑ toolkit-ai {updateInfo.latest} available</Text>
+              <Text dimColor>  (you are on {updateInfo.current} — run `npm install -g toolkit-ai@latest`)</Text>
+            </>
+          )}
         </Box>
       )}
 

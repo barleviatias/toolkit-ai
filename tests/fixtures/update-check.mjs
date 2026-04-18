@@ -1,10 +1,37 @@
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
 const buildDir = process.env.TEST_BUILD_DIR;
-const { isNewer, formatUpdateLine } = await import(
+const { isNewer, formatUpdateLine, detectInstallMode } = await import(
   pathToFileURL(path.join(buildDir, 'core', 'update-check.js')).href
 );
+
+// detectInstallMode classifier — set up three fake layouts and probe each.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-install-mode-'));
+
+// (a) global-npm: node_modules with no parent package.json
+const globalRoot = path.join(tmp, 'global-prefix', 'node_modules', 'toolkit-ai', 'bin');
+fs.mkdirSync(globalRoot, { recursive: true });
+const globalScript = path.join(globalRoot, 'ai-toolkit.mjs');
+fs.writeFileSync(globalScript, '// stub');
+
+// (b) local-npm: node_modules inside a user project (parent has package.json with a different name)
+const projectRoot = path.join(tmp, 'user-project');
+fs.mkdirSync(projectRoot, { recursive: true });
+fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ name: 'user-app' }));
+const localPath = path.join(projectRoot, 'node_modules', 'toolkit-ai', 'bin');
+fs.mkdirSync(localPath, { recursive: true });
+const localScript = path.join(localPath, 'ai-toolkit.mjs');
+fs.writeFileSync(localScript, '// stub');
+
+// (c) dev: running from the source repo (src/core exists alongside bin/)
+const devRoot = path.join(tmp, 'dev-repo');
+fs.mkdirSync(path.join(devRoot, 'bin'), { recursive: true });
+fs.mkdirSync(path.join(devRoot, 'src', 'core'), { recursive: true });
+const devScript = path.join(devRoot, 'bin', 'ai-toolkit.mjs');
+fs.writeFileSync(devScript, '// stub');
 
 const results = {
   patch: isNewer('2.1.0', '2.1.1'),
@@ -21,6 +48,12 @@ const results = {
     const line = formatUpdateLine({ current: '2.1.0', latest: '2.1.1', newer: true }) || '';
     return line.includes('2.1.0') && line.includes('2.1.1');
   })(),
+  modeGlobal: detectInstallMode(globalScript),
+  modeLocal: detectInstallMode(localScript),
+  modeDev: detectInstallMode(devScript),
+  modeUnknown: detectInstallMode('/nonexistent/path'),
 };
+
+fs.rmSync(tmp, { recursive: true, force: true });
 
 process.stdout.write(JSON.stringify(results));

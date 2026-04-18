@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import { TOOLKIT_HOME } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 
@@ -27,6 +28,9 @@ export interface UpdateInfo {
 interface CacheShape {
   latest: string;
   checkedAt: number;
+  /** Version we last tried to auto-install. Prevents re-spawning npm install on every launch. */
+  lastAutoUpdateVersion?: string;
+  lastAutoUpdateAt?: number;
 }
 
 function readCache(): CacheShape | null {
@@ -121,3 +125,117 @@ export function formatUpdateLine(info: UpdateInfo): string | null {
   if (!info.newer || !info.latest) return null;
   return `A newer toolkit-ai is available: ${info.current} -> ${info.latest}. Run \`npm install -g toolkit-ai@latest\` to upgrade.`;
 }
+
+// ---------------------------------------------------------------------------
+// Install-mode detection + auto-apply
+// ---------------------------------------------------------------------------
+
+export type InstallMode =
+  | 'global-npm' // installed via `npm install -g toolkit-ai` — safe to auto-update
+  | 'local-npm'  // installed into a project's node_modules — don't touch
+  | 'npx'        // ephemeral npx cache — npx already fetches latest
+  | 'dev'        // running from the source repo (npm link or clone) — never clobber
+  | 'unknown';
+
+/**
+ * Classify how this process was launched so we only auto-apply the upgrade in
+ * situations where it's safe and meaningful. The heuristic is intentionally
+ * conservative — if we're not confident it's a `npm -g` install, we return
+ * 'unknown' and skip the spawn.
+ */
+export function detectInstallMode(scriptPath: string = process.argv[1] || ''): InstallMode {
+  try {
+    if (!scriptPath) return 'unknown';
+    const real = fs.realpathSync(scriptPath);
+    // npx caches live under paths like `<tmp>/_npx/<hash>/node_modules/...` or
+    // `~/.npm/_npx/<hash>/node_modules/...`. Treat these as ephemeral.
+    if (/[/\\]_npx[/\\]/.test(real) || /[/\\]npx-cache[/\\]/.test(real)) return 'npx';
+
+    // Locate the `/node_modules/toolkit-ai/` segment. If it's not present, we're
+    // either a dev build (repo source) or an unusual install.
+    const marker = '/node_modules/';
+    const idx = real.indexOf(marker);
+    if (idx === -1) {
+      const repoRoot = path.resolve(real, '..', '..');
+      if (fs.existsSync(path.join(repoRoot, 'src', 'core'))) return 'dev';
+      return 'unknown';
+    }
+
+    // Ancestor of node_modules: if it has a package.json naming something else,
+    // we're a transitive dep inside a user project (local-npm). If no
+    // package.json, we're under a global prefix like
+    // `~/.nvm/versions/node/vXX/lib/node_modules/` — global-npm.
+    const ancestor = real.slice(0, idx);
+    const projectPkg = path.join(ancestor, 'package.json');
+    if (!fs.existsSync(projectPkg)) return 'global-npm';
+    try {
+      const parsed = JSON.parse(fs.readFileSync(projectPkg, 'utf8')) as { name?: string };
+      return parsed.name === PACKAGE_NAME ? 'dev' : 'local-npm';
+    } catch {
+      return 'local-npm';
+    }
+  } catch {
+    return 'unknown';
+  }
+}
+
+export type AutoUpdateResult =
+  | 'spawned'            // npm install fired in background
+  | 'skipped-off'        // TOOLKIT_AUTO_UPDATE=off
+  | 'skipped-no-update'  // already on latest
+  | 'skipped-mode'       // not a global install
+  | 'skipped-recent'     // we already tried this version in the last 24h
+  | 'skipped-dev';       // TOOLKIT_VERSION === 'dev'
+
+/**
+ * When we're confident we can safely upgrade this binary, spawn a detached
+ * `npm install -g toolkit-ai@<latest>` and return immediately. The child keeps
+ * running after the parent exits (detached + unref + stdio ignore). Next launch
+ * picks up the new version. Tracks the attempt in the cache so we don't
+ * hammer npm on every invocation if the install is slow or the user runs the
+ * CLI repeatedly.
+ */
+export function maybeAutoUpdate(info: UpdateInfo): AutoUpdateResult {
+  if (process.env.TOOLKIT_AUTO_UPDATE === 'off') return 'skipped-off';
+  if (getCurrentVersion() === 'dev') return 'skipped-dev';
+  if (!info.newer || !info.latest) return 'skipped-no-update';
+
+  const mode = detectInstallMode();
+  if (mode !== 'global-npm') return 'skipped-mode';
+
+  const cache = readCache();
+  if (cache?.lastAutoUpdateVersion === info.latest &&
+      cache.lastAutoUpdateAt &&
+      Date.now() - cache.lastAutoUpdateAt < CACHE_TTL_MS) {
+    return 'skipped-recent';
+  }
+
+  try {
+    const child = spawn('npm', ['install', '-g', `${PACKAGE_NAME}@latest`], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    writeCache({
+      latest: info.latest,
+      checkedAt: cache?.checkedAt ?? Date.now(),
+      lastAutoUpdateVersion: info.latest,
+      lastAutoUpdateAt: Date.now(),
+    });
+    return 'spawned';
+  } catch {
+    return 'skipped-mode';
+  }
+}
+
+/** True if an auto-update attempt has been recorded for this `latest` version
+ *  within the last 24h. Lets the UI show "upgrading..." instead of the manual
+ *  "run npm install" hint. */
+export function autoUpdateInFlight(info: UpdateInfo): boolean {
+  if (!info.latest) return false;
+  const cache = readCache();
+  if (!cache?.lastAutoUpdateAt || cache.lastAutoUpdateVersion !== info.latest) return false;
+  return Date.now() - cache.lastAutoUpdateAt < CACHE_TTL_MS;
+}
+

@@ -286,3 +286,11 @@ test('formatUpdateLine suppresses banner when no newer version, produces actiona
   assert.equal(data.bannerHasCommand, true, 'banner must tell the user how to upgrade');
   assert.equal(data.bannerShowsBothVersions, true, 'banner shows both current and latest');
 });
+
+test('detectInstallMode classifies global-npm / local-npm / dev / unknown', () => {
+  const data = runFixture('update-check.mjs');
+  assert.equal(data.modeGlobal, 'global-npm', 'node_modules with no parent package.json = global');
+  assert.equal(data.modeLocal, 'local-npm', 'node_modules under a user project = local');
+  assert.equal(data.modeDev, 'dev', 'script with src/core alongside = dev build');
+  assert.equal(data.modeUnknown, 'unknown', 'nonexistent path = unknown');
+});
