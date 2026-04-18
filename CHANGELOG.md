@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### UX
+- **No more frozen terminal on first launch.** `useCatalog` now hydrates external sources asynchronously after first paint — a spinner shows "Fetching sources from GitHub/Bitbucket..." while git cloning, instead of a black screen for 5-30s.
+- **Pressing `i`/`r`/`u` when the action doesn't apply now shows a hint** instead of silently doing nothing. Examples: "Already installed — press r to remove or u to update", "Not installed — press i to install", "No update available".
+- **Source refresh in the Sources tab actually paints "Refreshing..."** before the git clone blocks. Previously the message never appeared because the synchronous fetch ran before React could commit.
+
 ### Security
 - Scanner catches more RCE patterns: interpreter-pipe variants (`curl | python/ruby/node/perl/php/fish/ksh`), `/dev/udp` reverse shells, `ncat --exec`, `socat EXEC:`/`SYSTEM:`, inline `python -c` / `node -e` / `ruby -e` / `perl -e` / `php -r`, base64-decoded execution, PowerShell short-flag encoded commands, `IEX(New-Object Net.WebClient)`.
 - Scanner now reads executable scripts (`.sh`, `.bash`, `.zsh`, `.fish`, `.py`, `.rb`, `.pl`, `.php`, `.ps1`, `.bat`, `.cmd`). Previously these files were copied into `~/.claude/skills/` etc. without being scanned.

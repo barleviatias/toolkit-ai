@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { render, Box, useInput, useApp } from 'ink';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
+import { Spinner } from './components/Spinner.js';
 import { useCatalog } from './hooks/useCatalog.js';
 import { CatalogTab } from './tabs/CatalogTab.js';
 import { InstalledTab } from './tabs/InstalledTab.js';
@@ -31,6 +32,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     installedItems,
     refreshLock,
     refreshExternal,
+    loading,
   } = useCatalog();
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
@@ -84,7 +86,13 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
       <Logo />
       <TabBar tabs={tabs} activeTab={activeTab} />
 
-      {activeTab === 'catalog' && (
+      {loading && allItems.length === 0 && (
+        <Box marginY={1} marginLeft={2}>
+          <Spinner label="Fetching sources from GitHub/Bitbucket..." />
+        </Box>
+      )}
+
+      {activeTab === 'catalog' && !(loading && allItems.length === 0) && (
         <CatalogTab
           items={allItems}
           catalog={catalog}
@@ -93,14 +101,14 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
           onUpdateAll={handleUpdateAll}
         />
       )}
-      {activeTab === 'installed' && (
+      {activeTab === 'installed' && !(loading && allItems.length === 0) && (
         <InstalledTab
           items={installedItems}
           catalog={catalog}
           onRefresh={handleRefresh}
         />
       )}
-      {activeTab === 'sources' && (
+      {activeTab === 'sources' && !(loading && allItems.length === 0) && (
         <SourcesTab
           allItems={allItems}
           catalog={catalog}

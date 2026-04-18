@@ -106,6 +106,11 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
     if (!item) { setMessage('Error: item not found'); return; }
 
+    if (item.installed && !item.hasUpdate) {
+      setMessage(`Already installed — press r to remove or u to update`);
+      return;
+    }
+
     // Consent is required when the scanner flagged something risky OR when an
     // MCP will exec a local command on every agent session. We never block —
     // we make sure the user can see what's about to happen before saying yes.
@@ -156,6 +161,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   }, [doInstall]);
 
   const handleRemoveItem = useCallback((item: ItemData) => {
+    if (!item.installed) {
+      setMessage(`Not installed — press i to install`);
+      return;
+    }
     const { type, name } = parseKey(item.key);
     setConfirmAction({
       title: `Remove ${type} ${name}?`,
@@ -168,6 +177,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   }, [doRemove]);
 
   const handleUpdateItem = useCallback((item: ItemData) => {
+    if (!item.hasUpdate) {
+      setMessage(`No update available for ${item.type} ${item.name}`);
+      return;
+    }
     onUpdateItem(item);
     setMessage(`Updated ${item.type} ${item.name}`);
     onRefresh();

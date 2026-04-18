@@ -53,14 +53,19 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
     if (mode === 'list') {
       if (ch === 'f') {
+        // Paint "Refreshing..." first, then let useCatalog's own deferred
+        // hydration handle the actual work. Without the setTimeout the
+        // synchronous git clone blocks before Ink ever commits this state.
         setMessage('Refreshing sources...');
-        try {
-          onRefreshSources(true);
-          setMessage('Sources refreshed');
-          refresh();
-        } catch (e: unknown) {
-          setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
-        }
+        setTimeout(() => {
+          try {
+            onRefreshSources(true);
+            setMessage('Sources refreshed');
+            refresh();
+          } catch (e: unknown) {
+            setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }, 0);
       } else if (ch === 'a') {
         setMode('add');
         setInput('');
