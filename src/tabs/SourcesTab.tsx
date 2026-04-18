@@ -13,6 +13,7 @@ import { installSkill, installAgent, installMcp, installBundle } from '../core/i
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
+import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
@@ -145,7 +146,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     });
   }, []);
 
-  const doInstall = useCallback((item: ItemData) => {
+  const runInstall = useCallback((item: ItemData) => {
     const { type, name } = item;
     try {
       if (type === 'skill') installSkill(catalog, name, { force: false }, () => {});
@@ -161,7 +162,27 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     } catch (e: unknown) {
       setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [onRefresh]);
+  }, [catalog, onRefresh]);
+
+  const doInstall = useCallback((item: ItemData) => {
+    // Route through the same consent dialog as CatalogTab so a user browsing
+    // a source can't accidentally install an stdio MCP without seeing the
+    // command that will run on every agent session.
+    const children = resolveBundleChildren(item, allItems);
+    if (needsConsent(item, children)) {
+      const prompt = buildConsentPrompt(item, children);
+      setConfirmAction({
+        title: prompt.title,
+        items: prompt.lines,
+        onConfirm: () => {
+          setConfirmAction(null);
+          runInstall(item);
+        },
+      });
+      return;
+    }
+    runInstall(item);
+  }, [allItems, runInstall]);
 
   const doRemove = useCallback((item: ItemData) => {
     const { type, name } = parseKey(item.key);

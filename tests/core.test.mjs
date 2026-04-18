@@ -246,6 +246,16 @@ test('scanSkillDir blocks base64-decoded shell execution', () => {
   assert.equal(data.base64ShellBlocked, true);
 });
 
+test('scanSkillDir blocks pasted-recipe weasels (python3.11, eval, process substitution, xxd, shellshock)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.python311Blocked, true, 'python3.11 -c should match the version-suffixed pattern');
+  assert.equal(data.evalSubstBlocked, true, 'eval "$(...)" is a common curl-exec');
+  assert.equal(data.shProcSubBlocked, true, 'bash <(curl ...) must be caught');
+  assert.equal(data.sourceProcSubBlocked, true, 'source <(curl ...) must be caught');
+  assert.equal(data.xxdHexBlocked, true, 'xxd -r -p | bash is hex-decoded exec');
+  assert.equal(data.shellshockBlocked, true, 'shellshock function-export signature');
+});
+
 test('scanSkillDir scans .sh and .py files (not just markdown/text)', () => {
   const data = runFixture('scanner-patterns.mjs');
   assert.equal(data.shellScriptScanned, true, '.sh files must be scanned for RCE patterns');

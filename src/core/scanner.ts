@@ -36,12 +36,20 @@ const SUSPICIOUS_PATTERNS: { pattern: RegExp; message: string; severity: Severit
   { pattern: new RegExp(`\\bfetch\\b[^\\n]*\\|\\s*${INTERPRETERS}\\b`, 'i'), message: 'Remote code execution: fetch piped to shell/interpreter', severity: 'block' },
 
   // Inline interpreter execution with arbitrary strings
-  { pattern: /\bpython[23]?\s+-c\s+["']/, message: 'Inline python -c execution', severity: 'block' },
+  { pattern: /\bpython\d?(?:\.\d+)?\s+-c\s+["']/, message: 'Inline python -c execution', severity: 'block' },
   { pattern: /\bperl\s+-e\s+["']/, message: 'Inline perl -e execution', severity: 'block' },
   { pattern: /\bruby\s+-e\s+["']/, message: 'Inline ruby -e execution', severity: 'block' },
   { pattern: /\bnode\s+(?:--eval|-e|-p|--print)\s+["']/, message: 'Inline node -e/-p execution', severity: 'block' },
   { pattern: /\bphp\s+-r\s+["']/, message: 'Inline php -r execution', severity: 'block' },
   { pattern: /\bbash\s+-c\s+["']/, message: 'Inline bash -c execution', severity: 'warn' },
+  // Process substitution and eval patterns — common curl-exec weasels
+  { pattern: /\beval\s+["']?\$\(/, message: 'eval $(...) command substitution', severity: 'block' },
+  { pattern: /\b(?:bash|sh|zsh)\s+<\(\s*(?:curl|wget|fetch)\b/i, message: 'Process substitution from remote (sh <(curl ...))', severity: 'block' },
+  { pattern: /\bsource\s+<\(\s*(?:curl|wget|fetch)\b/i, message: 'source <(curl ...) remote execution', severity: 'block' },
+  // Hex/encoded exec
+  { pattern: /\bxxd\s+-r\s+-p[^\n]*\|\s*(?:bash|sh|zsh|python|perl|ruby|node|php)\b/i, message: 'Hex-decoded content piped to interpreter', severity: 'block' },
+  // Shellshock-style function export in env vars
+  { pattern: /\(\s*\)\s*\{\s*:\s*;\s*\}\s*;/, message: 'Shellshock-style function-export env var', severity: 'block' },
 
   // Base64-decoded execution
   { pattern: /base64\s+(?:-d|--decode|-D)[^\n]*\|\s*(?:bash|sh|zsh|python|perl|ruby|node|php)\b/i, message: 'Base64-decoded content piped to interpreter', severity: 'block' },

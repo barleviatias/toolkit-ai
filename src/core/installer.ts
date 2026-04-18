@@ -344,6 +344,10 @@ export function installExternalMcp(
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
+  // mcpName becomes a JSON key and a TOML section name — validate defensively
+  // even though the catalog path already sanitizes at parse time. An attacker
+  // can't reach this code without writing to sources.json, but cheap insurance.
+  assertSafePathSegment(mcpName, 'mcp name');
   const src = path.join(CACHE_DIR, sourceName, mcpPath);
   if (!fs.existsSync(src)) throw new Error(`External MCP not found at: ${src}`);
 

@@ -17,6 +17,7 @@ import {
   installBundle,
 } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface CatalogTabProps {
@@ -116,25 +117,16 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       return;
     }
 
-    // Consent is required when the scanner flagged something risky OR when an
-    // MCP will exec a local command on every agent session. We never block —
-    // we make sure the user can see what's about to happen before saying yes.
-    const isStdioMcp = item.type === 'mcp' && !!item.mcpCommand;
-    const needsConsent = item.scanStatus === 'block' || item.scanStatus === 'warn' || isStdioMcp;
-
-    if (needsConsent) {
-      const lines: string[] = [];
-      if (isStdioMcp) {
-        const preview = [item.mcpCommand, ...(item.mcpArgs || [])].join(' ');
-        lines.push(`Runs on every agent session: ${preview}`);
-      }
-      if (item.scanSummary) lines.push(item.scanSummary);
-      if (item.type === 'mcp') lines.push('Writes to Claude, Codex, Cursor, and VSCode MCP configs.');
-
-      const severityIcon = item.scanStatus === 'block' || item.scanStatus === 'warn' ? '\u26a0 ' : '';
+    // Consent fires for block-severity findings or anything that will exec on
+    // the host (stdio MCPs, and bundles that transitively include any of the
+    // above). Warn-only findings surface via the row badge + DetailView; we
+    // don't pop a modal for those or users reflex-press y.
+    const children = resolveBundleChildren(item, items);
+    if (needsConsent(item, children)) {
+      const prompt = buildConsentPrompt(item, children);
       setConfirmAction({
-        title: `${severityIcon}Install ${item.type} '${item.name}' from ${item.source}?`,
-        items: lines,
+        title: prompt.title,
+        items: prompt.lines,
         onConfirm: () => {
           setConfirmAction(null);
           runInstall(item);

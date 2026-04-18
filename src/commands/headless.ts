@@ -376,7 +376,11 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
-  const isStrict = flag(args, '--strict');
+  // Auto-strict when no human is driving the terminal. `curl ... | bash` and CI
+  // runs have stdin piped (not a TTY), so treat them as "I can't ask the user"
+  // and default to hard-fail on block-severity findings. Explicit --strict still
+  // overrides; explicit --force doesn't disable strict (force = ignore lock hash).
+  const isStrict = flag(args, '--strict') || !process.stdin.isTTY;
   const isRemove   = flag(args, 'remove');
   const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');

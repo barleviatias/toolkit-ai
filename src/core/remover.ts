@@ -41,6 +41,7 @@ export function removeItemFromFilesystem(
     if (removeLink(codexDest)) { log(`  [-] agent ${name} removed from ${CODEX_AGENT_TARGET}`); removed = true; }
     if (!removed) log(`  agent ${name} was not installed`);
   } else if (type === 'mcp') {
+    assertSafePathSegment(name, 'mcp name');
     const existing = MCP_CONFIG_FILES.filter(f => fs.existsSync(f));
     let removed = false;
     for (const configPath of existing) {
