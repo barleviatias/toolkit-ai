@@ -20,6 +20,8 @@ export interface ItemData {
   mcpType?: string;
   url?: string;
   setupNote?: string;
+  mcpCommand?: string;
+  mcpArgs?: string[];
 }
 
 const TYPE_COLORS: Record<string, string> = {

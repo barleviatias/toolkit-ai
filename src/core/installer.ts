@@ -28,6 +28,12 @@ export interface InstallOptions {
   force?: boolean;
   bundleName?: string;
   verbose?: boolean;
+  /**
+   * Required to install stdio MCPs (those with a `command` field). Without it, the
+   * install is refused — `command` + `args` get written into Claude/Codex/Cursor/
+   * VSCode config and execute at every agent startup, so we make the user say yes.
+   */
+  allowExec?: boolean;
 }
 
 export type LogFn = (msg: string) => void;
@@ -361,6 +367,12 @@ export function installExternalMcp(
     log(`      Skipped — use --force to override`);
     return { type: 'mcp', name: mcpName, action: 'blocked' };
   }
+  if (mcpConfig.command && !opts.allowExec) {
+    const preview = [mcpConfig.command, ...(mcpConfig.args || []).slice(0, 4)].join(' ');
+    log(`  [!] mcp ${mcpName} will execute on every agent session: ${preview}`);
+    log(`      Refusing to register stdio MCP without explicit consent. Re-run with --allow-exec.`);
+    return { type: 'mcp', name: mcpName, action: 'blocked' };
+  }
   if (report.findings.length > 0) log(formatReport(report));
 
   const newEntry = {
@@ -436,6 +448,12 @@ export function installMcp(
   if (!report.passed && !opts.force) {
     log(formatReport(report));
     log(`      Skipped — use --force to override`);
+    return { type: 'mcp', name, action: 'blocked' };
+  }
+  if (mcpConfig.command && !opts.allowExec) {
+    const preview = [mcpConfig.command, ...(mcpConfig.args || []).slice(0, 4)].join(' ');
+    log(`  [!] mcp ${name} will execute on every agent session: ${preview}`);
+    log(`      Refusing to register stdio MCP without explicit consent. Re-run with --allow-exec.`);
     return { type: 'mcp', name, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));

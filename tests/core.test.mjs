@@ -211,3 +211,43 @@ test('formatReport returns [BLOCKED] for failed report', () => {
   const data = runFixture('scanner-patterns.mjs');
   assert.equal(data.formatBlockedContainsBLOCKED, true);
 });
+
+test('scanMcpConfig emits mcp-stdio-exec warn when command is set, with command preview', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.stdioExecWarned, true);
+  assert.equal(data.stdioExecShowsCommand, true);
+  assert.equal(data.stdioStillPasses, true, 'stdio warn alone should not block at scanner — install gates consent');
+});
+
+test('scanSkillDir blocks interpreter-pipe variants (python, ruby, node, perl)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.curlPythonBlocked, true);
+  assert.equal(data.curlRubyBlocked, true);
+  assert.equal(data.curlNodeBlocked, true);
+  assert.equal(data.wgetPerlBlocked, true);
+});
+
+test('scanSkillDir blocks reverse-shell variants (/dev/udp, ncat, socat)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.devUdpBlocked, true);
+  assert.equal(data.ncatBlocked, true);
+  assert.equal(data.socatBlocked, true);
+});
+
+test('scanSkillDir blocks inline interpreter execution (python -c, node -e, perl -e)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.pythonDashCBlocked, true);
+  assert.equal(data.nodeDashEBlocked, true);
+  assert.equal(data.perlDashEBlocked, true);
+});
+
+test('scanSkillDir blocks base64-decoded shell execution', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.base64ShellBlocked, true);
+});
+
+test('scanSkillDir scans .sh and .py files (not just markdown/text)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.shellScriptScanned, true, '.sh files must be scanned for RCE patterns');
+  assert.equal(data.pythonScriptScanned, true, '.py files must be scanned for RCE patterns');
+});

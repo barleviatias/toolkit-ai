@@ -170,6 +170,9 @@ ${BOLD}Sources:${RESET}
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
   --force                         Force reinstall even if up to date
+  --allow-exec                    Consent to install stdio MCPs that execute a
+                                  local command at every agent session. Required
+                                  for any MCP with a \`command\` field.
   --version                       Show version
   --help, -h                      Show this help message
 `);
@@ -251,7 +254,17 @@ function showScan(catalog: Catalog, specificSkill?: string | null) {
 
     for (const mcp of catalog.mcps) {
       const mcpConfig = loadMcpConfig(mcp);
-      const report = scanMcpConfig({ name: mcp.name, type: mcpConfig.type, url: mcpConfig.url }, mcp.source);
+      const report = scanMcpConfig({
+        name: mcp.name,
+        type: mcpConfig.type,
+        url: mcpConfig.url,
+        command: mcpConfig.command,
+        args: mcpConfig.args,
+        env: mcpConfig.env,
+        envVars: mcpConfig.envVars,
+        httpHeaders: mcpConfig.httpHeaders,
+        envHttpHeaders: mcpConfig.envHttpHeaders,
+      }, mcp.source);
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;
@@ -348,6 +361,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
+  const isAllowExec = flag(args, '--allow-exec');
   const isRemove   = flag(args, 'remove');
   const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');
@@ -401,7 +415,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     showLogo();
     console.log();
     console.log(`${BOLD}Updating all installed items...${RESET}\n`);
-    const results = updateAll(catalog, { force: isForce });
+    const results = updateAll(catalog, { force: isForce, allowExec: isAllowExec });
     printSummary(results);
     return true;
   }
@@ -418,7 +432,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Direct install
   const results: InstallResult[] = [];
-  const opts = { force: isForce };
+  const opts = { force: isForce, allowExec: isAllowExec };
   if (skillName)       results.push(installSkill(catalog, skillName, opts));
   else if (agentName)  results.push(installAgent(catalog, agentName, opts));
   else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));

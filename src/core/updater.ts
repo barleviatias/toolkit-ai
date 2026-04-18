@@ -107,11 +107,12 @@ export function updateSelected(
 /** Update all installed items that have newer versions in the catalog. */
 export function updateAll(
   catalog: Catalog,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; allowExec?: boolean } = {},
   log: LogFn = console.log,
 ): InstallResult[] {
   const lock = readLock();
   const results: InstallResult[] = [];
+  const allowExec = opts.allowExec;
 
   // Pass 1: bundles
   for (const [lockKey, lockEntry] of Object.entries(lock.installed)) {
@@ -132,7 +133,7 @@ export function updateAll(
     }
 
     if (opts.force || catalogEntry.hash !== lockEntry.hash) {
-      results.push(...installBundle(catalog, name, { force: true }, log));
+      results.push(...installBundle(catalog, name, { force: true, allowExec }, log));
       continue;
     }
 
@@ -155,7 +156,7 @@ export function updateAll(
         continue;
       }
       if (catalogItem.hash !== itemEntry.hash) {
-        const installOpts = { force: true, bundleName: name };
+        const installOpts = { force: true, bundleName: name, allowExec };
         if (type === 'skill')      results.push(installSkill(catalog, itemName, installOpts, log));
         else if (type === 'agent') results.push(installAgent(catalog, itemName, installOpts, log));
         else if (type === 'mcp')   results.push(installMcp(catalog, itemName, installOpts, log));
@@ -187,9 +188,9 @@ export function updateAll(
       log(`  [OK] ${type} ${name} (up to date)`);
       continue;
     }
-    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
-    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
-    else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
+    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true, allowExec }, log));
+    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true, allowExec }, log));
+    else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true, allowExec }, log));
   }
 
   return results;

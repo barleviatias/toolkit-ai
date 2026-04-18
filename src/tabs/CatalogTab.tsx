@@ -83,6 +83,38 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     });
   }, []);
 
+  const runInstall = useCallback((item: ItemData, allowExec: boolean) => {
+    const { type, name } = item;
+    try {
+      const opts = { force: false, allowExec };
+      let blocked = false;
+      if (type === 'skill') {
+        const r = installSkill(catalog, name, opts, () => {});
+        blocked = r.action === 'blocked';
+      } else if (type === 'agent') {
+        const r = installAgent(catalog, name, opts, () => {});
+        blocked = r.action === 'blocked';
+      } else if (type === 'mcp') {
+        const r = installMcp(catalog, name, opts, () => {});
+        blocked = r.action === 'blocked';
+      } else if (type === 'bundle') {
+        const rs = installBundle(catalog, name, opts, () => {});
+        blocked = rs.some(r => r.action === 'blocked');
+      } else {
+        setMessage(`Error: ${type} ${name} cannot be installed`);
+        return;
+      }
+      if (blocked) {
+        setMessage(`\u2715 Blocked ${type} ${name} — security gate refused`);
+      } else {
+        setMessage(`Installed ${type} ${name}`);
+      }
+      onRefresh();
+    } catch (e: unknown) {
+      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [catalog, onRefresh]);
+
   const doInstall = useCallback((key: string) => {
     const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
     if (!item) { setMessage('Error: item not found'); return; }
@@ -92,22 +124,22 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       return;
     }
 
-    const { type, name } = item;
-    try {
-      if (type === 'skill')  installSkill(catalog, name, { force: false }, () => {});
-      else if (type === 'agent')    installAgent(catalog, name, { force: false }, () => {});
-      else if (type === 'mcp')      installMcp(catalog, name, { force: false }, () => {});
-      else if (type === 'bundle')   installBundle(catalog, name, { force: false }, () => {});
-      else {
-        setMessage(`Error: ${type} ${name} cannot be installed`);
-        return;
-      }
-      setMessage(`Installed ${type} ${name}`);
-      onRefresh();
-    } catch (e: unknown) {
-      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    // Stdio MCPs need explicit consent — the command runs on every agent session.
+    if (item.type === 'mcp' && item.mcpCommand) {
+      const preview = [item.mcpCommand, ...(item.mcpArgs || [])].join(' ');
+      setConfirmAction({
+        title: `Register MCP '${item.name}'? It will execute on every agent session:`,
+        items: [preview, 'Writes to Claude, Codex, Cursor, and VSCode MCP configs.'],
+        onConfirm: () => {
+          setConfirmAction(null);
+          runInstall(item, true);
+        },
+      });
+      return;
     }
-  }, [catalog, items, filtered, onRefresh]);
+
+    runInstall(item, false);
+  }, [items, filtered, runInstall]);
 
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);

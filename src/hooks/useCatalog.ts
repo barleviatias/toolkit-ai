@@ -73,7 +73,17 @@ export function useCatalog() {
         } else if (type === 'mcp') {
           try {
             const mcpConfig = loadMcpConfig(entry);
-            report = scanMcpConfig({ name: entry.name, type: mcpConfig.type, url: mcpConfig.url }, src);
+            report = scanMcpConfig({
+              name: entry.name,
+              type: mcpConfig.type,
+              url: mcpConfig.url,
+              command: mcpConfig.command,
+              args: mcpConfig.args,
+              env: mcpConfig.env,
+              envVars: mcpConfig.envVars,
+              httpHeaders: mcpConfig.httpHeaders,
+              envHttpHeaders: mcpConfig.envHttpHeaders,
+            }, src);
           } catch {
             // MCP config not loadable — treat as clean
           }
@@ -129,6 +139,8 @@ export function useCatalog() {
           item.mcpType = mcpConfig.type;
           item.url = mcpConfig.url;
           item.setupNote = mcpConfig.setupNote;
+          item.mcpCommand = mcpConfig.command;
+          item.mcpArgs = mcpConfig.args;
         } catch {
           // MCP config not loadable — skip enrichment
         }
