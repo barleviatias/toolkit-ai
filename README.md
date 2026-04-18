@@ -526,6 +526,10 @@ npm link         # Link globally for testing
 
 ---
 
+## Roadmap
+
+Post-launch plans live in [ROADMAP.md](ROADMAP.md) — UX polish (cold-start spinner, `?` help overlay), perf work (parallel git clones, atomic fetch), and test-coverage gaps.
+
 ## License
 
 MIT
