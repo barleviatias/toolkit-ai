@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Disable a source without removing it.** Sources have a new `enabled` flag — disabled sources stay in `sources.json` but are skipped during fetch, so they contribute zero items to the catalog. Useful for temporarily muting a noisy internal repo without losing its URL. In the TUI, `d` toggles disable/enable and `r` removes with confirmation (was `d` = remove with no confirm, now impossible to delete by accident). CLI: `toolkit source disable <name>` / `toolkit source enable <name>`.
+
 ### Performance / resilience
 - **Atomic `fetchSource`.** `src/core/sources.ts` now clones to a temp dir and swaps on success. If the network fails or the user Ctrl-Cs mid-clone, the existing cache is preserved instead of being wiped before the new clone even starts.
 - **Fewer lock-file reads in `updateAll`.** `src/core/updater.ts` previously did `readLock()` twice per iteration for the catalog-miss branches (once to check protection, once to mutate). Combined into a single read-mutate-write per case. Also drops the `.items!` non-null assertion in favor of a narrowed local variable.

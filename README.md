@@ -223,7 +223,8 @@ toolkit
 |-----|--------|
 | `Enter` | Browse items from selected source |
 | `a` | Add a new source |
-| `d` | Delete selected source |
+| `d` | Disable / re-enable source (keeps config, skips fetch) |
+| `r` | Remove source entirely (with confirmation) |
 | `f` | Refresh all sources (re-fetch repos) |
 
 ---
@@ -251,7 +252,9 @@ toolkit update                     # Update all installed items
 # Sources
 toolkit source add <repo>          # Add an external source
 toolkit source list                # List configured sources
-toolkit source remove <name>       # Remove a source
+toolkit source disable <name>      # Temporarily skip a source (stays in config)
+toolkit source enable <name>       # Re-enable a disabled source
+toolkit source remove <name>       # Remove a source entirely
 toolkit refresh                    # Re-fetch all external sources
 
 # Security

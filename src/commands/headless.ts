@@ -6,7 +6,7 @@ import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remov
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
-import { parseSourceInput, addSource, removeSource, loadSources, refreshSources } from '../core/sources.js';
+import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
 import { CACHE_DIR } from '../core/platform.js';
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,9 @@ ${BOLD}Remove:${RESET}
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
   source list                     List configured sources
-  source remove <name>            Remove a source
+  source disable <name>           Disable a source (keeps config, skips fetch)
+  source enable <name>            Re-enable a previously disabled source
+  source remove <name>            Remove a source entirely
   source refresh [name]           Force re-fetch sources (all or by name)
 
   ${DIM}Accepts: owner/repo, https://github.com/owner/repo,
@@ -303,7 +305,8 @@ function runSourceCommand(args: string[]): boolean {
     } else {
       console.log(`\n${BOLD}Sources${RESET}\n`);
       for (const s of config.sources) {
-        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}`);
+        const state = s.enabled === false ? `  ${DIM}[disabled]${RESET}` : '';
+        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}${state}`);
       }
       console.log();
     }
@@ -313,6 +316,17 @@ function runSourceCommand(args: string[]): boolean {
   if (sub === 'remove' && args[1]) {
     removeSource(args[1]);
     console.log(`  ${RED}[-]${RESET} Removed source ${BOLD}${args[1]}${RESET}`);
+    return true;
+  }
+
+  if ((sub === 'disable' || sub === 'enable') && args[1]) {
+    const enabled = sub === 'enable';
+    const result = setSourceEnabled(args[1], enabled);
+    if (result === null) {
+      console.log(`  ${RED}[!]${RESET} Source ${BOLD}${args[1]}${RESET} not found.`);
+    } else {
+      console.log(`  ${GREEN}[OK]${RESET} ${enabled ? 'Enabled' : 'Disabled'} source ${BOLD}${args[1]}${RESET}`);
+    }
     return true;
   }
 
@@ -334,7 +348,7 @@ function runSourceCommand(args: string[]): boolean {
     return true;
   }
 
-  console.log(`Usage: ai-toolkit source <add|list|remove|refresh> [args]`);
+  console.log(`Usage: ai-toolkit source <add|list|remove|disable|enable|refresh> [args]`);
   return true;
 }
 

@@ -89,6 +89,24 @@ export function removeSource(name: string): void {
   saveSources(config);
 }
 
+/**
+ * Flip a source's enabled state. Returns the new state, or null if the source
+ * is not found. Disabled sources stay in sources.json but contribute no items.
+ */
+export function setSourceEnabled(name: string, enabled: boolean): boolean | null {
+  const config = loadSources();
+  const source = config.sources.find(s => s.name === name);
+  if (!source) return null;
+  source.enabled = enabled;
+  saveSources(config);
+  return enabled;
+}
+
+/** True when the source is enabled (undefined enabled is treated as true). */
+function isSourceEnabled(source: Source): boolean {
+  return source.enabled !== false;
+}
+
 // ---------------------------------------------------------------------------
 // Fetch and cache external sources
 // ---------------------------------------------------------------------------
@@ -146,8 +164,8 @@ function fetchSource(source: Source): void {
 export function refreshSources(sourceName?: string): { name: string; ok: boolean; error?: string }[] {
   const config = loadSources();
   const targets = sourceName
-    ? config.sources.filter(s => s.name === sourceName)
-    : config.sources.filter(s => s.type === 'github' || s.type === 'bitbucket');
+    ? config.sources.filter(s => s.name === sourceName && isSourceEnabled(s))
+    : config.sources.filter(s => (s.type === 'github' || s.type === 'bitbucket') && isSourceEnabled(s));
 
   const results: { name: string; ok: boolean; error?: string }[] = [];
   for (const source of targets) {
@@ -391,6 +409,7 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
+    if (!isSourceEnabled(source)) continue;
 
     try {
       if (forceRefresh || isCacheStale(source, config.cacheTTL)) {

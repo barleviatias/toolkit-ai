@@ -8,7 +8,7 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
+import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput } from '../core/sources.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 
@@ -72,11 +72,30 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       } else if (ch === 'd' && config.sources.length > 0) {
         const source = config.sources[cursor];
         if (source) {
-          removeSource(source.name);
-          setMessage(`Removed source: ${source.name}`);
-          setCursor(c => Math.max(0, c - 1));
+          const nextEnabled = source.enabled === false;
+          setSourceEnabled(source.name, nextEnabled);
+          setMessage(`${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`);
           onRefreshSources(true);
           refresh();
+        }
+      } else if (ch === 'r' && config.sources.length > 0) {
+        const source = config.sources[cursor];
+        if (source) {
+          setConfirmAction({
+            title: `Remove source '${source.name}'?`,
+            items: [
+              `${source.type}: ${source.repo || source.path}`,
+              'Deletes the source config and its cache. Installed items stay put.',
+            ],
+            onConfirm: () => {
+              removeSource(source.name);
+              setMessage(`Removed source: ${source.name}`);
+              setCursor(c => Math.max(0, c - 1));
+              setConfirmAction(null);
+              onRefreshSources(true);
+              refresh();
+            },
+          });
         }
       } else if (key.upArrow) {
         setCursor(c => Math.max(0, c - 1));
@@ -259,14 +278,15 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       <Box flexDirection="column" marginY={1}>
         {config.sources.map((source, i) => {
           const itemCount = allItems.filter(item => item.source === source.name).length;
+          const disabled = source.enabled === false;
           return (
             <Box key={source.name} marginLeft={1}>
               <Text color={i === cursor ? 'cyan' : undefined}>
                 {i === cursor ? '❯ ' : '  '}
               </Text>
-              <Text color={TYPE_COLORS[source.type] || 'white'} bold>{source.type.padEnd(10)}</Text>
-              <Text bold={i === cursor}>{source.name}</Text>
-              <Text dimColor> · {source.repo || source.path} · {itemCount} items</Text>
+              <Text color={TYPE_COLORS[source.type] || 'white'} bold dimColor={disabled}>{source.type.padEnd(10)}</Text>
+              <Text bold={i === cursor} dimColor={disabled}>{source.name}</Text>
+              <Text dimColor> · {source.repo || source.path} · {disabled ? 'disabled' : `${itemCount} items`}</Text>
             </Box>
           );
         })}
@@ -290,7 +310,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       <StatusBar hints={
         mode === 'add'
           ? 'Enter to confirm · Esc to cancel'
-          : 'Enter browse · a add · d delete · f refresh sources · Tab switch · q quit'
+          : 'Enter browse · a add · d disable/enable · r remove · f refresh · Tab switch · q quit'
       } />
     </Box>
   );
