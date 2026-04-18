@@ -15,7 +15,7 @@ import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 
-const VERSION = process.env.TOOLKIT_VERSION || 'dev';
+import { TOOLKIT_VERSION } from '../core/platform.js';
 
 interface SourcesTabProps {
   allItems: ItemData[];
@@ -287,7 +287,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     <Box flexDirection="column">
       <Box>
         <Text bold>Sources ({config.sources.length})</Text>
-        <Text dimColor>  ·  ai-toolkit v{VERSION}</Text>
+        <Text dimColor>  ·  ai-toolkit v{TOOLKIT_VERSION}</Text>
       </Box>
 
       {config.sources.length === 0 && mode === 'list' && (

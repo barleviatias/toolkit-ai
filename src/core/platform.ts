@@ -46,7 +46,12 @@ export const MCP_CONFIG_FILES = [...LOCAL_MCP_CONFIG_FILES, ...GLOBAL_MCP_CONFIG
 export const TOOLKIT_HOME = path.join(HOME, '.toolkit');
 export const LOCK_FILE = path.join(TOOLKIT_HOME, 'lock.json');
 export const SOURCES_FILE = path.join(TOOLKIT_HOME, 'sources.json');
+export const UPDATE_CHECK_FILE = path.join(TOOLKIT_HOME, 'update-check.json');
 export const CACHE_DIR = path.join(TOOLKIT_HOME, 'cache');
+
+/** Version baked in at build time by tsup's `define` (see tsup.config.ts).
+ *  Falls back to 'dev' when running from the unbuilt source tree. */
+export const TOOLKIT_VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
 /** Validate that a string is safe to use as a single path segment (no traversal, no slashes). */
 export function assertSafePathSegment(value: string, label = 'path segment'): string {

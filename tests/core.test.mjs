@@ -267,3 +267,35 @@ test('install is lenient by default (scanner findings warn, install proceeds) an
   assert.equal(data.lenient, 'installed', 'default install must proceed — running the command is consent');
   assert.equal(data.strict, 'blocked', 'strict mode must hard-fail on block-severity findings');
 });
+
+test('isNewer compares semver correctly and strips pre-release tails', () => {
+  const data = runFixture('update-check.mjs');
+  assert.equal(data.patch, true, 'patch bump is newer');
+  assert.equal(data.minor, true, 'minor bump is newer');
+  assert.equal(data.major, true, 'major bump is newer');
+  assert.equal(data.sameVersion, false, 'same version is not newer');
+  assert.equal(data.olderLatest, false, 'older latest is not newer');
+  assert.equal(data.prereleaseIgnored, true, 'pre-release tail is stripped (2.1.1-beta.0 treated as 2.1.1)');
+  assert.equal(data.vPrefix, true, 'leading v prefix handled');
+});
+
+test('formatUpdateLine suppresses banner when no newer version, produces actionable line otherwise', () => {
+  const data = runFixture('update-check.mjs');
+  assert.equal(data.nullNoBanner, null, 'no latest -> no banner');
+  assert.equal(data.noNewerNoBanner, null, 'same version -> no banner');
+  assert.equal(data.bannerHasCommand, true, 'banner must tell the user how to upgrade');
+  assert.equal(data.bannerShowsBothVersions, true, 'banner shows both current and latest');
+});
+
+test('detectInstallMode classifies global-npm / local-npm / dev / unknown', () => {
+  const data = runFixture('update-check.mjs');
+  assert.equal(data.modeGlobal, 'global-npm', 'node_modules with no parent package.json = global');
+  assert.equal(data.modeLocal, 'local-npm', 'node_modules under a user project = local');
+  assert.equal(data.modeDev, 'dev', 'script with src/core alongside = dev build');
+  assert.equal(data.modeUnknown, 'unknown', 'nonexistent path = unknown');
+});
+
+test('update check auto-skips in CI environments', () => {
+  const data = runFixture('update-check.mjs');
+  assert.equal(data.ciSkipsCheck, true, 'CI=true must suppress latest+newer so no banner/spawn fires');
+});

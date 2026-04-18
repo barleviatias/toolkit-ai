@@ -1,10 +1,7 @@
 import React from 'react';
 import { Text, Box } from 'ink';
+import { TOOLKIT_VERSION } from '../core/platform.js';
 
-const RED    = '#d42027';
-const GREEN  = '#00a651';
-const YELLOW = '#f7941d';
-const GRAY_L = '#b3b3b3';
 const GRAY_D = '#808080';
 
 const LOGO_LINES = [
@@ -18,8 +15,6 @@ const LOGO_LINES = [
 
 const GRAYS = ['#bcbcbc', '#a8a8a8', '#8a8a8a', '#767676', '#585858', '#444444'];
 
-const VERSION = process.env.TOOLKIT_VERSION || 'dev';
-
 export const Logo: React.FC = () => (
   <Box flexDirection="column" alignItems="center" marginBottom={1}>
     <Box>
@@ -30,6 +25,6 @@ export const Logo: React.FC = () => (
         ))}
       </Box>
     </Box>
-    <Text bold color={GRAY_D}>  toolkit-ai <Text dimColor>v{VERSION}</Text></Text>
+    <Text bold color={GRAY_D}>  toolkit-ai <Text dimColor>v{TOOLKIT_VERSION}</Text></Text>
   </Box>
 );
