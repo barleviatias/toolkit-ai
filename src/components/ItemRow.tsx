@@ -52,7 +52,7 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         <Text bold={isActive}>{item.name}</Text>
         <Text dimColor> · {item.source}</Text>
         {item.scanStatus === 'block' && <Text color="red"> ⚠ suspicious</Text>}
-        {item.scanStatus === 'warn' && <Text color="yellow"> ⚠</Text>}
+        {item.scanStatus === 'warn' && <Text color="yellow"> ⚠ notice</Text>}
         {item.installed && (
           <Text color="green">{item.trackedByLock === false ? ' · detected on disk' : ' · installed'}</Text>
         )}
