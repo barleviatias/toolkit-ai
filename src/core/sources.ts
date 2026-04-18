@@ -112,25 +112,33 @@ function fetchSource(source: Source): void {
   if (source.type !== 'github' && source.type !== 'bitbucket') return;
 
   const cacheDir = getCacheDir(source);
+  const tempDir = `${cacheDir}.fetching-${process.pid}`;
   const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
   const repoUrl = `https://${host}/${source.repo}.git`;
 
-  if (fs.existsSync(cacheDir)) {
-    fs.rmSync(cacheDir, { recursive: true, force: true });
+  // Clone into a temp dir, then atomically swap. If the network fails or
+  // the user Ctrl-Cs mid-clone, the existing cache is preserved.
+  if (fs.existsSync(tempDir)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
-  ensureDir(cacheDir);
+  ensureDir(path.dirname(tempDir));
 
-  const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, cacheDir], {
+  const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 60000,
   });
 
   if (result.status !== 0) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
     const stderr = result.stderr?.toString() || 'unknown error';
     throw new Error(`Failed to fetch ${source.repo}: ${stderr}`);
   }
 
-  fs.writeFileSync(path.join(cacheDir, '.fetched'), new Date().toISOString());
+  fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
+  if (fs.existsSync(cacheDir)) {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+  fs.renameSync(tempDir, cacheDir);
 }
 
 /** Force-refresh one or all sources (re-clone from remote) */

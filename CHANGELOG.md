@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Performance / resilience
+- **Atomic `fetchSource`.** `src/core/sources.ts` now clones to a temp dir and swaps on success. If the network fails or the user Ctrl-Cs mid-clone, the existing cache is preserved instead of being wiped before the new clone even starts.
+- **Fewer lock-file reads in `updateAll`.** `src/core/updater.ts` previously did `readLock()` twice per iteration for the catalog-miss branches (once to check protection, once to mutate). Combined into a single read-mutate-write per case. Also drops the `.items!` non-null assertion in favor of a narrowed local variable.
+
 ### UX
 - **No more frozen terminal on first launch.** `useCatalog` now hydrates external sources asynchronously after first paint — a spinner shows "Fetching sources from GitHub/Bitbucket..." while git cloning, instead of a black screen for 5-30s.
 - **Pressing `i`/`r`/`u` when the action doesn't apply now shows a hint** instead of silently doing nothing. Examples: "Already installed — press r to remove or u to update", "Not installed — press i to install", "No update available".

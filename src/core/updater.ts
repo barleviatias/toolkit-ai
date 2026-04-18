@@ -122,13 +122,14 @@ export function updateAll(
 
     if (!catalogEntry) {
       log(`  [!] bundle ${name} no longer in catalog, uninstalling`);
-      const currentLock = readLock();
+      const l = readLock();
       for (const itemKey of Object.keys(lockEntry.items || {})) {
-        if (!isItemProtected(itemKey, lockKey, currentLock, catalog, true)) {
+        if (!isItemProtected(itemKey, lockKey, l, catalog, true)) {
           removeItemFromFilesystem(catalog, itemKey, log);
         }
       }
-      const l = readLock(); delete l.installed[lockKey]; writeLock(l);
+      delete l.installed[lockKey];
+      writeLock(l);
       continue;
     }
 
@@ -147,11 +148,13 @@ export function updateAll(
         type === 'mcp'   ? findMcp(catalog, itemName)   : null;
 
       if (!catalogItem) {
-        const currentLock = readLock();
-        if (!isItemProtected(itemKey, lockKey, currentLock, catalog, true)) {
+        const l = readLock();
+        if (!isItemProtected(itemKey, lockKey, l, catalog, true)) {
           removeItemFromFilesystem(catalog, itemKey, log);
         }
-        const l = readLock(); delete l.installed[lockKey].items![itemKey]; writeLock(l);
+        const items = l.installed[lockKey].items;
+        if (items) delete items[itemKey];
+        writeLock(l);
         allUpToDate = false;
         continue;
       }
@@ -177,11 +180,12 @@ export function updateAll(
 
     if (!catalogEntry) {
       log(`  [!] ${type} ${name} no longer in catalog, removing`);
-      const currentLock = readLock();
-      if (!isItemProtected(lockKey, null, currentLock, catalog, false)) {
+      const l = readLock();
+      if (!isItemProtected(lockKey, null, l, catalog, false)) {
         removeItemFromFilesystem(catalog, lockKey, log);
       }
-      const l = readLock(); delete l.installed[lockKey]; writeLock(l);
+      delete l.installed[lockKey];
+      writeLock(l);
       continue;
     }
     if (!opts.force && catalogEntry.hash === lockEntry.hash) {

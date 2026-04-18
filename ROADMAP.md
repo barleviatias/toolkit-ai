@@ -11,10 +11,8 @@ Post-launch work, grouped by impact. Not blocking the current release.
 
 ## Performance
 
-- **Parallel git clones.** `src/core/sources.ts:380-401` fetches sources serially in a `for` loop. `Promise.all` over async `spawn` would cut cold start by `N` × RTT.
-- **Atomic `fetchSource`.** `sources.ts:118-121` deletes the cache dir *before* the new clone. If the network fails, the user loses their working cache. Clone to a temp dir, move on success.
+- **Parallel git clones.** `src/core/sources.ts` `fetchExternalResources` still fetches sources serially. Needs an async refactor (convert `fetchSource` from `spawnSync` to `spawn` with `Promise.all`) which ripples through `useCatalog.loadExternalState` and `headless.ts`. Worth ~`N × RTT` savings on cold start.
 - **`git fetch` instead of full re-clone** on TTL refresh. Current behavior re-clones from scratch every 24h even though nothing changed.
-- **Batch lock reads in `updateAll`.** `src/core/updater.ts:113-192` reads the lock 6+ times per call. Read once, mutate, write once.
 
 ## Test coverage gaps
 
