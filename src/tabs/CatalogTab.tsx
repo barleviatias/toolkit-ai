@@ -83,32 +83,19 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     });
   }, []);
 
-  const runInstall = useCallback((item: ItemData, allowExec: boolean) => {
+  const runInstall = useCallback((item: ItemData) => {
     const { type, name } = item;
     try {
-      const opts = { force: false, allowExec };
-      let blocked = false;
-      if (type === 'skill') {
-        const r = installSkill(catalog, name, opts, () => {});
-        blocked = r.action === 'blocked';
-      } else if (type === 'agent') {
-        const r = installAgent(catalog, name, opts, () => {});
-        blocked = r.action === 'blocked';
-      } else if (type === 'mcp') {
-        const r = installMcp(catalog, name, opts, () => {});
-        blocked = r.action === 'blocked';
-      } else if (type === 'bundle') {
-        const rs = installBundle(catalog, name, opts, () => {});
-        blocked = rs.some(r => r.action === 'blocked');
-      } else {
+      const opts = { force: false };
+      if (type === 'skill')       installSkill(catalog, name, opts, () => {});
+      else if (type === 'agent')  installAgent(catalog, name, opts, () => {});
+      else if (type === 'mcp')    installMcp(catalog, name, opts, () => {});
+      else if (type === 'bundle') installBundle(catalog, name, opts, () => {});
+      else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
       }
-      if (blocked) {
-        setMessage(`\u2715 Blocked ${type} ${name} — security gate refused`);
-      } else {
-        setMessage(`Installed ${type} ${name}`);
-      }
+      setMessage(`Installed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
       setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -119,26 +106,34 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
     if (!item) { setMessage('Error: item not found'); return; }
 
-    if (item.scanStatus === 'block') {
-      setMessage(`\u2715 Blocked: ${item.scanSummary || 'Security issues detected'}`);
-      return;
-    }
+    // Consent is required when the scanner flagged something risky OR when an
+    // MCP will exec a local command on every agent session. We never block —
+    // we make sure the user can see what's about to happen before saying yes.
+    const isStdioMcp = item.type === 'mcp' && !!item.mcpCommand;
+    const needsConsent = item.scanStatus === 'block' || item.scanStatus === 'warn' || isStdioMcp;
 
-    // Stdio MCPs need explicit consent — the command runs on every agent session.
-    if (item.type === 'mcp' && item.mcpCommand) {
-      const preview = [item.mcpCommand, ...(item.mcpArgs || [])].join(' ');
+    if (needsConsent) {
+      const lines: string[] = [];
+      if (isStdioMcp) {
+        const preview = [item.mcpCommand, ...(item.mcpArgs || [])].join(' ');
+        lines.push(`Runs on every agent session: ${preview}`);
+      }
+      if (item.scanSummary) lines.push(item.scanSummary);
+      if (item.type === 'mcp') lines.push('Writes to Claude, Codex, Cursor, and VSCode MCP configs.');
+
+      const severityIcon = item.scanStatus === 'block' ? '\u2715 ' : item.scanStatus === 'warn' ? '\u26a0 ' : '';
       setConfirmAction({
-        title: `Register MCP '${item.name}'? It will execute on every agent session:`,
-        items: [preview, 'Writes to Claude, Codex, Cursor, and VSCode MCP configs.'],
+        title: `${severityIcon}Install ${item.type} '${item.name}' from ${item.source}?`,
+        items: lines,
         onConfirm: () => {
           setConfirmAction(null);
-          runInstall(item, true);
+          runInstall(item);
         },
       });
       return;
     }
 
-    runInstall(item, false);
+    runInstall(item);
   }, [items, filtered, runInstall]);
 
   const doRemove = useCallback((key: string) => {

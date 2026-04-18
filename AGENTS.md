@@ -21,7 +21,9 @@ Use `npm version` (patch/minor/major) to bump, commit, and tag — then `git pus
 Use short, imperative commit subjects that describe behavior, not implementation. Keep commits scoped to one logical change. PRs should use the template in `.github/PULL_REQUEST_TEMPLATE.md` — include a summary, test plan with checkboxes, and link issues when relevant.
 
 ## Security
-All external resources are scanned before installation (see `src/core/scanner.ts`). Path segments are validated via `assertSafePathSegment()`. Never use `shell: true` or `exec()` — use `spawnSync` with array arguments. See `SECURITY.md` for the full security policy.
+All external resources are scanned before installation (see `src/core/scanner.ts`). Path segments are validated via `assertSafePathSegment()`. Never use `shell: true` or `exec()` — use `spawnSync` with array arguments.
+
+The install policy is **alert, never block** — scanner findings surface to the user (TUI consent dialog, CLI log output) but do not refuse the install. The CLI `--strict` flag (`InstallOptions.strict`) opts in to hard-fail on block-severity findings for CI. Don't add per-call bypass flags; see the Security Model section in `CLAUDE.md`. See `SECURITY.md` for disclosure policy.
 
 ## Contributor Notes
 Check `CONTRIBUTING.md` before adding skills, agents, bundles, or MCP definitions. If you change repository resources or generated catalog inputs, regenerate the catalog before opening a PR.

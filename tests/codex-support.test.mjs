@@ -60,7 +60,6 @@ test('Install, recovery, idempotency, and removal work for Codex plus legacy tar
   assert.equal(data.installResults.skill, 'installed');
   assert.equal(data.installResults.agent, 'installed');
   assert.equal(data.installResults.mcp, 'installed');
-  assert.equal(data.mcpWithoutConsent, 'blocked', 'stdio MCP install must be refused without allowExec');
   assert.equal(data.secondMcpInstall, 'skipped');
 
   assert.equal(data.files.skillInstalled, true);

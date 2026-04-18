@@ -99,9 +99,9 @@ const catalog = {
 
 const skillResult = installExternalSkill(sourceName, 'example-skill', 'resources/skills/example-skill', 'skill-hash', {}, noop);
 const agentResult = installExternalAgent(sourceName, 'example-agent', 'resources/agents/example-agent.agent.md', 'agent-hash', {}, noop);
-const mcpWithoutConsent = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', {}, noop).action;
-const mcpResult = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', { allowExec: true }, noop);
-const secondMcpInstall = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', { allowExec: true }, noop).action;
+// Default install proceeds for stdio MCPs — running the command is the consent.
+const mcpResult = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', {}, noop);
+const secondMcpInstall = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', {}, noop).action;
 
 const claudeSettingsPath = path.join(tempHome, '.claude', 'settings.json');
 const cursorConfigPath = path.join(tempHome, '.cursor', 'mcp.json');
@@ -123,7 +123,6 @@ const result = {
     agent: agentResult.action,
     mcp: mcpResult.action,
   },
-  mcpWithoutConsent,
   secondMcpInstall,
   files: {
     skillInstalled: fs.existsSync(path.join(tempHome, '.agents', 'skills', 'example-skill', 'SKILL.md')),

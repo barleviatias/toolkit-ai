@@ -170,9 +170,10 @@ ${BOLD}Sources:${RESET}
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
   --force                         Force reinstall even if up to date
-  --allow-exec                    Consent to install stdio MCPs that execute a
-                                  local command at every agent session. Required
-                                  for any MCP with a \`command\` field.
+  --strict                        Fail the install when the security scanner
+                                  flags a block-severity issue. Off by default
+                                  — running the command is treated as consent.
+                                  Use in CI to hard-fail on risky content.
   --version                       Show version
   --help, -h                      Show this help message
 `);
@@ -361,7 +362,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
-  const isAllowExec = flag(args, '--allow-exec');
+  const isStrict = flag(args, '--strict');
   const isRemove   = flag(args, 'remove');
   const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');
@@ -415,7 +416,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     showLogo();
     console.log();
     console.log(`${BOLD}Updating all installed items...${RESET}\n`);
-    const results = updateAll(catalog, { force: isForce, allowExec: isAllowExec });
+    const results = updateAll(catalog, { force: isForce, strict: isStrict });
     printSummary(results);
     return true;
   }
@@ -432,7 +433,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Direct install
   const results: InstallResult[] = [];
-  const opts = { force: isForce, allowExec: isAllowExec };
+  const opts = { force: isForce, strict: isStrict };
   if (skillName)       results.push(installSkill(catalog, skillName, opts));
   else if (agentName)  results.push(installAgent(catalog, agentName, opts));
   else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));

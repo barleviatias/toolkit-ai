@@ -29,11 +29,14 @@ export interface InstallOptions {
   bundleName?: string;
   verbose?: boolean;
   /**
-   * Required to install stdio MCPs (those with a `command` field). Without it, the
-   * install is refused — `command` + `args` get written into Claude/Codex/Cursor/
-   * VSCode config and execute at every agent startup, so we make the user say yes.
+   * Opt-in hard-fail mode for CI and automation. When true, any scan finding
+   * with 'block' severity aborts the install with action: 'blocked'. When
+   * false (the default) we always proceed — warnings surface through the log
+   * callback and the caller decides whether to show them to the user. The TUI
+   * adds its own consent dialog on top; headless users who typed the command
+   * are treated as having already consented.
    */
-  allowExec?: boolean;
+  strict?: boolean;
 }
 
 export type LogFn = (msg: string) => void;
@@ -223,9 +226,9 @@ export function installExternalSkill(
 
   // Security scan (external sources always scanned)
   const report = scanSkillDir(src, skillName, sourceName);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'skill', name: skillName, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));
@@ -276,9 +279,9 @@ export function installExternalAgent(
   if (!fs.existsSync(src)) throw new Error(`External agent not found at: ${src}`);
 
   const report = scanAgentFile(src, agentName, sourceName);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'agent', name: agentName, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));
@@ -362,15 +365,9 @@ export function installExternalMcp(
     httpHeaders: mcpConfig.httpHeaders,
     envHttpHeaders: mcpConfig.envHttpHeaders,
   }, sourceName);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
-    return { type: 'mcp', name: mcpName, action: 'blocked' };
-  }
-  if (mcpConfig.command && !opts.allowExec) {
-    const preview = [mcpConfig.command, ...(mcpConfig.args || []).slice(0, 4)].join(' ');
-    log(`  [!] mcp ${mcpName} will execute on every agent session: ${preview}`);
-    log(`      Refusing to register stdio MCP without explicit consent. Re-run with --allow-exec.`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'mcp', name: mcpName, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));
@@ -445,15 +442,9 @@ export function installMcp(
     httpHeaders: mcpConfig.httpHeaders,
     envHttpHeaders: mcpConfig.envHttpHeaders,
   }, entry.source);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
-    return { type: 'mcp', name, action: 'blocked' };
-  }
-  if (mcpConfig.command && !opts.allowExec) {
-    const preview = [mcpConfig.command, ...(mcpConfig.args || []).slice(0, 4)].join(' ');
-    log(`  [!] mcp ${name} will execute on every agent session: ${preview}`);
-    log(`      Refusing to register stdio MCP without explicit consent. Re-run with --allow-exec.`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'mcp', name, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));

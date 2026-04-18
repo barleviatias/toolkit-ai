@@ -251,3 +251,9 @@ test('scanSkillDir scans .sh and .py files (not just markdown/text)', () => {
   assert.equal(data.shellScriptScanned, true, '.sh files must be scanned for RCE patterns');
   assert.equal(data.pythonScriptScanned, true, '.py files must be scanned for RCE patterns');
 });
+
+test('install is lenient by default (scanner findings warn, install proceeds) and blocks only with --strict', () => {
+  const data = runFixture('install-strict-mode.mjs');
+  assert.equal(data.lenient, 'installed', 'default install must proceed — running the command is consent');
+  assert.equal(data.strict, 'blocked', 'strict mode must hard-fail on block-severity findings');
+});

@@ -281,7 +281,10 @@ toolkit check
 toolkit update
 
 # Scan before installing something you don't trust
-toolkit scan skill suspicious-skill --force
+toolkit scan skill suspicious-skill
+
+# Install in CI — fail the pipeline if the scanner finds anything risky
+toolkit skill suspicious-skill --strict
 ```
 
 ---
@@ -339,18 +342,29 @@ Override defaults by creating `~/.toolkit/sources.json`.
 
 ## Security
 
-Every item from external sources is automatically scanned before installation. Items that fail the scan are **blocked** and cannot be installed without `--force`.
+This tool is built for dev teams — the goal is **informed consent, not enforcement**. The scanner surfaces risky patterns so you can decide; it does not refuse to install on your behalf.
+
+### The model: alert, never block
+
+| Context | What happens when the scanner finds something |
+|---------|-----------------------------------------------|
+| **TUI install** | A confirmation dialog shows the findings + (for stdio MCPs) the full command that will run at every agent session. `y` to proceed, `n` to cancel. |
+| **CLI install** | Findings are printed loudly in the output. The install proceeds — running the command is treated as consent. |
+| **CLI with `--strict`** | Block-severity findings cause the install to exit with `blocked`. Use this in CI when you want a hard fail. |
+
+Running `toolkit mcp foo` in a terminal means you typed the name and pressed Enter. We don't second-guess that. The TUI is where consent prompts live because the user is browsing and may not know what they clicked on.
 
 ### What we scan
 
-**Skills & Agents** (text content analysis):
+**Skills & Agents** (text content analysis across `.md`/`.txt`/`.json`/`.yaml`/`.js`/`.ts`/`.html` plus executable scripts `.sh`/`.bash`/`.zsh`/`.fish`/`.py`/`.rb`/`.pl`/`.php`/`.ps1`/`.bat`/`.cmd`):
 
 | Threat | Detection | Severity |
 |--------|-----------|----------|
-| Remote code execution | `curl \| bash`, `wget \| sh` patterns | Block |
-| Reverse shells | `nc -e`, `/dev/tcp/`, encoded PowerShell | Block |
-| Invisible prompt injection | Zero-width Unicode characters (U+200B, U+FEFF, etc.) | Block |
-| Text direction manipulation | Bidirectional override characters (U+202A–U+2069) | Block |
+| Remote code execution | `curl \| bash/sh/python/ruby/node/perl/php/fish/ksh`, `wget \| …`, `fetch \| …` | Block |
+| Inline interpreter exec | `python -c`, `perl -e`, `ruby -e`, `node -e`, `node -p`, `php -r`, `bash -c` | Block/Warn |
+| Reverse shells | `nc -e`, `ncat --exec`, `socat … EXEC:`/`SYSTEM:`, `/dev/tcp/`, `/dev/udp/`, PowerShell `-enc`/`-e`/`-ec`, `IEX(New-Object Net.WebClient …)` | Block |
+| Base64-decoded execution | `base64 -d \| bash/sh/python/…`, `$(echo … \| base64 -d)` | Block |
+| Invisible prompt injection | Zero-width Unicode (U+200B, U+FEFF, etc.) and bidirectional override characters (U+202A–U+2069) | Block |
 | Path traversal | Files that escape the skill directory via `../` | Block |
 | Symlink escape | Symlinks pointing outside the skill directory | Block |
 | Oversized files | Single file > 500KB | Warn |
@@ -365,23 +379,38 @@ Every item from external sources is automatically scanned before installation. I
 | Dangerous protocols | `file://`, `data://` URLs | Block |
 | Internal network access (SSRF) | URLs pointing to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost) | Block |
 | Command injection | Shell metacharacters in URL (`;`, `&`, `\|`, `` ` ``, `$`, `(`, `)`) | Block |
+| Stdio MCP will execute a local command | Any MCP with a `command` field — surfaces the command + first args in the UI before install | Warn |
 | Insecure protocol | HTTP instead of HTTPS | Warn |
 
-### Trust model
+The MCP scanner also runs every header value, env value, and arg through the same text-pattern rules — an `Authorization` header that smuggles a `curl \| bash` payload will surface.
 
-- **Internal resources** (bundled with the toolkit): Scanned but findings are downgraded from `block` to `warn`. These are considered trusted.
-- **External resources** (from configured sources): Fully scanned. Blocked items cannot be installed unless you pass `--force`.
-- The scanner runs automatically on every install. You can also run it manually:
+### Running the scanner directly
 
 ```bash
 toolkit scan                    # scan everything
-toolkit scan skill <name>      # scan a specific skill
+toolkit scan skill <name>       # scan a specific skill
 ```
+
+### Strict mode (CI)
+
+```bash
+toolkit skill <name> --strict   # exits non-zero if the scan finds a block-severity issue
+toolkit update --strict         # same, for bulk updates
+```
+
+Use `--strict` in pipelines where you'd rather fail a build than install something flagged. Leave it off in day-to-day dev work.
+
+### Trust model
+
+- **Internal resources** (bundled with the toolkit): Scanned, but findings are downgraded from `block` to `warn`.
+- **External resources** (from configured sources): Fully scanned. Warnings surface in both the TUI badge and the install log, but the install proceeds unless you pass `--strict`.
+- The scanner runs automatically on every install and on every catalog render — results are cached by content hash so repeats are free.
 
 ### TUI indicators
 
-- Items with blocking findings show a red **✕ blocked** badge
+- Items with blocking findings show a red **✕ blocked** badge (install will trigger a confirmation dialog, not a refusal)
 - Items with warnings show a yellow **⚠** badge
+- Stdio MCPs always show their command preview in the detail view before install
 - Clean items show no badge
 
 ### Limitations

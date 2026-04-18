@@ -45,7 +45,7 @@ The test runner (`tests/run.mjs`) compiles TypeScript to `.test-dist/`, then run
 
 **Adding tests:** Create a fixture in `tests/fixtures/` that outputs JSON to stdout, then add a test case in the appropriate `tests/*.test.mjs` that calls `runFixture()`.
 
-**Current coverage (31 tests):** item-key, lock (read/write/protect/record), catalog (frontmatter/hash/find), fs-helpers (copy/link/remove), scanner (RCE/shells/size/IPs/URLs/format), codex config round-trip, install/recovery/removal, security paths.
+**Current coverage (38 tests):** item-key, lock (read/write/protect/record), catalog (frontmatter/hash/find), fs-helpers (copy/link/remove), scanner (RCE/shells/size/IPs/URLs/format + interpreter-pipe variants, reverse-shell variants, inline exec, base64-decoded exec, script-file scanning, mcp-stdio-exec), codex config round-trip, install/recovery/removal, security paths, strict-mode install gate.
 
 ## Architecture
 
@@ -166,3 +166,15 @@ Do not manually edit the version in `package.json` or create tags by hand.
 - All catch blocks have type guards (`e instanceof Error`) or documented intent
 - Security scanning runs with cached results (keyed by `type:source:hash`)
 - Zero runtime dependencies — everything is bundled
+
+## Security Model (important — don't regress)
+
+This tool targets dev teams. The design principle is **informed consent, not enforcement** — the scanner surfaces risk, the user decides.
+
+- `InstallOptions.strict` (off by default) — when `true`, block-severity scan findings cause the install to return `action: 'blocked'`. Used by the CLI `--strict` flag for CI.
+- `InstallOptions.force` — force reinstall even if the lock hash matches. Independent of `strict`.
+- Default install path (no flags): scanner findings are printed via the log callback, the install proceeds. Running the command *is* the consent.
+- TUI (`src/tabs/CatalogTab.tsx` `doInstall`): any `scanStatus === 'block' | 'warn'` or stdio MCP (`mcpCommand` set) routes through `ConfirmDialog` showing the findings + command preview. `y` proceeds, `n` cancels. The TUI never silently installs something flagged.
+- `scanMcpConfig` emits a warn-level `mcp-stdio-exec` finding whenever `command` is set, with the command + first args truncated to 120 chars in the message. This makes exec intent visible everywhere scan results render.
+
+When adding a new install path, call `installSkill/Agent/Mcp/Bundle` with `{ force, strict }` — do **not** introduce a new "bypass" flag. If you need to let a specific source skip consent, add it via a source trust tier (see the project audit for the planned design), not a per-call flag.
