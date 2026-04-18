@@ -1,22 +1,21 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import { TOOLKIT_HOME } from './platform.js';
+import { TOOLKIT_HOME, TOOLKIT_VERSION, UPDATE_CHECK_FILE } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 
 /**
- * Lightweight self-update checker. Fires a single non-blocking fetch against
- * the npm registry's `latest` dist-tag for toolkit-ai and caches the result
- * for 24h in ~/.toolkit/update-check.json. The TUI renders a banner and the
- * CLI prints a one-liner when a newer version exists — we never auto-apply
- * the upgrade because the right command depends on how the user installed
- * (npm -g, npx, link, local build). Set TOOLKIT_NO_UPDATE_CHECK=1 to skip.
+ * Self-update: check the npm registry for a newer toolkit-ai, show a banner,
+ * and — when running from a global npm install — spawn `npm install -g
+ * toolkit-ai@latest` detached so the next launch picks it up. Opt out with
+ * TOOLKIT_NO_UPDATE_CHECK=1 (skip check entirely) or TOOLKIT_AUTO_UPDATE=off
+ * (keep banner, skip spawn).
  */
 
 const PACKAGE_NAME = 'toolkit-ai';
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
-const CACHE_PATH = path.join(TOOLKIT_HOME, 'update-check.json');
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h. Note: unit mismatch with
+                                          // SourcesConfig.cacheTTL which is seconds.
 const FETCH_TIMEOUT_MS = 5000;
 
 export interface UpdateInfo {
@@ -28,35 +27,44 @@ export interface UpdateInfo {
 interface CacheShape {
   latest: string;
   checkedAt: number;
-  /** Version we last tried to auto-install. Prevents re-spawning npm install on every launch. */
   lastAutoUpdateVersion?: string;
   lastAutoUpdateAt?: number;
 }
 
+// Module-level memo so multiple callers within a single process (the startup
+// check, the hook's initial state, the headless exit print) don't each read +
+// parse the file. `undefined` means "not yet loaded"; `null` means "loaded, no
+// file existed". Invalidated on every writeCache.
+let cachedShape: CacheShape | null | undefined;
+
 function readCache(): CacheShape | null {
+  if (cachedShape !== undefined) return cachedShape;
   try {
-    return JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8')) as CacheShape;
+    cachedShape = JSON.parse(fs.readFileSync(UPDATE_CHECK_FILE, 'utf8')) as CacheShape;
   } catch {
-    return null;
+    cachedShape = null;
   }
+  return cachedShape;
 }
 
 function writeCache(cache: CacheShape): void {
+  cachedShape = cache;
   try {
     ensureDir(TOOLKIT_HOME);
-    fs.writeFileSync(CACHE_PATH, JSON.stringify(cache, null, 2));
+    fs.writeFileSync(UPDATE_CHECK_FILE, JSON.stringify(cache, null, 2));
   } catch {
-    // Cache write is best-effort; a read-only home shouldn't break the tool.
+    // Best-effort; a read-only home shouldn't break the tool.
   }
 }
 
 function parseVersion(v: string): [number, number, number] {
-  const clean = v.replace(/^v/, '').split('-')[0]; // drop pre-release suffix
+  const clean = v.replace(/^v/, '').split('-')[0]; // strip pre-release tail
   const parts = clean.split('.').map(n => parseInt(n, 10));
+  // NaN || 0 yields 0 — we intentionally swallow garbage versions rather than
+  // throwing; the worst case is `isNewer` returns false and the banner hides.
   return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
 }
 
-/** True when `latest` is a higher semver than `current`. Pre-release tails ignored. */
 export function isNewer(current: string, latest: string): boolean {
   const [c1, c2, c3] = parseVersion(current);
   const [l1, l2, l3] = parseVersion(latest);
@@ -65,62 +73,52 @@ export function isNewer(current: string, latest: string): boolean {
   return l3 > c3;
 }
 
-function getCurrentVersion(): string {
-  return process.env.TOOLKIT_VERSION || 'dev';
-}
-
-/**
- * Return cached update info without triggering a network call. Use this in
- * synchronous paths (headless commands exiting, initial TUI render) to show
- * the banner immediately without blocking on the registry.
- */
+/** Sync cache read. Use for first TUI paint and CLI exit line — no network. */
 export function getCachedUpdateInfo(): UpdateInfo {
-  const current = getCurrentVersion();
-  if (process.env.TOOLKIT_NO_UPDATE_CHECK || current === 'dev') {
-    return { current, latest: null, newer: false };
+  if (process.env.TOOLKIT_NO_UPDATE_CHECK || TOOLKIT_VERSION === 'dev') {
+    return { current: TOOLKIT_VERSION, latest: null, newer: false };
   }
   const cache = readCache();
-  if (!cache) return { current, latest: null, newer: false };
-  return { current, latest: cache.latest, newer: isNewer(current, cache.latest) };
+  if (!cache) return { current: TOOLKIT_VERSION, latest: null, newer: false };
+  return { current: TOOLKIT_VERSION, latest: cache.latest, newer: isNewer(TOOLKIT_VERSION, cache.latest) };
 }
 
-/**
- * Fetch the latest version from the npm registry and update the cache. Returns
- * stale cache immediately if it's fresh (< 24h). Errors are swallowed — an
- * offline user shouldn't see a scary banner, and the registry going down is
- * not our problem.
- */
+/** Async registry check with 24h cache. Errors are swallowed so offline users
+ *  don't see spurious banners. */
 export async function checkForUpdate(): Promise<UpdateInfo> {
-  const current = getCurrentVersion();
-  if (process.env.TOOLKIT_NO_UPDATE_CHECK || current === 'dev') {
-    return { current, latest: null, newer: false };
+  if (process.env.TOOLKIT_NO_UPDATE_CHECK || TOOLKIT_VERSION === 'dev') {
+    return { current: TOOLKIT_VERSION, latest: null, newer: false };
   }
 
   const cache = readCache();
   if (cache && Date.now() - cache.checkedAt < CACHE_TTL_MS) {
-    return { current, latest: cache.latest, newer: isNewer(current, cache.latest) };
+    return { current: TOOLKIT_VERSION, latest: cache.latest, newer: isNewer(TOOLKIT_VERSION, cache.latest) };
   }
 
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const res = await fetch(REGISTRY_URL, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: { accept: 'application/json' },
     });
-    clearTimeout(timer);
-    if (!res.ok) return { current, latest: cache?.latest ?? null, newer: false };
+    if (!res.ok) return { current: TOOLKIT_VERSION, latest: cache?.latest ?? null, newer: false };
     const body = (await res.json()) as { version?: string };
     const latest = typeof body.version === 'string' ? body.version : null;
-    if (!latest) return { current, latest: cache?.latest ?? null, newer: false };
-    writeCache({ latest, checkedAt: Date.now() });
-    return { current, latest, newer: isNewer(current, latest) };
+    if (!latest) return { current: TOOLKIT_VERSION, latest: cache?.latest ?? null, newer: false };
+    writeCache({
+      ...cache,
+      latest,
+      checkedAt: Date.now(),
+    });
+    return { current: TOOLKIT_VERSION, latest, newer: isNewer(TOOLKIT_VERSION, latest) };
   } catch {
-    return { current, latest: cache?.latest ?? null, newer: cache ? isNewer(current, cache.latest) : false };
+    return {
+      current: TOOLKIT_VERSION,
+      latest: cache?.latest ?? null,
+      newer: cache ? isNewer(TOOLKIT_VERSION, cache.latest) : false,
+    };
   }
 }
 
-/** Format a one-line upgrade hint for CLI output. */
 export function formatUpdateLine(info: UpdateInfo): string | null {
   if (!info.newer || !info.latest) return null;
   return `A newer toolkit-ai is available: ${info.current} -> ${info.latest}. Run \`npm install -g toolkit-ai@latest\` to upgrade.`;
@@ -132,47 +130,48 @@ export function formatUpdateLine(info: UpdateInfo): string | null {
 
 export type InstallMode =
   | 'global-npm' // installed via `npm install -g toolkit-ai` — safe to auto-update
-  | 'local-npm'  // installed into a project's node_modules — don't touch
+  | 'local-npm'  // inside a project's node_modules — don't touch
   | 'npx'        // ephemeral npx cache — npx already fetches latest
-  | 'dev'        // running from the source repo (npm link or clone) — never clobber
+  | 'dev'        // repo source (npm link or clone) — never clobber
   | 'unknown';
 
-/**
- * Classify how this process was launched so we only auto-apply the upgrade in
- * situations where it's safe and meaningful. The heuristic is intentionally
- * conservative — if we're not confident it's a `npm -g` install, we return
- * 'unknown' and skip the spawn.
- */
+// Memo: the script path doesn't change within a process. The stat calls in
+// detect() are cheap individually but this gets called from maybeAutoUpdate
+// which may fire twice (e.g. test fixtures). No invalidation — if you're
+// relinking binaries while the CLI is running you have bigger problems.
+let memoMode: InstallMode | undefined;
+let memoKey: string | undefined;
+
 export function detectInstallMode(scriptPath: string = process.argv[1] || ''): InstallMode {
+  if (memoMode !== undefined && memoKey === scriptPath) return memoMode;
+  memoKey = scriptPath;
+  memoMode = detect(scriptPath);
+  return memoMode;
+}
+
+function detect(scriptPath: string): InstallMode {
   try {
     if (!scriptPath) return 'unknown';
     const real = fs.realpathSync(scriptPath);
-    // npx caches live under paths like `<tmp>/_npx/<hash>/node_modules/...` or
-    // `~/.npm/_npx/<hash>/node_modules/...`. Treat these as ephemeral.
     if (/[/\\]_npx[/\\]/.test(real) || /[/\\]npx-cache[/\\]/.test(real)) return 'npx';
 
-    // Locate the `/node_modules/toolkit-ai/` segment. If it's not present, we're
-    // either a dev build (repo source) or an unusual install.
-    const marker = '/node_modules/';
-    const idx = real.indexOf(marker);
+    const idx = real.indexOf('/node_modules/');
     if (idx === -1) {
       const repoRoot = path.resolve(real, '..', '..');
-      if (fs.existsSync(path.join(repoRoot, 'src', 'core'))) return 'dev';
-      return 'unknown';
+      return fs.existsSync(path.join(repoRoot, 'src', 'core')) ? 'dev' : 'unknown';
     }
 
-    // Ancestor of node_modules: if it has a package.json naming something else,
-    // we're a transitive dep inside a user project (local-npm). If no
-    // package.json, we're under a global prefix like
-    // `~/.nvm/versions/node/vXX/lib/node_modules/` — global-npm.
-    const ancestor = real.slice(0, idx);
-    const projectPkg = path.join(ancestor, 'package.json');
-    if (!fs.existsSync(projectPkg)) return 'global-npm';
+    // Parent of node_modules: if its package.json names us, we're a dev
+    // checkout; if it names something else, we're a project-local dep; if
+    // there's no package.json, we're under a global prefix like
+    // `~/.nvm/versions/node/vXX/lib/node_modules/`.
+    const projectPkgPath = path.join(real.slice(0, idx), 'package.json');
     try {
-      const parsed = JSON.parse(fs.readFileSync(projectPkg, 'utf8')) as { name?: string };
+      const parsed = JSON.parse(fs.readFileSync(projectPkgPath, 'utf8')) as { name?: string };
       return parsed.name === PACKAGE_NAME ? 'dev' : 'local-npm';
     } catch {
-      return 'local-npm';
+      // No package.json or unreadable: global install.
+      return 'global-npm';
     }
   } catch {
     return 'unknown';
@@ -180,28 +179,19 @@ export function detectInstallMode(scriptPath: string = process.argv[1] || ''): I
 }
 
 export type AutoUpdateResult =
-  | 'spawned'            // npm install fired in background
-  | 'skipped-off'        // TOOLKIT_AUTO_UPDATE=off
-  | 'skipped-no-update'  // already on latest
-  | 'skipped-mode'       // not a global install
-  | 'skipped-recent'     // we already tried this version in the last 24h
-  | 'skipped-dev';       // TOOLKIT_VERSION === 'dev'
+  | 'spawned'
+  | 'skipped-off'
+  | 'skipped-no-update'
+  | 'skipped-mode'
+  | 'skipped-recent'
+  | 'skipped-dev'
+  | 'skipped-spawn-error';
 
-/**
- * When we're confident we can safely upgrade this binary, spawn a detached
- * `npm install -g toolkit-ai@<latest>` and return immediately. The child keeps
- * running after the parent exits (detached + unref + stdio ignore). Next launch
- * picks up the new version. Tracks the attempt in the cache so we don't
- * hammer npm on every invocation if the install is slow or the user runs the
- * CLI repeatedly.
- */
 export function maybeAutoUpdate(info: UpdateInfo): AutoUpdateResult {
   if (process.env.TOOLKIT_AUTO_UPDATE === 'off') return 'skipped-off';
-  if (getCurrentVersion() === 'dev') return 'skipped-dev';
+  if (TOOLKIT_VERSION === 'dev') return 'skipped-dev';
   if (!info.newer || !info.latest) return 'skipped-no-update';
-
-  const mode = detectInstallMode();
-  if (mode !== 'global-npm') return 'skipped-mode';
+  if (detectInstallMode() !== 'global-npm') return 'skipped-mode';
 
   const cache = readCache();
   if (cache?.lastAutoUpdateVersion === info.latest &&
@@ -211,12 +201,11 @@ export function maybeAutoUpdate(info: UpdateInfo): AutoUpdateResult {
   }
 
   try {
-    const child = spawn('npm', ['install', '-g', `${PACKAGE_NAME}@latest`], {
+    spawn('npm', ['install', '-g', `${PACKAGE_NAME}@latest`], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
-    });
-    child.unref();
+    }).unref();
     writeCache({
       latest: info.latest,
       checkedAt: cache?.checkedAt ?? Date.now(),
@@ -225,17 +214,13 @@ export function maybeAutoUpdate(info: UpdateInfo): AutoUpdateResult {
     });
     return 'spawned';
   } catch {
-    return 'skipped-mode';
+    return 'skipped-spawn-error';
   }
 }
 
-/** True if an auto-update attempt has been recorded for this `latest` version
- *  within the last 24h. Lets the UI show "upgrading..." instead of the manual
- *  "run npm install" hint. */
 export function autoUpdateInFlight(info: UpdateInfo): boolean {
   if (!info.latest) return false;
   const cache = readCache();
   if (!cache?.lastAutoUpdateAt || cache.lastAutoUpdateVersion !== info.latest) return false;
   return Date.now() - cache.lastAutoUpdateAt < CACHE_TTL_MS;
 }
-

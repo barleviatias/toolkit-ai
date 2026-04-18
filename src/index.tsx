@@ -1,50 +1,55 @@
 import path from 'path';
 import { runHeadless, runBanner } from './commands/headless.js';
 import { runInit } from './commands/init.js';
-import { checkForUpdate, formatUpdateLine, getCachedUpdateInfo, maybeAutoUpdate, autoUpdateInFlight } from './core/update-check.js';
+import { autoUpdateInFlight, checkForUpdate, formatUpdateLine, getCachedUpdateInfo, maybeAutoUpdate } from './core/update-check.js';
+import { RED, RESET, YELLOW } from './core/ansi.js';
 
 const TOOLKIT_DIR = path.join(__dirname, '..');
 const args = process.argv.slice(2);
 
-async function main() {
-  // Fire the background update check — non-blocking. The result lands in the
-  // ~/.toolkit/update-check.json cache; the TUI's useUpdateCheck hook reads it
-  // on next launch, and the headless exit path prints a line from cache below.
-  // When we detect a newer version AND we're running from a global npm install
-  // (not npx, not link, not a user project), spawn `npm install -g` detached
-  // so the *next* launch picks up the upgrade. TOOLKIT_AUTO_UPDATE=off opts out.
-  const updatePromise = checkForUpdate()
-    .then(info => { maybeAutoUpdate(info); return info; })
-    .catch(() => null);
+// `--version` and `--help` are expected to exit in milliseconds and are
+// commonly scripted — don't saddle them with the update-check network path.
+const IS_QUICK_COMMAND = args.length === 1 && /^(--version|--help|-v|-h)$/.test(args[0]);
 
-  // init command — scaffold a skill repo
+async function main() {
+  const updatePromise = IS_QUICK_COMMAND
+    ? null
+    : checkForUpdate()
+        .then(info => { maybeAutoUpdate(info); return info; })
+        .catch(() => null);
+
   if (args[0] === 'init') {
     runInit(args[1] || '.');
     printUpdateLineFromCache();
     return;
   }
 
-  // If headless flags are present, run without loading React/Ink
   if (args.length > 0) {
     const handled = runHeadless(args, TOOLKIT_DIR);
     if (handled) {
-      // Wait briefly for the fresh check if cache was empty, then print.
-      await Promise.race([updatePromise, new Promise(r => setTimeout(r, 1500))]);
+      // Give a fresh network check up to 1.5s to land before we print — if
+      // the cache was cold we'd otherwise miss the banner on the user's first
+      // ever invocation. AbortSignal.timeout lets the event loop exit cleanly
+      // when updatePromise wins (plain setTimeout would keep a dangling timer).
+      if (updatePromise) {
+        await Promise.race([
+          updatePromise,
+          new Promise(resolve => AbortSignal.timeout(1500).addEventListener('abort', () => resolve(null))),
+        ]);
+      }
       printUpdateLineFromCache();
       return;
     }
   }
 
-  // No args or interactive commands -> launch TUI
   if (args.length === 0 || args.includes('add') || args.includes('remove')) {
-    // Dynamic import to avoid loading React for headless commands
+    // Dynamic import to avoid loading React for headless commands.
     const { renderApp } = await import('./app.js');
     const initialTab = args.includes('remove') ? 'installed' : 'catalog';
     await renderApp(TOOLKIT_DIR, initialTab);
     return;
   }
 
-  // Unknown command
   runBanner();
   printUpdateLineFromCache();
 }
@@ -52,14 +57,14 @@ async function main() {
 function printUpdateLineFromCache(): void {
   const info = getCachedUpdateInfo();
   if (autoUpdateInFlight(info)) {
-    console.log(`\n\x1b[33m↑ toolkit-ai ${info.latest} is installing in the background — restart the CLI to pick it up.\x1b[0m`);
+    console.log(`\n${YELLOW}↑ toolkit-ai ${info.latest} is installing in the background — restart the CLI to pick it up.${RESET}`);
     return;
   }
   const line = formatUpdateLine(info);
-  if (line) console.log(`\n\x1b[33m${line}\x1b[0m`);
+  if (line) console.log(`\n${YELLOW}${line}${RESET}`);
 }
 
 main().catch(err => {
-  console.error(`\x1b[31m${err.message}\x1b[0m`);
+  console.error(`${RED}${err.message}${RESET}`);
   process.exit(1);
 });

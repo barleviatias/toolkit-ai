@@ -7,18 +7,8 @@ import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
-import { CACHE_DIR } from '../core/platform.js';
-
-// ---------------------------------------------------------------------------
-// ANSI helpers
-// ---------------------------------------------------------------------------
-
-const RESET     = '\x1b[0m';
-const BOLD      = '\x1b[1m';
-const DIM       = '\x1b[2m';
-const GREEN     = '\x1b[32m';
-const RED       = '\x1b[31m';
-const YELLOW    = '\x1b[33m';
+import { CACHE_DIR, TOOLKIT_VERSION } from '../core/platform.js';
+import { RESET, BOLD, DIM, GREEN, RED, YELLOW } from '../core/ansi.js';
 
 const GRAYS = [
   '\x1b[38;5;250m', '\x1b[38;5;248m', '\x1b[38;5;245m',
@@ -365,8 +355,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // --version
   if (flag(args, '--version')) {
-    const version = process.env.TOOLKIT_VERSION || 'dev';
-    console.log(`ai-toolkit v${version}`);
+    console.log(`ai-toolkit v${TOOLKIT_VERSION}`);
     return true;
   }
 
