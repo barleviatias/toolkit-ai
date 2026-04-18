@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { render, Box, useInput, useApp } from 'ink';
+import { render, Box, Text, useInput, useApp } from 'ink';
 import { EscContext, useEscCoordinator } from './hooks/useEscContext.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
 import { Spinner } from './components/Spinner.js';
 import { useCatalog } from './hooks/useCatalog.js';
+import { useUpdateCheck } from './hooks/useUpdateCheck.js';
 import { CatalogTab } from './tabs/CatalogTab.js';
 import { InstalledTab } from './tabs/InstalledTab.js';
 import { SourcesTab } from './tabs/SourcesTab.js';
@@ -29,6 +30,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   const { exit } = useApp();
   const { rows: termRows } = useTerminalSize();
   const esc = useEscCoordinator();
+  const updateInfo = useUpdateCheck();
 
   const {
     catalog,
@@ -103,6 +105,14 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     <Box flexDirection="column" height={termRows}>
       {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
+      {updateInfo.newer && updateInfo.latest && (
+        <Box marginLeft={2}>
+          <Text color="yellow">
+            {' '}↑ toolkit-ai {updateInfo.latest} available
+          </Text>
+          <Text dimColor>  (you are on {updateInfo.current} — run `npm install -g toolkit-ai@latest`)</Text>
+        </Box>
+      )}
 
       <Box flexDirection="column" flexGrow={1}>
         {loading && allItems.length === 0 ? (
