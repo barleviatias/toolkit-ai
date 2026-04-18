@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text, Box, useInput } from 'ink';
 import type { ItemData } from './ItemRow.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface DetailViewProps {
   item: ItemData;
@@ -17,8 +18,10 @@ export const DetailView: React.FC<DetailViewProps> = ({
   onRemove,
   onUpdate,
 }) => {
+  const markEscConsumed = useMarkEscConsumed();
   useInput((input, key) => {
     if (key.escape) {
+      markEscConsumed();
       onBack();
     } else if (input === 'i' && !item.installed) {
       onInstall(item.key);

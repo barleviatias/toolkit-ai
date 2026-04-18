@@ -11,6 +11,8 @@ import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput } from '../core/sources.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
+import { useMarkEscConsumed } from '../hooks/useEscContext.js';
+import { useRunBusy } from '../hooks/useRunBusy.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
@@ -36,6 +38,9 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const markEscConsumed = useMarkEscConsumed();
+  const runBusy = useRunBusy(setBusy, setMessage);
 
   const refresh = useCallback(() => {
     setConfig(loadSources());
@@ -50,22 +55,16 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
   useInput((ch, key) => {
     if (detailItem || confirmAction) return;
+    // Block all input while a blocking op is running — prevents double-submit
+    if (busy) return;
 
     if (mode === 'list') {
       if (ch === 'f') {
-        // Paint "Refreshing..." first, then let useCatalog's own deferred
-        // hydration handle the actual work. Without the setTimeout the
-        // synchronous git clone blocks before Ink ever commits this state.
-        setMessage('Refreshing sources...');
-        setTimeout(() => {
-          try {
-            onRefreshSources(true);
-            setMessage('Sources refreshed');
-            refresh();
-          } catch (e: unknown) {
-            setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }, 0);
+        runBusy('Refreshing all sources', () => {
+          onRefreshSources(true);
+          refresh();
+          setMessage('Sources refreshed');
+        });
       } else if (ch === 'a') {
         setMode('add');
         setInput('');
@@ -73,10 +72,13 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         const source = config.sources[cursor];
         if (source) {
           const nextEnabled = source.enabled === false;
-          setSourceEnabled(source.name, nextEnabled);
-          setMessage(`${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`);
-          onRefreshSources(true);
-          refresh();
+          const label = nextEnabled ? 'Enabling' : 'Disabling';
+          runBusy(`${label} ${source.name}`, () => {
+            setSourceEnabled(source.name, nextEnabled);
+            onRefreshSources(true);
+            refresh();
+            setMessage(`${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`);
+          });
         }
       } else if (ch === 'r' && config.sources.length > 0) {
         const source = config.sources[cursor];
@@ -111,18 +113,22 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       }
     } else if (mode === 'add') {
       if (key.escape) {
+        markEscConsumed();
         setMode('list');
       } else if (key.return && input.trim()) {
         const source = parseSourceInput(input.trim());
-        addSource(source);
-        setMessage(`Added source: ${source.name} (${source.type}: ${source.repo})`);
-        setInput('');
-        setMode('list');
-        onRefreshSources(true);
-        refresh();
+        runBusy(`Cloning ${source.repo || source.name}`, () => {
+          addSource(source);
+          onRefreshSources(true);
+          refresh();
+          setMessage(`Added source: ${source.name} (${source.type}: ${source.repo})`);
+          setInput('');
+          setMode('list');
+        });
       }
     } else if (mode === 'browse') {
       if (key.escape) {
+        markEscConsumed();
         setMode('list');
         setActiveSource(null);
         setSelected(new Set());
@@ -301,12 +307,19 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         </Box>
       )}
 
-      {message && <Text color="green">  {message}</Text>}
+      {busy && (
+        <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (blocking, please wait)</Text></Text>
+      )}
+      {!busy && message && (
+        <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>
+      )}
 
       <StatusBar hints={
-        mode === 'add'
-          ? 'Enter to confirm · Esc to cancel'
-          : 'Enter browse · a add · d disable/enable · r remove · f refresh · Tab switch · q quit'
+        busy
+          ? 'Working…'
+          : mode === 'add'
+            ? 'Enter to confirm · Esc to cancel'
+            : 'Enter browse · a add · d disable/enable · r remove · f refresh · Tab switch · q quit'
       } />
     </Box>
   );

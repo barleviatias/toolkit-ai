@@ -22,28 +22,38 @@ function loadDefaultConfig(): SourcesConfig {
 
 /** Parse a GitHub/Bitbucket URL or shorthand into a Source object. */
 export function parseSourceInput(input: string): Source {
+  const normalized = input.trim();
   let repo: string;
   let type: Source['type'] = 'github';
 
   // Full URL: https://github.com/owner/repo or https://bitbucket.org/owner/repo
-  const urlMatch = input.match(/^https?:\/\/(github\.com|bitbucket\.org)\/([^/]+\/[^/.]+)/);
-  if (urlMatch) {
-    type = urlMatch[1] === 'bitbucket.org' ? 'bitbucket' : 'github';
-    repo = urlMatch[2];
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    try {
+      const parsed = new URL(normalized);
+      const parts = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/');
+      if ((parsed.hostname === 'github.com' || parsed.hostname === 'bitbucket.org') && parts.length >= 2) {
+        type = parsed.hostname === 'bitbucket.org' ? 'bitbucket' : 'github';
+        repo = `${parts[0]}/${parts[1].replace(/\.git$/, '')}`;
+      } else {
+        repo = normalized.replace(/\.git$/, '');
+      }
+    } catch {
+      repo = normalized.replace(/\.git$/, '');
+    }
   }
   // SSH: git@github.com:owner/repo.git or git@bitbucket.org:owner/repo.git
-  else if (input.match(/^git@/)) {
-    const sshMatch = input.match(/git@(github\.com|bitbucket\.org):([^/]+\/[^/.]+)/);
+  else if (normalized.match(/^git@/)) {
+    const sshMatch = normalized.match(/^git@(github\.com|bitbucket\.org):([^/]+)\/(.+?)(?:\.git)?$/);
     if (sshMatch) {
       type = sshMatch[1] === 'bitbucket.org' ? 'bitbucket' : 'github';
-      repo = sshMatch[2];
+      repo = `${sshMatch[2]}/${sshMatch[3]}`;
     } else {
-      repo = input;
+      repo = normalized;
     }
   }
   // owner/repo shorthand (default to github)
   else {
-    repo = input.replace(/\.git$/, '');
+    repo = normalized.replace(/\.git$/, '');
   }
 
   const name = repo.split('/').pop() || repo;
@@ -132,31 +142,41 @@ function fetchSource(source: Source): void {
   const cacheDir = getCacheDir(source);
   const tempDir = `${cacheDir}.fetching-${process.pid}`;
   const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
-  const repoUrl = `https://${host}/${source.repo}.git`;
+  const cloneUrls = [`https://${host}/${source.repo}.git`, `git@${host}:${source.repo}.git`];
+  const errors: string[] = [];
 
-  // Clone into a temp dir, then atomically swap. If the network fails or
-  // the user Ctrl-Cs mid-clone, the existing cache is preserved.
+  // Clone into a temp dir, then atomically swap on success. Try HTTPS first,
+  // fall back to SSH for private/SSH-only repos. If every URL fails, the
+  // existing cache is preserved (no wipe before the new clone succeeds).
   if (fs.existsSync(tempDir)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
   ensureDir(path.dirname(tempDir));
 
-  const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 60000,
-  });
+  for (const repoUrl of cloneUrls) {
+    const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60000,
+    });
 
-  if (result.status !== 0) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    const stderr = result.stderr?.toString() || 'unknown error';
-    throw new Error(`Failed to fetch ${source.repo}: ${stderr}`);
+    if (result.status === 0) {
+      fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
+      if (fs.existsSync(cacheDir)) {
+        fs.rmSync(cacheDir, { recursive: true, force: true });
+      }
+      fs.renameSync(tempDir, cacheDir);
+      return;
+    }
+
+    const stderr = result.stderr?.toString().trim() || 'unknown error';
+    errors.push(`${repoUrl}: ${stderr}`);
+    // Clean the temp dir between attempts so SSH retries from a clean slate.
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 
-  fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
-  if (fs.existsSync(cacheDir)) {
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-  }
-  fs.renameSync(tempDir, cacheDir);
+  throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
 }
 
 /** Force-refresh one or all sources (re-clone from remote) */
@@ -252,53 +272,50 @@ function findMcpFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Dedupe catalog entries by resolved name, first-wins. Real repos (e.g.
+ * awesome-copilot) ship multiple SKILL.md files with identical `name` in
+ * frontmatter — keeping all of them produces duplicate React keys that break
+ * the TUI's render reconciliation.
+ */
+function dedupeByName(entries: CatalogEntry[]): CatalogEntry[] {
+  const byName = new Map<string, CatalogEntry>();
+  for (const entry of entries) {
+    if (!byName.has(entry.name)) byName.set(entry.name, entry);
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function scanSourceSkills(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const skillDirs = findSkillDirs(cacheDir);
-  const entries: CatalogEntry[] = [];
-
-  for (const skillDir of skillDirs) {
-    const skillMd = path.join(skillDir, 'SKILL.md');
-    const meta = parseFrontmatter(fs.readFileSync(skillMd, 'utf8'));
-    const dirName = path.basename(skillDir);
-
-    entries.push({
-      name: meta.name || dirName,
+  return dedupeByName(findSkillDirs(cacheDir).map(skillDir => {
+    const meta = parseFrontmatter(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'));
+    return {
+      name: meta.name || path.basename(skillDir),
       description: meta.description || '',
       hash: hashDir(skillDir),
       path: path.relative(cacheDir, skillDir),
       source: source.name,
-    });
-  }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+    };
+  }));
 }
 
 function scanSourceAgents(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const agentFiles = findAgentFiles(cacheDir);
-  const entries: CatalogEntry[] = [];
-
-  for (const agentFile of agentFiles) {
+  return dedupeByName(findAgentFiles(cacheDir).map(agentFile => {
     const meta = parseFrontmatter(fs.readFileSync(agentFile, 'utf8'));
-    const fileName = path.basename(agentFile, '.agent.md');
-
-    entries.push({
-      name: meta.name || fileName,
+    return {
+      name: meta.name || path.basename(agentFile, '.agent.md'),
       description: meta.description || '',
       hash: hashFile(agentFile),
       path: path.relative(cacheDir, agentFile),
       source: source.name,
-    });
-  }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+    };
+  }));
 }
 
 function findBundleFiles(dir: string): string[] {
@@ -325,60 +342,92 @@ function findBundleFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Extract `[name, serverConfig]` pairs from an MCP config file, handling all
+ * three shapes seen in the wild:
+ *
+ *   1. Our custom single-server shape:
+ *      { "name": "foo", "command": "...", "args": [...] }
+ *
+ *   2. Standard Claude wrapped shape:
+ *      { "mcpServers": { "foo": { "command": "..." }, "bar": { "url": "..." } } }
+ *
+ *   3. Flat shape (used by many real plugins like Anthropic's firebase,
+ *      github/copilot-plugins' workiq):
+ *      { "foo": { "command": "..." } }
+ */
+export function extractMcpServers(config: unknown): Array<[string, Record<string, unknown>]> {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return [];
+  const obj = config as Record<string, unknown>;
+
+  if (typeof obj.name === 'string' && (obj.command || obj.url)) {
+    return [[obj.name, obj]];
+  }
+  if (obj.mcpServers && typeof obj.mcpServers === 'object') {
+    return Object.entries(obj.mcpServers as Record<string, unknown>)
+      .filter(([, v]) => v && typeof v === 'object')
+      .map(([k, v]) => [k, v as Record<string, unknown>]);
+  }
+  return Object.entries(obj)
+    .filter(([, v]) => v && typeof v === 'object' && !Array.isArray(v))
+    .map(([k, v]) => [k, v as Record<string, unknown>]);
+}
+
+/** Synthesize a readable description from an MCP server config when none is provided. */
+function describeMcpServer(cfg: Record<string, unknown>): string {
+  if (typeof cfg.description === 'string' && cfg.description) return cfg.description;
+  if (typeof cfg.url === 'string') return `Streamable HTTP MCP server · ${cfg.url}`;
+  if (typeof cfg.command === 'string') {
+    const args = Array.isArray(cfg.args) ? ` ${(cfg.args as unknown[]).join(' ')}` : '';
+    return `Stdio MCP server · ${cfg.command}${args}`.trim();
+  }
+  return '';
+}
+
 function scanSourceMcps(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const mcpFiles = findMcpFiles(cacheDir);
   const entries: CatalogEntry[] = [];
-
-  for (const mcpFile of mcpFiles) {
+  for (const mcpFile of findMcpFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
-      const fileName = path.basename(mcpFile, '.json');
+      const fileDescription = typeof config.description === 'string' ? config.description : '';
+      const fileHash = hashFile(mcpFile);
+      const relPath = path.relative(cacheDir, mcpFile);
 
-      entries.push({
-        name: config.name || fileName,
-        description: config.description || '',
-        hash: hashFile(mcpFile),
-        path: path.relative(cacheDir, mcpFile),
-        source: source.name,
-      });
-    } catch {
-      // Skip malformed JSON
-    }
+      for (const [serverName, serverCfg] of extractMcpServers(config)) {
+        entries.push({
+          name: serverName,
+          description: fileDescription || describeMcpServer(serverCfg),
+          hash: fileHash,
+          path: relPath,
+          source: source.name,
+        });
+      }
+    } catch { /* skip malformed JSON */ }
   }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return dedupeByName(entries);
 }
 
 function scanSourceBundles(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const bundleFiles = findBundleFiles(cacheDir);
   const entries: CatalogEntry[] = [];
-
-  for (const bundleFile of bundleFiles) {
+  for (const bundleFile of findBundleFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
-      const fileName = path.basename(bundleFile).replace('.bundle.json', '').replace('.json', '');
-
       entries.push({
-        name: config.name || fileName,
+        name: config.name || path.basename(bundleFile).replace('.bundle.json', '').replace('.json', ''),
         description: config.description || '',
         hash: hashFile(bundleFile),
         path: path.relative(cacheDir, bundleFile),
         source: source.name,
       });
-    } catch {
-      // Skip malformed JSON
-    }
+    } catch { /* skip malformed JSON */ }
   }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return dedupeByName(entries);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import path from 'path';
 import { useState, useMemo, useEffect } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
 import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
+import { extractMcpServers } from '../core/sources.js';
 import { readLock } from '../core/lock.js';
 import { fetchExternalResources, buildCatalog, type ExternalResources } from '../core/sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
@@ -91,18 +92,21 @@ export function useCatalog() {
           report = scanAgentFile(agentPath, entry.name, src, { trusted: false });
         } else if (type === 'mcp') {
           try {
-            const mcpConfig = loadMcpConfig(entry);
-            report = scanMcpConfig({
-              name: entry.name,
-              type: mcpConfig.type,
-              url: mcpConfig.url,
-              command: mcpConfig.command,
-              args: mcpConfig.args,
-              env: mcpConfig.env,
-              envVars: mcpConfig.envVars,
-              httpHeaders: mcpConfig.httpHeaders,
-              envHttpHeaders: mcpConfig.envHttpHeaders,
-            }, src);
+            const rawConfig = loadMcpConfig(entry);
+            const server = extractMcpServers(rawConfig).find(([n]) => n === entry.name)?.[1];
+            if (server) {
+              report = scanMcpConfig({
+                name: entry.name,
+                type: server.type as string | undefined,
+                url: server.url as string | undefined,
+                command: server.command as string | undefined,
+                args: server.args as string[] | undefined,
+                env: server.env as Record<string, string> | undefined,
+                envVars: server.envVars as string[] | undefined,
+                httpHeaders: server.httpHeaders as Record<string, string> | undefined,
+                envHttpHeaders: server.envHttpHeaders as Record<string, string> | undefined,
+              }, src);
+            }
           } catch {
             // MCP config not loadable — treat as clean
           }
@@ -151,15 +155,18 @@ export function useCatalog() {
         trackedByLock: !installedState.recoveredKeys.has(lockKey),
       };
 
-      // Enrich MCP items with config details
+      // Enrich MCP items with server-level config details (type/url/setupNote + command preview for consent dialog)
       if (type === 'mcp') {
         try {
-          const mcpConfig = loadMcpConfig(entry);
-          item.mcpType = mcpConfig.type;
-          item.url = mcpConfig.url;
-          item.setupNote = mcpConfig.setupNote;
-          item.mcpCommand = mcpConfig.command;
-          item.mcpArgs = mcpConfig.args;
+          const rawConfig = loadMcpConfig(entry);
+          const server = extractMcpServers(rawConfig).find(([n]) => n === entry.name)?.[1];
+          if (server) {
+            item.mcpType = server.type as string | undefined;
+            item.url = server.url as string | undefined;
+            item.setupNote = (server.setupNote ?? (rawConfig as { setupNote?: string }).setupNote) as string | undefined;
+            item.mcpCommand = server.command as string | undefined;
+            item.mcpArgs = server.args as string[] | undefined;
+          }
         } catch {
           // MCP config not loadable — skip enrichment
         }
