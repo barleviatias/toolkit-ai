@@ -1,10 +1,16 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository. Pairs with [AGENTS.md](AGENTS.md) (contributor/agent conventions) and [README.md](README.md) (user-facing docs).
 
 ## What This Repo Is
 
-A source-driven toolkit CLI with a React Ink TUI for managing AI skills, agents, and MCP connections across Claude Code, Codex, GitHub Copilot, and Cursor. All resources come from external GitHub/Bitbucket sources — no bundled content.
+A source-driven CLI + React Ink TUI that acts as a **package manager for AI coding assistants**. It discovers, installs, and updates skills, subagents, and MCP servers across Claude Code, Codex, GitHub Copilot, and Cursor from any GitHub or Bitbucket repo.
+
+Key properties:
+- **No bundled content** — every resource comes from user-configured external sources
+- **Byte-for-byte native** — installs into each tool's real on-disk format (not a layer on top)
+- **Single executable** — tsup bundles everything into `bin/ai-toolkit.mjs` (ESM), zero runtime dependencies
+- **Security-scanned** — every external resource passes a static-analysis scanner before install
 
 > **Important:** Keep [README.md](README.md) up to date with any changes to commands, setup, or usage.
 

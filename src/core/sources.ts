@@ -242,53 +242,50 @@ function findMcpFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Dedupe catalog entries by resolved name, first-wins. Real repos (e.g.
+ * awesome-copilot) ship multiple SKILL.md files with identical `name` in
+ * frontmatter — keeping all of them produces duplicate React keys that break
+ * the TUI's render reconciliation.
+ */
+function dedupeByName(entries: CatalogEntry[]): CatalogEntry[] {
+  const byName = new Map<string, CatalogEntry>();
+  for (const entry of entries) {
+    if (!byName.has(entry.name)) byName.set(entry.name, entry);
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function scanSourceSkills(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const skillDirs = findSkillDirs(cacheDir);
-  const entries: CatalogEntry[] = [];
-
-  for (const skillDir of skillDirs) {
-    const skillMd = path.join(skillDir, 'SKILL.md');
-    const meta = parseFrontmatter(fs.readFileSync(skillMd, 'utf8'));
-    const dirName = path.basename(skillDir);
-
-    entries.push({
-      name: meta.name || dirName,
+  return dedupeByName(findSkillDirs(cacheDir).map(skillDir => {
+    const meta = parseFrontmatter(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'));
+    return {
+      name: meta.name || path.basename(skillDir),
       description: meta.description || '',
       hash: hashDir(skillDir),
       path: path.relative(cacheDir, skillDir),
       source: source.name,
-    });
-  }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+    };
+  }));
 }
 
 function scanSourceAgents(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const agentFiles = findAgentFiles(cacheDir);
-  const entries: CatalogEntry[] = [];
-
-  for (const agentFile of agentFiles) {
+  return dedupeByName(findAgentFiles(cacheDir).map(agentFile => {
     const meta = parseFrontmatter(fs.readFileSync(agentFile, 'utf8'));
-    const fileName = path.basename(agentFile, '.agent.md');
-
-    entries.push({
-      name: meta.name || fileName,
+    return {
+      name: meta.name || path.basename(agentFile, '.agent.md'),
       description: meta.description || '',
       hash: hashFile(agentFile),
       path: path.relative(cacheDir, agentFile),
       source: source.name,
-    });
-  }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+    };
+  }));
 }
 
 function findBundleFiles(dir: string): string[] {
@@ -315,60 +312,92 @@ function findBundleFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Extract `[name, serverConfig]` pairs from an MCP config file, handling all
+ * three shapes seen in the wild:
+ *
+ *   1. Our custom single-server shape:
+ *      { "name": "foo", "command": "...", "args": [...] }
+ *
+ *   2. Standard Claude wrapped shape:
+ *      { "mcpServers": { "foo": { "command": "..." }, "bar": { "url": "..." } } }
+ *
+ *   3. Flat shape (used by many real plugins like Anthropic's firebase,
+ *      github/copilot-plugins' workiq):
+ *      { "foo": { "command": "..." } }
+ */
+export function extractMcpServers(config: unknown): Array<[string, Record<string, unknown>]> {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return [];
+  const obj = config as Record<string, unknown>;
+
+  if (typeof obj.name === 'string' && (obj.command || obj.url)) {
+    return [[obj.name, obj]];
+  }
+  if (obj.mcpServers && typeof obj.mcpServers === 'object') {
+    return Object.entries(obj.mcpServers as Record<string, unknown>)
+      .filter(([, v]) => v && typeof v === 'object')
+      .map(([k, v]) => [k, v as Record<string, unknown>]);
+  }
+  return Object.entries(obj)
+    .filter(([, v]) => v && typeof v === 'object' && !Array.isArray(v))
+    .map(([k, v]) => [k, v as Record<string, unknown>]);
+}
+
+/** Synthesize a readable description from an MCP server config when none is provided. */
+function describeMcpServer(cfg: Record<string, unknown>): string {
+  if (typeof cfg.description === 'string' && cfg.description) return cfg.description;
+  if (typeof cfg.url === 'string') return `Streamable HTTP MCP server · ${cfg.url}`;
+  if (typeof cfg.command === 'string') {
+    const args = Array.isArray(cfg.args) ? ` ${(cfg.args as unknown[]).join(' ')}` : '';
+    return `Stdio MCP server · ${cfg.command}${args}`.trim();
+  }
+  return '';
+}
+
 function scanSourceMcps(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const mcpFiles = findMcpFiles(cacheDir);
   const entries: CatalogEntry[] = [];
-
-  for (const mcpFile of mcpFiles) {
+  for (const mcpFile of findMcpFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
-      const fileName = path.basename(mcpFile, '.json');
+      const fileDescription = typeof config.description === 'string' ? config.description : '';
+      const fileHash = hashFile(mcpFile);
+      const relPath = path.relative(cacheDir, mcpFile);
 
-      entries.push({
-        name: config.name || fileName,
-        description: config.description || '',
-        hash: hashFile(mcpFile),
-        path: path.relative(cacheDir, mcpFile),
-        source: source.name,
-      });
-    } catch {
-      // Skip malformed JSON
-    }
+      for (const [serverName, serverCfg] of extractMcpServers(config)) {
+        entries.push({
+          name: serverName,
+          description: fileDescription || describeMcpServer(serverCfg),
+          hash: fileHash,
+          path: relPath,
+          source: source.name,
+        });
+      }
+    } catch { /* skip malformed JSON */ }
   }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return dedupeByName(entries);
 }
 
 function scanSourceBundles(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
 
-  const bundleFiles = findBundleFiles(cacheDir);
   const entries: CatalogEntry[] = [];
-
-  for (const bundleFile of bundleFiles) {
+  for (const bundleFile of findBundleFiles(cacheDir)) {
     try {
       const config = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
-      const fileName = path.basename(bundleFile).replace('.bundle.json', '').replace('.json', '');
-
       entries.push({
-        name: config.name || fileName,
+        name: config.name || path.basename(bundleFile).replace('.bundle.json', '').replace('.json', ''),
         description: config.description || '',
         hash: hashFile(bundleFile),
         path: path.relative(cacheDir, bundleFile),
         source: source.name,
       });
-    } catch {
-      // Skip malformed JSON
-    }
+    } catch { /* skip malformed JSON */ }
   }
-
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  return entries;
+  return dedupeByName(entries);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-
 <div align="center">
 
 ```
@@ -10,35 +9,82 @@
    ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝
 ```
 
-**toolkit-ai**
+# toolkit-ai
 
-Manage AI skills, agents, MCPs, and bundles across Claude Code, Codex, Copilot, and Cursor — from any GitHub or Bitbucket source.
+**A package manager for AI coding assistants — manage skills, agents, and MCP servers across Claude Code, Codex, GitHub Copilot, and Cursor from any GitHub repo.**
 
-[![npm](https://img.shields.io/npm/v/toolkit-ai)](https://www.npmjs.com/package/toolkit-ai)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/toolkit-ai.svg)](https://www.npmjs.com/package/toolkit-ai)
+[![npm downloads](https://img.shields.io/npm/dm/toolkit-ai.svg)](https://www.npmjs.com/package/toolkit-ai)
+[![GitHub stars](https://img.shields.io/github/stars/barleviatias/toolkit-ai.svg?style=social)](https://github.com/barleviatias/toolkit-ai)
+[![CI](https://github.com/barleviatias/toolkit-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/barleviatias/toolkit-ai/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[Install](#install) · [Quick Start](#quick-start) · [Resource Types](#resource-types) · [TUI](#interactive-tui) · [CLI](#cli-commands) · [Security](#security)
 
 </div>
+
+---
+
+## Why toolkit-ai
+
+If your team works across more than one AI coding assistant, you've hit this wall:
+
+- Every tool keeps its own config (`~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.copilot/`)
+- Skills, subagents, and MCP server configs live in different formats
+- There's no shared catalog, no versioning, no security review step
+- Shipping a skill to your team means a wiki page and a prayer
+
+`toolkit-ai` treats your AI tooling like dependencies. Point it at GitHub repos, browse everything in one TUI, install across all four tools at once, and keep a lockfile with content hashes so you know when something changed.
+
+```bash
+npx toolkit-ai
+```
+
+### Features
+
+- **One catalog, four tools** — skills, agents, and MCP servers installed into Claude Code, Codex, GitHub Copilot, and Cursor from a single command
+- **Source-driven** — every resource comes from a GitHub or Bitbucket repo you control; no bundled content
+- **Security scanner** — blocks curl-to-shell, reverse shells, invisible Unicode injection, SSRF, path traversal, and more before install
+- **Interactive TUI** — React Ink browser, installer, and updater with search, filters, and multi-select
+- **Content-hashed lockfile** — `toolkit check` shows exactly what's outdated; `toolkit update` applies changes
+- **Zero runtime dependencies** — single bundled executable, runs on `npx` without a clone
+- **TypeScript strict mode** — 31 unit + integration tests, typechecked on Node 20 + 22
 
 ---
 
 ## Table of Contents
 
 - [Install](#install)
+- [Quick Start](#quick-start)
 - [Resource Types](#resource-types)
-  - [Skills](#skills)
-  - [Agents](#agents)
-  - [MCPs](#mcps)
-  - [Bundles](#bundles)
+  - [Skills](#skills) · [Agents](#agents) · [MCPs](#mcps) · [Bundles](#bundles)
 - [Interactive TUI](#interactive-tui)
 - [CLI Commands](#cli-commands)
 - [External Sources](#external-sources)
 - [Security](#security)
-  - [What We Scan](#what-we-scan)
-  - [Trust Model](#trust-model)
-  - [Security Disclosure](#security-disclosure)
+  - [What We Scan](#what-we-scan) · [Trust Model](#trust-model) · [Security Disclosure](#security-disclosure)
 - [Create Your Own Resources](#create-your-own-resources)
 - [How Storage Works](#how-storage-works)
+- [Related Projects](#related-projects)
 - [Development](#development)
+
+---
+
+## Quick Start
+
+```bash
+# 1. Launch the interactive browser
+npx toolkit-ai
+
+# 2. Or install something in one command
+npx toolkit-ai source add vercel-labs/agent-skills
+npx toolkit-ai skill brainstorming
+
+# 3. Check what's installed and what needs updating
+npx toolkit-ai list
+npx toolkit-ai check
+```
 
 ---
 
@@ -485,18 +531,27 @@ cd toolkit-ai
 npm install
 npm run build    # Build → bin/ai-toolkit.mjs
 npm run dev      # Build with watch
-npm test         # Lint + validate catalog
+npm test         # Typecheck + 31 unit/integration tests
 npm link         # Link globally for testing
 ```
 
 ### Tech stack
 
-- **React Ink** — terminal UI framework
-- **tsup** — bundles into a single zero-dependency executable
-- **TypeScript** — full type safety
+- [**React Ink**](https://github.com/vadimdemedes/ink) — terminal UI framework
+- [**tsup**](https://tsup.egoist.dev/) — bundles into a single zero-dependency executable
+- [**TypeScript**](https://www.typescriptlang.org/) strict mode — full type safety
+- [**node:test**](https://nodejs.org/api/test.html) — built-in test runner, no framework dependency
+
+See [`CLAUDE.md`](CLAUDE.md) for architecture notes and [`AGENTS.md`](AGENTS.md) for contributor guidelines.
+
+---
+
+## Keywords
+
+ai · ai-toolkit · ai-agents · skills · agents · mcp · mcp-server · model-context-protocol · claude · claude-code · codex · copilot · cursor · cursor-ai · cli · tui · ink · developer-tools · plugin-manager · agent-framework · prompt-engineering · skill-management · typescript · package-manager · dotfiles
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE) © Bar Levi Atias
