@@ -105,8 +105,9 @@ npx toolkit-ai
 npm registry once per 24h and, if a newer version exists, silently runs
 `npm install -g toolkit-ai@latest` in the background. The upgrade takes effect
 on the next launch. Never runs when installed via `npx`, `npm link`, or a local
-clone. Opt out with `TOOLKIT_AUTO_UPDATE=off` (or `TOOLKIT_NO_UPDATE_CHECK=1`
-to disable the check entirely).
+clone. Auto-skipped on CI (`CI=true`, `GITHUB_ACTIONS`, `CODESPACES`, etc.) and
+when stderr isn't a TTY. Opt out with `TOOLKIT_AUTO_UPDATE=off` (or
+`TOOLKIT_NO_UPDATE_CHECK=1` to disable the check entirely).
 
 ---
 

@@ -9,8 +9,33 @@ import { ensureDir } from './fs-helpers.js';
  * and — when running from a global npm install — spawn `npm install -g
  * toolkit-ai@latest` detached so the next launch picks it up. Opt out with
  * TOOLKIT_NO_UPDATE_CHECK=1 (skip check entirely) or TOOLKIT_AUTO_UPDATE=off
- * (keep banner, skip spawn).
+ * (keep banner, skip spawn). CI environments are auto-detected and skipped.
  */
+
+/** Matches the de-facto CI signals every mainstream CLI (gh, npm, turbo,
+ *  update-notifier) checks. Skipping here prevents banner spam in build logs
+ *  and prevents accidental `npm install -g` spawns on ephemeral runners. */
+function isCI(): boolean {
+  const env = process.env;
+  return !!(
+    env.CI ||
+    env.CONTINUOUS_INTEGRATION ||
+    env.BUILD_NUMBER ||
+    env.GITHUB_ACTIONS ||
+    env.GITLAB_CI ||
+    env.CIRCLECI ||
+    env.TRAVIS ||
+    env.CODEBUILD_BUILD_ID ||
+    env.BUILDKITE ||
+    env.NETLIFY ||
+    env.VERCEL ||
+    env.CODESPACES
+  );
+}
+
+function shouldSkipCheck(): boolean {
+  return !!process.env.TOOLKIT_NO_UPDATE_CHECK || TOOLKIT_VERSION === 'dev' || isCI();
+}
 
 const PACKAGE_NAME = 'toolkit-ai';
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
@@ -75,7 +100,7 @@ export function isNewer(current: string, latest: string): boolean {
 
 /** Sync cache read. Use for first TUI paint and CLI exit line — no network. */
 export function getCachedUpdateInfo(): UpdateInfo {
-  if (process.env.TOOLKIT_NO_UPDATE_CHECK || TOOLKIT_VERSION === 'dev') {
+  if (shouldSkipCheck()) {
     return { current: TOOLKIT_VERSION, latest: null, newer: false };
   }
   const cache = readCache();
@@ -86,7 +111,7 @@ export function getCachedUpdateInfo(): UpdateInfo {
 /** Async registry check with 24h cache. Errors are swallowed so offline users
  *  don't see spurious banners. */
 export async function checkForUpdate(): Promise<UpdateInfo> {
-  if (process.env.TOOLKIT_NO_UPDATE_CHECK || TOOLKIT_VERSION === 'dev') {
+  if (shouldSkipCheck()) {
     return { current: TOOLKIT_VERSION, latest: null, newer: false };
   }
 

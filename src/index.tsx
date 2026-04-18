@@ -55,13 +55,18 @@ async function main() {
 }
 
 function printUpdateLineFromCache(): void {
+  // Don't pollute piped stdout (e.g. `toolkit-ai --list | grep foo`) or CI
+  // build logs. Only print when a human is watching the terminal. Writing to
+  // stderr so even if stderr is somehow redirected, we never corrupt the
+  // command's actual stdout output.
+  if (!process.stderr.isTTY) return;
   const info = getCachedUpdateInfo();
   if (autoUpdateInFlight(info)) {
-    console.log(`\n${YELLOW}↑ toolkit-ai ${info.latest} is installing in the background — restart the CLI to pick it up.${RESET}`);
+    console.error(`\n${YELLOW}↑ toolkit-ai ${info.latest} is installing in the background — restart the CLI to pick it up.${RESET}`);
     return;
   }
   const line = formatUpdateLine(info);
-  if (line) console.log(`\n${YELLOW}${line}${RESET}`);
+  if (line) console.error(`\n${YELLOW}${line}${RESET}`);
 }
 
 main().catch(err => {

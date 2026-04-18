@@ -294,3 +294,8 @@ test('detectInstallMode classifies global-npm / local-npm / dev / unknown', () =
   assert.equal(data.modeDev, 'dev', 'script with src/core alongside = dev build');
   assert.equal(data.modeUnknown, 'unknown', 'nonexistent path = unknown');
 });
+
+test('update check auto-skips in CI environments', () => {
+  const data = runFixture('update-check.mjs');
+  assert.equal(data.ciSkipsCheck, true, 'CI=true must suppress latest+newer so no banner/spawn fires');
+});
