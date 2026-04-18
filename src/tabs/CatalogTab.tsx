@@ -126,7 +126,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       if (item.scanSummary) lines.push(item.scanSummary);
       if (item.type === 'mcp') lines.push('Writes to Claude, Codex, Cursor, and VSCode MCP configs.');
 
-      const severityIcon = item.scanStatus === 'block' ? '\u2715 ' : item.scanStatus === 'warn' ? '\u26a0 ' : '';
+      const severityIcon = item.scanStatus === 'block' || item.scanStatus === 'warn' ? '\u26a0 ' : '';
       setConfirmAction({
         title: `${severityIcon}Install ${item.type} '${item.name}' from ${item.source}?`,
         items: lines,

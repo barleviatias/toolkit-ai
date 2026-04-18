@@ -140,10 +140,6 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   }, []);
 
   const doInstall = useCallback((item: ItemData) => {
-    if (item.scanStatus === 'block') {
-      setMessage(`\u2715 Blocked: ${item.scanSummary || 'Security issues detected'}`);
-      return;
-    }
     const { type, name } = item;
     try {
       if (type === 'skill') installSkill(catalog, name, { force: false }, () => {});

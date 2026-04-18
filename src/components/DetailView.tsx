@@ -43,8 +43,9 @@ export const DetailView: React.FC<DetailViewProps> = ({
 
       {item.scanStatus === 'block' && (
         <Box marginTop={1} flexDirection="column">
-          <Text color="red" bold>✕ Security scan blocked this item</Text>
+          <Text color="red" bold>⚠ Scanner flagged this as suspicious</Text>
           {item.scanSummary && <Text color="red">  {item.scanSummary}</Text>}
+          <Text dimColor>  Install will ask for confirmation. Run with --strict to fail instead.</Text>
         </Box>
       )}
       {item.scanStatus === 'warn' && (
