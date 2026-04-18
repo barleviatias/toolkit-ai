@@ -6,7 +6,7 @@ import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remov
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
-import { parseSourceInput, addSource, removeSource, loadSources, refreshSources } from '../core/sources.js';
+import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
 import { CACHE_DIR } from '../core/platform.js';
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,9 @@ ${BOLD}Remove:${RESET}
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
   source list                     List configured sources
-  source remove <name>            Remove a source
+  source disable <name>           Disable a source (keeps config, skips fetch)
+  source enable <name>            Re-enable a previously disabled source
+  source remove <name>            Remove a source entirely
   source refresh [name]           Force re-fetch sources (all or by name)
 
   ${DIM}Accepts: owner/repo, https://github.com/owner/repo,
@@ -170,6 +172,10 @@ ${BOLD}Sources:${RESET}
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
   --force                         Force reinstall even if up to date
+  --strict                        Fail the install when the security scanner
+                                  flags a block-severity issue. Off by default
+                                  — running the command is treated as consent.
+                                  Use in CI to hard-fail on risky content.
   --version                       Show version
   --help, -h                      Show this help message
 `);
@@ -251,7 +257,17 @@ function showScan(catalog: Catalog, specificSkill?: string | null) {
 
     for (const mcp of catalog.mcps) {
       const mcpConfig = loadMcpConfig(mcp);
-      const report = scanMcpConfig({ name: mcp.name, type: mcpConfig.type, url: mcpConfig.url }, mcp.source);
+      const report = scanMcpConfig({
+        name: mcp.name,
+        type: mcpConfig.type,
+        url: mcpConfig.url,
+        command: mcpConfig.command,
+        args: mcpConfig.args,
+        env: mcpConfig.env,
+        envVars: mcpConfig.envVars,
+        httpHeaders: mcpConfig.httpHeaders,
+        envHttpHeaders: mcpConfig.envHttpHeaders,
+      }, mcp.source);
       console.log(formatReport(report));
       blockCount += report.findings.filter(f => f.severity === 'block').length;
       warnCount += report.findings.filter(f => f.severity === 'warn').length;
@@ -289,7 +305,8 @@ function runSourceCommand(args: string[]): boolean {
     } else {
       console.log(`\n${BOLD}Sources${RESET}\n`);
       for (const s of config.sources) {
-        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}`);
+        const state = s.enabled === false ? `  ${DIM}[disabled]${RESET}` : '';
+        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}${state}`);
       }
       console.log();
     }
@@ -299,6 +316,17 @@ function runSourceCommand(args: string[]): boolean {
   if (sub === 'remove' && args[1]) {
     removeSource(args[1]);
     console.log(`  ${RED}[-]${RESET} Removed source ${BOLD}${args[1]}${RESET}`);
+    return true;
+  }
+
+  if ((sub === 'disable' || sub === 'enable') && args[1]) {
+    const enabled = sub === 'enable';
+    const result = setSourceEnabled(args[1], enabled);
+    if (result === null) {
+      console.log(`  ${RED}[!]${RESET} Source ${BOLD}${args[1]}${RESET} not found.`);
+    } else {
+      console.log(`  ${GREEN}[OK]${RESET} ${enabled ? 'Enabled' : 'Disabled'} source ${BOLD}${args[1]}${RESET}`);
+    }
     return true;
   }
 
@@ -320,7 +348,7 @@ function runSourceCommand(args: string[]): boolean {
     return true;
   }
 
-  console.log(`Usage: ai-toolkit source <add|list|remove|refresh> [args]`);
+  console.log(`Usage: ai-toolkit source <add|list|remove|disable|enable|refresh> [args]`);
   return true;
 }
 
@@ -348,6 +376,11 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
+  // Auto-strict when no human is driving the terminal. `curl ... | bash` and CI
+  // runs have stdin piped (not a TTY), so treat them as "I can't ask the user"
+  // and default to hard-fail on block-severity findings. Explicit --strict still
+  // overrides; explicit --force doesn't disable strict (force = ignore lock hash).
+  const isStrict = flag(args, '--strict') || !process.stdin.isTTY;
   const isRemove   = flag(args, 'remove');
   const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');
@@ -401,7 +434,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     showLogo();
     console.log();
     console.log(`${BOLD}Updating all installed items...${RESET}\n`);
-    const results = updateAll(catalog, { force: isForce });
+    const results = updateAll(catalog, { force: isForce, strict: isStrict });
     printSummary(results);
     return true;
   }
@@ -418,7 +451,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Direct install
   const results: InstallResult[] = [];
-  const opts = { force: isForce };
+  const opts = { force: isForce, strict: isStrict };
   if (skillName)       results.push(installSkill(catalog, skillName, opts));
   else if (agentName)  results.push(installAgent(catalog, agentName, opts));
   else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));

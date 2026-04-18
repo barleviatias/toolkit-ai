@@ -8,11 +8,12 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, parseSourceInput } from '../core/sources.js';
+import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput } from '../core/sources.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
+import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 
 const VERSION = process.env.TOOLKIT_VERSION || 'dev';
 
@@ -71,12 +72,32 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       } else if (ch === 'd' && config.sources.length > 0) {
         const source = config.sources[cursor];
         if (source) {
-          runBusy(`Removing ${source.name}`, () => {
-            removeSource(source.name);
-            setCursor(c => Math.max(0, c - 1));
+          const nextEnabled = source.enabled === false;
+          const label = nextEnabled ? 'Enabling' : 'Disabling';
+          runBusy(`${label} ${source.name}`, () => {
+            setSourceEnabled(source.name, nextEnabled);
             onRefreshSources(true);
             refresh();
-            setMessage(`Removed source: ${source.name}`);
+            setMessage(`${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`);
+          });
+        }
+      } else if (ch === 'r' && config.sources.length > 0) {
+        const source = config.sources[cursor];
+        if (source) {
+          setConfirmAction({
+            title: `Remove source '${source.name}'?`,
+            items: [
+              `${source.type}: ${source.repo || source.path}`,
+              'Deletes the source config and its cache. Installed items stay put.',
+            ],
+            onConfirm: () => {
+              removeSource(source.name);
+              setMessage(`Removed source: ${source.name}`);
+              setCursor(c => Math.max(0, c - 1));
+              setConfirmAction(null);
+              onRefreshSources(true);
+              refresh();
+            },
           });
         }
       } else if (key.upArrow) {
@@ -125,11 +146,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     });
   }, []);
 
-  const doInstall = useCallback((item: ItemData) => {
-    if (item.scanStatus === 'block') {
-      setMessage(`\u2715 Blocked: ${item.scanSummary || 'Security issues detected'}`);
-      return;
-    }
+  const runInstall = useCallback((item: ItemData) => {
     const { type, name } = item;
     try {
       if (type === 'skill') installSkill(catalog, name, { force: false }, () => {});
@@ -145,7 +162,27 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     } catch (e: unknown) {
       setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [onRefresh]);
+  }, [catalog, onRefresh]);
+
+  const doInstall = useCallback((item: ItemData) => {
+    // Route through the same consent dialog as CatalogTab so a user browsing
+    // a source can't accidentally install an stdio MCP without seeing the
+    // command that will run on every agent session.
+    const children = resolveBundleChildren(item, allItems);
+    if (needsConsent(item, children)) {
+      const prompt = buildConsentPrompt(item, children);
+      setConfirmAction({
+        title: prompt.title,
+        items: prompt.lines,
+        onConfirm: () => {
+          setConfirmAction(null);
+          runInstall(item);
+        },
+      });
+      return;
+    }
+    runInstall(item);
+  }, [allItems, runInstall]);
 
   const doRemove = useCallback((item: ItemData) => {
     const { type, name } = parseKey(item.key);
@@ -264,14 +301,15 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       <Box flexDirection="column" marginY={1}>
         {config.sources.map((source, i) => {
           const itemCount = allItems.filter(item => item.source === source.name).length;
+          const disabled = source.enabled === false;
           return (
             <Box key={source.name} marginLeft={1}>
               <Text color={i === cursor ? 'cyan' : undefined}>
                 {i === cursor ? '❯ ' : '  '}
               </Text>
-              <Text color={TYPE_COLORS[source.type] || 'white'} bold>{source.type.padEnd(10)}</Text>
-              <Text bold={i === cursor}>{source.name}</Text>
-              <Text dimColor> · {source.repo || source.path} · {itemCount} items</Text>
+              <Text color={TYPE_COLORS[source.type] || 'white'} bold dimColor={disabled}>{source.type.padEnd(10)}</Text>
+              <Text bold={i === cursor} dimColor={disabled}>{source.name}</Text>
+              <Text dimColor> · {source.repo || source.path} · {disabled ? 'disabled' : `${itemCount} items`}</Text>
             </Box>
           );
         })}
@@ -302,7 +340,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           ? 'Working…'
           : mode === 'add'
             ? 'Enter to confirm · Esc to cancel'
-            : 'Enter browse · a add · d delete · f refresh sources · Tab switch · q quit'
+            : 'Enter browse · a add · d disable/enable · r remove · f refresh · Tab switch · q quit'
       } />
     </Box>
   );

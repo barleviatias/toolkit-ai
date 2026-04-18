@@ -28,6 +28,15 @@ export interface InstallOptions {
   force?: boolean;
   bundleName?: string;
   verbose?: boolean;
+  /**
+   * Opt-in hard-fail mode for CI and automation. When true, any scan finding
+   * with 'block' severity aborts the install with action: 'blocked'. When
+   * false (the default) we always proceed — warnings surface through the log
+   * callback and the caller decides whether to show them to the user. The TUI
+   * adds its own consent dialog on top; headless users who typed the command
+   * are treated as having already consented.
+   */
+  strict?: boolean;
 }
 
 export type LogFn = (msg: string) => void;
@@ -217,9 +226,9 @@ export function installExternalSkill(
 
   // Security scan (external sources always scanned)
   const report = scanSkillDir(src, skillName, sourceName);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'skill', name: skillName, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));
@@ -270,9 +279,9 @@ export function installExternalAgent(
   if (!fs.existsSync(src)) throw new Error(`External agent not found at: ${src}`);
 
   const report = scanAgentFile(src, agentName, sourceName);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'agent', name: agentName, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));
@@ -335,6 +344,10 @@ export function installExternalMcp(
   opts: InstallOptions = {},
   log: LogFn = console.log,
 ): InstallResult {
+  // mcpName becomes a JSON key and a TOML section name — validate defensively
+  // even though the catalog path already sanitizes at parse time. An attacker
+  // can't reach this code without writing to sources.json, but cheap insurance.
+  assertSafePathSegment(mcpName, 'mcp name');
   const src = path.join(CACHE_DIR, sourceName, mcpPath);
   if (!fs.existsSync(src)) throw new Error(`External MCP not found at: ${src}`);
 
@@ -362,9 +375,9 @@ export function installExternalMcp(
     httpHeaders: server.httpHeaders as Record<string, string> | undefined,
     envHttpHeaders: server.envHttpHeaders as Record<string, string> | undefined,
   }, sourceName);
-  if (!report.passed && !opts.force) {
+  if (!report.passed && opts.strict) {
     log(formatReport(report));
-    log(`      Skipped — use --force to override`);
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
     return { type: 'mcp', name: mcpName, action: 'blocked' };
   }
   if (report.findings.length > 0) log(formatReport(report));

@@ -85,6 +85,11 @@ export interface Source {
   type: 'github' | 'bitbucket' | 'local';
   repo?: string; // 'owner/repo' for github/bitbucket
   path?: string; // local path
+  /**
+   * Disabled sources stay in sources.json but are skipped during fetch and
+   * contribute no items to the catalog. Undefined is treated as enabled.
+   */
+  enabled?: boolean;
 }
 
 export interface SourcesConfig {

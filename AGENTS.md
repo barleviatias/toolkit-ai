@@ -67,7 +67,11 @@ CI publishes to npm automatically via OIDC trusted publishing on `v*` tag push. 
 
 ## Security
 
-All external resources are scanned before installation (see [`src/core/scanner.ts`](src/core/scanner.ts) and the [Security section in the README](README.md#security)). Path segments are validated via `assertSafePathSegment()`. Report vulnerabilities via [GitHub Security Advisories](https://github.com/barleviatias/toolkit-ai/security) — see [`SECURITY.md`](SECURITY.md) for the full policy.
+All external resources are scanned before installation (see [`src/core/scanner.ts`](src/core/scanner.ts) and the [Security section in the README](README.md#security)). Path segments are validated via `assertSafePathSegment()`. Never use `shell: true` or `exec()` — use `spawnSync` with array arguments.
+
+The install policy is **alert, never block** — scanner findings surface to the user (TUI consent dialog, CLI log output) but do not refuse the install. The CLI `--strict` flag (`InstallOptions.strict`) opts in to hard-fail on block-severity findings for CI. Don't add per-call bypass flags; see the Security Model section in [`CLAUDE.md`](CLAUDE.md).
+
+Report vulnerabilities via [GitHub Security Advisories](https://github.com/barleviatias/toolkit-ai/security) — see [`SECURITY.md`](SECURITY.md) for the full policy.
 
 ## Contributor Notes
 

@@ -17,6 +17,7 @@ import {
   installBundle,
 } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 
 interface CatalogTabProps {
@@ -88,21 +89,14 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     });
   }, []);
 
-  const doInstall = useCallback((key: string) => {
-    const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
-    if (!item) { setMessage('Error: item not found'); return; }
-
-    if (item.scanStatus === 'block') {
-      setMessage(`\u2715 Blocked: ${item.scanSummary || 'Security issues detected'}`);
-      return;
-    }
-
+  const runInstall = useCallback((item: ItemData) => {
     const { type, name } = item;
     try {
-      if (type === 'skill')  installSkill(catalog, name, { force: false }, () => {});
-      else if (type === 'agent')    installAgent(catalog, name, { force: false }, () => {});
-      else if (type === 'mcp')      installMcp(catalog, name, { force: false }, () => {});
-      else if (type === 'bundle')   installBundle(catalog, name, { force: false }, () => {});
+      const opts = { force: false };
+      if (type === 'skill')       installSkill(catalog, name, opts, () => {});
+      else if (type === 'agent')  installAgent(catalog, name, opts, () => {});
+      else if (type === 'mcp')    installMcp(catalog, name, opts, () => {});
+      else if (type === 'bundle') installBundle(catalog, name, opts, () => {});
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -112,7 +106,37 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     } catch (e: unknown) {
       setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [catalog, items, filtered, onRefresh]);
+  }, [catalog, onRefresh]);
+
+  const doInstall = useCallback((key: string) => {
+    const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
+    if (!item) { setMessage('Error: item not found'); return; }
+
+    if (item.installed && !item.hasUpdate) {
+      setMessage(`Already installed — press r to remove or u to update`);
+      return;
+    }
+
+    // Consent fires for block-severity findings or anything that will exec on
+    // the host (stdio MCPs, and bundles that transitively include any of the
+    // above). Warn-only findings surface via the row badge + DetailView; we
+    // don't pop a modal for those or users reflex-press y.
+    const children = resolveBundleChildren(item, items);
+    if (needsConsent(item, children)) {
+      const prompt = buildConsentPrompt(item, children);
+      setConfirmAction({
+        title: prompt.title,
+        items: prompt.lines,
+        onConfirm: () => {
+          setConfirmAction(null);
+          runInstall(item);
+        },
+      });
+      return;
+    }
+
+    runInstall(item);
+  }, [items, filtered, runInstall]);
 
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
@@ -134,6 +158,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   }, [doInstall]);
 
   const handleRemoveItem = useCallback((item: ItemData) => {
+    if (!item.installed) {
+      setMessage(`Not installed — press i to install`);
+      return;
+    }
     const { type, name } = parseKey(item.key);
     setConfirmAction({
       title: `Remove ${type} ${name}?`,
@@ -146,6 +174,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   }, [doRemove]);
 
   const handleUpdateItem = useCallback((item: ItemData) => {
+    if (!item.hasUpdate) {
+      setMessage(`No update available for ${item.type} ${item.name}`);
+      return;
+    }
     onUpdateItem(item);
     setMessage(`Updated ${item.type} ${item.name}`);
     onRefresh();

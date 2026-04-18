@@ -211,3 +211,59 @@ test('formatReport returns [BLOCKED] for failed report', () => {
   const data = runFixture('scanner-patterns.mjs');
   assert.equal(data.formatBlockedContainsBLOCKED, true);
 });
+
+test('scanMcpConfig emits mcp-stdio-exec warn when command is set, with command preview', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.stdioExecWarned, true);
+  assert.equal(data.stdioExecShowsCommand, true);
+  assert.equal(data.stdioStillPasses, true, 'stdio warn alone should not block at scanner — install gates consent');
+});
+
+test('scanSkillDir blocks interpreter-pipe variants (python, ruby, node, perl)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.curlPythonBlocked, true);
+  assert.equal(data.curlRubyBlocked, true);
+  assert.equal(data.curlNodeBlocked, true);
+  assert.equal(data.wgetPerlBlocked, true);
+});
+
+test('scanSkillDir blocks reverse-shell variants (/dev/udp, ncat, socat)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.devUdpBlocked, true);
+  assert.equal(data.ncatBlocked, true);
+  assert.equal(data.socatBlocked, true);
+});
+
+test('scanSkillDir blocks inline interpreter execution (python -c, node -e, perl -e)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.pythonDashCBlocked, true);
+  assert.equal(data.nodeDashEBlocked, true);
+  assert.equal(data.perlDashEBlocked, true);
+});
+
+test('scanSkillDir blocks base64-decoded shell execution', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.base64ShellBlocked, true);
+});
+
+test('scanSkillDir blocks pasted-recipe weasels (python3.11, eval, process substitution, xxd, shellshock)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.python311Blocked, true, 'python3.11 -c should match the version-suffixed pattern');
+  assert.equal(data.evalSubstBlocked, true, 'eval "$(...)" is a common curl-exec');
+  assert.equal(data.shProcSubBlocked, true, 'bash <(curl ...) must be caught');
+  assert.equal(data.sourceProcSubBlocked, true, 'source <(curl ...) must be caught');
+  assert.equal(data.xxdHexBlocked, true, 'xxd -r -p | bash is hex-decoded exec');
+  assert.equal(data.shellshockBlocked, true, 'shellshock function-export signature');
+});
+
+test('scanSkillDir scans .sh and .py files (not just markdown/text)', () => {
+  const data = runFixture('scanner-patterns.mjs');
+  assert.equal(data.shellScriptScanned, true, '.sh files must be scanned for RCE patterns');
+  assert.equal(data.pythonScriptScanned, true, '.py files must be scanned for RCE patterns');
+});
+
+test('install is lenient by default (scanner findings warn, install proceeds) and blocks only with --strict', () => {
+  const data = runFixture('install-strict-mode.mjs');
+  assert.equal(data.lenient, 'installed', 'default install must proceed — running the command is consent');
+  assert.equal(data.strict, 'blocked', 'strict mode must hard-fail on block-severity findings');
+});

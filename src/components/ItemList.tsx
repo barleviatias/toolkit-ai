@@ -88,14 +88,16 @@ export const ItemList: React.FC<ItemListProps> = ({
         else if (!allSelected && !selected.has(item.key)) onToggle(item.key);
       }
     } else if (input === 'i' && onInstall) {
+      // Always fire — parent decides whether the action applies and shows a
+      // hint otherwise. Silent no-ops here make users think the TUI is broken.
       const item = items[clampedCursor];
-      if (item && !item.installed) onInstall(item);
+      if (item) onInstall(item);
     } else if (input === 'r' && onRemove) {
       const item = items[clampedCursor];
-      if (item && item.installed) onRemove(item);
+      if (item) onRemove(item);
     } else if (input === 'u' && onUpdate) {
       const item = items[clampedCursor];
-      if (item && item.hasUpdate) onUpdate(item);
+      if (item) onUpdate(item);
     }
   });
 

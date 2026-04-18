@@ -27,15 +27,43 @@ export interface ScanReport {
 // Pattern definitions
 // ---------------------------------------------------------------------------
 
+const INTERPRETERS = '(?:bash|sh|zsh|fish|ksh|csh|dash|python[23]?|perl|ruby|node|php|lua|tclsh)';
+
 const SUSPICIOUS_PATTERNS: { pattern: RegExp; message: string; severity: Severity }[] = [
-  // Remote code execution — piping remote content to shell
-  { pattern: /\bcurl\b.*\|\s*\b(bash|sh|zsh)\b/i, message: 'Remote code execution: curl piped to shell', severity: 'block' },
-  { pattern: /\bwget\b.*\|\s*\b(bash|sh|zsh)\b/i, message: 'Remote code execution: wget piped to shell', severity: 'block' },
+  // Remote code execution — piping remote content to any interpreter
+  { pattern: new RegExp(`\\bcurl\\b[^\\n]*\\|\\s*${INTERPRETERS}\\b`, 'i'), message: 'Remote code execution: curl piped to shell/interpreter', severity: 'block' },
+  { pattern: new RegExp(`\\bwget\\b[^\\n]*\\|\\s*${INTERPRETERS}\\b`, 'i'), message: 'Remote code execution: wget piped to shell/interpreter', severity: 'block' },
+  { pattern: new RegExp(`\\bfetch\\b[^\\n]*\\|\\s*${INTERPRETERS}\\b`, 'i'), message: 'Remote code execution: fetch piped to shell/interpreter', severity: 'block' },
+
+  // Inline interpreter execution with arbitrary strings
+  { pattern: /\bpython\d?(?:\.\d+)?\s+-c\s+["']/, message: 'Inline python -c execution', severity: 'block' },
+  { pattern: /\bperl\s+-e\s+["']/, message: 'Inline perl -e execution', severity: 'block' },
+  { pattern: /\bruby\s+-e\s+["']/, message: 'Inline ruby -e execution', severity: 'block' },
+  { pattern: /\bnode\s+(?:--eval|-e|-p|--print)\s+["']/, message: 'Inline node -e/-p execution', severity: 'block' },
+  { pattern: /\bphp\s+-r\s+["']/, message: 'Inline php -r execution', severity: 'block' },
+  { pattern: /\bbash\s+-c\s+["']/, message: 'Inline bash -c execution', severity: 'warn' },
+  // Process substitution and eval patterns — common curl-exec weasels
+  { pattern: /\beval\s+["']?\$\(/, message: 'eval $(...) command substitution', severity: 'block' },
+  { pattern: /\b(?:bash|sh|zsh)\s+<\(\s*(?:curl|wget|fetch)\b/i, message: 'Process substitution from remote (sh <(curl ...))', severity: 'block' },
+  { pattern: /\bsource\s+<\(\s*(?:curl|wget|fetch)\b/i, message: 'source <(curl ...) remote execution', severity: 'block' },
+  // Hex/encoded exec
+  { pattern: /\bxxd\s+-r\s+-p[^\n]*\|\s*(?:bash|sh|zsh|python|perl|ruby|node|php)\b/i, message: 'Hex-decoded content piped to interpreter', severity: 'block' },
+  // Shellshock-style function export in env vars
+  { pattern: /\(\s*\)\s*\{\s*:\s*;\s*\}\s*;/, message: 'Shellshock-style function-export env var', severity: 'block' },
+
+  // Base64-decoded execution
+  { pattern: /base64\s+(?:-d|--decode|-D)[^\n]*\|\s*(?:bash|sh|zsh|python|perl|ruby|node|php)\b/i, message: 'Base64-decoded content piped to interpreter', severity: 'block' },
+  { pattern: /\$\(\s*(?:echo|printf)\b[^)]*\|\s*base64\s+(?:-d|--decode|-D)/i, message: 'Base64 decode in command substitution', severity: 'block' },
 
   // Reverse shells
   { pattern: /\bnc\s+-[elp]/, message: 'Netcat reverse shell pattern', severity: 'block' },
+  { pattern: /\bncat\s+(?:-e|--exec|--sh-exec|-[elp])/, message: 'Ncat reverse shell pattern', severity: 'block' },
+  { pattern: /\bsocat\b[^\n]*(?:EXEC:|SYSTEM:)/i, message: 'Socat EXEC/SYSTEM reverse shell', severity: 'block' },
   { pattern: /\/dev\/tcp\//, message: '/dev/tcp reverse shell connection', severity: 'block' },
+  { pattern: /\/dev\/udp\//, message: '/dev/udp reverse shell connection', severity: 'block' },
   { pattern: /\bpowershell\b.*-enc/i, message: 'Encoded PowerShell command', severity: 'block' },
+  { pattern: /\bpowershell\b.*-(?:e|ec|encodedcommand)\b/i, message: 'Encoded PowerShell command (short flag)', severity: 'block' },
+  { pattern: /\bIEX\s*\(\s*New-Object\s+Net\.WebClient\b/i, message: 'PowerShell Invoke-Expression remote download', severity: 'block' },
 
   // Hidden unicode (invisible prompt injection)
   { pattern: /[\u200B\u200C\u200D\uFEFF]/, message: 'Zero-width Unicode characters (invisible text injection)', severity: 'block' },
@@ -177,8 +205,15 @@ export function scanSkillDir(skillDir: string, name: string, source: string, opt
     // Symlink escape
     checkSymlink(filePath, skillDir, findings);
 
-    // Text content scanning for text-based files
-    const textExts = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.js', '.ts', '.jsx', '.tsx', '.html']);
+    // Text content scanning for text-based files AND executable scripts
+    const textExts = new Set([
+      '.md', '.txt', '.json', '.yaml', '.yml',
+      '.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.html',
+      // Executable scripts — must be scanned, not copied unchecked
+      '.sh', '.bash', '.zsh', '.fish', '.ksh',
+      '.py', '.rb', '.pl', '.php', '.lua',
+      '.ps1', '.psm1', '.bat', '.cmd',
+    ]);
     if (textExts.has(ext)) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -300,6 +335,17 @@ export function scanMcpConfig(config: McpConfigInput, source: string): ScanRepor
         message: `MCP URL uses http:// instead of https://`,
       });
     }
+  }
+
+  // Flag stdio MCPs so the UI surfaces the exec intent — install gates on user consent.
+  if (command) {
+    const preview = [command, ...(args || []).slice(0, 4)].join(' ');
+    const truncated = preview.length > 120 ? preview.slice(0, 117) + '...' : preview;
+    findings.push({
+      rule: 'mcp-stdio-exec',
+      severity: 'warn',
+      message: `Stdio MCP will execute on every agent session: ${truncated}`,
+    });
   }
 
   const suspiciousText = [

@@ -99,6 +99,7 @@ const catalog = {
 
 const skillResult = installExternalSkill(sourceName, 'example-skill', 'resources/skills/example-skill', 'skill-hash', {}, noop);
 const agentResult = installExternalAgent(sourceName, 'example-agent', 'resources/agents/example-agent.agent.md', 'agent-hash', {}, noop);
+// Default install proceeds for stdio MCPs — running the command is the consent.
 const mcpResult = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', {}, noop);
 const secondMcpInstall = installExternalMcp(sourceName, 'example-mcp', 'resources/mcps/example-mcp.json', 'mcp-hash', {}, noop).action;
 

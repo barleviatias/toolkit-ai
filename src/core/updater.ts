@@ -107,11 +107,12 @@ export function updateSelected(
 /** Update all installed items that have newer versions in the catalog. */
 export function updateAll(
   catalog: Catalog,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; strict?: boolean } = {},
   log: LogFn = console.log,
 ): InstallResult[] {
   const lock = readLock();
   const results: InstallResult[] = [];
+  const strict = opts.strict;
 
   // Pass 1: bundles
   for (const [lockKey, lockEntry] of Object.entries(lock.installed)) {
@@ -121,18 +122,19 @@ export function updateAll(
 
     if (!catalogEntry) {
       log(`  [!] bundle ${name} no longer in catalog, uninstalling`);
-      const currentLock = readLock();
+      const l = readLock();
       for (const itemKey of Object.keys(lockEntry.items || {})) {
-        if (!isItemProtected(itemKey, lockKey, currentLock, catalog, true)) {
+        if (!isItemProtected(itemKey, lockKey, l, catalog, true)) {
           removeItemFromFilesystem(catalog, itemKey, log);
         }
       }
-      const l = readLock(); delete l.installed[lockKey]; writeLock(l);
+      delete l.installed[lockKey];
+      writeLock(l);
       continue;
     }
 
     if (opts.force || catalogEntry.hash !== lockEntry.hash) {
-      results.push(...installBundle(catalog, name, { force: true }, log));
+      results.push(...installBundle(catalog, name, { force: true, strict }, log));
       continue;
     }
 
@@ -146,16 +148,18 @@ export function updateAll(
         type === 'mcp'   ? findMcp(catalog, itemName)   : null;
 
       if (!catalogItem) {
-        const currentLock = readLock();
-        if (!isItemProtected(itemKey, lockKey, currentLock, catalog, true)) {
+        const l = readLock();
+        if (!isItemProtected(itemKey, lockKey, l, catalog, true)) {
           removeItemFromFilesystem(catalog, itemKey, log);
         }
-        const l = readLock(); delete l.installed[lockKey].items![itemKey]; writeLock(l);
+        const items = l.installed[lockKey].items;
+        if (items) delete items[itemKey];
+        writeLock(l);
         allUpToDate = false;
         continue;
       }
       if (catalogItem.hash !== itemEntry.hash) {
-        const installOpts = { force: true, bundleName: name };
+        const installOpts = { force: true, bundleName: name, strict };
         if (type === 'skill')      results.push(installSkill(catalog, itemName, installOpts, log));
         else if (type === 'agent') results.push(installAgent(catalog, itemName, installOpts, log));
         else if (type === 'mcp')   results.push(installMcp(catalog, itemName, installOpts, log));
@@ -176,20 +180,21 @@ export function updateAll(
 
     if (!catalogEntry) {
       log(`  [!] ${type} ${name} no longer in catalog, removing`);
-      const currentLock = readLock();
-      if (!isItemProtected(lockKey, null, currentLock, catalog, false)) {
+      const l = readLock();
+      if (!isItemProtected(lockKey, null, l, catalog, false)) {
         removeItemFromFilesystem(catalog, lockKey, log);
       }
-      const l = readLock(); delete l.installed[lockKey]; writeLock(l);
+      delete l.installed[lockKey];
+      writeLock(l);
       continue;
     }
     if (!opts.force && catalogEntry.hash === lockEntry.hash) {
       log(`  [OK] ${type} ${name} (up to date)`);
       continue;
     }
-    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true }, log));
-    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true }, log));
-    else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true }, log));
+    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true, strict }, log));
+    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true, strict }, log));
+    else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true, strict }, log));
   }
 
   return results;

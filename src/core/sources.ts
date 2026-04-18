@@ -99,6 +99,24 @@ export function removeSource(name: string): void {
   saveSources(config);
 }
 
+/**
+ * Flip a source's enabled state. Returns the new state, or null if the source
+ * is not found. Disabled sources stay in sources.json but contribute no items.
+ */
+export function setSourceEnabled(name: string, enabled: boolean): boolean | null {
+  const config = loadSources();
+  const source = config.sources.find(s => s.name === name);
+  if (!source) return null;
+  source.enabled = enabled;
+  saveSources(config);
+  return enabled;
+}
+
+/** True when the source is enabled (undefined enabled is treated as true). */
+function isSourceEnabled(source: Source): boolean {
+  return source.enabled !== false;
+}
+
 // ---------------------------------------------------------------------------
 // Fetch and cache external sources
 // ---------------------------------------------------------------------------
@@ -122,28 +140,40 @@ function fetchSource(source: Source): void {
   if (source.type !== 'github' && source.type !== 'bitbucket') return;
 
   const cacheDir = getCacheDir(source);
+  const tempDir = `${cacheDir}.fetching-${process.pid}`;
   const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
   const cloneUrls = [`https://${host}/${source.repo}.git`, `git@${host}:${source.repo}.git`];
   const errors: string[] = [];
 
-  for (const repoUrl of cloneUrls) {
-    if (fs.existsSync(cacheDir)) {
-      fs.rmSync(cacheDir, { recursive: true, force: true });
-    }
-    ensureDir(cacheDir);
+  // Clone into a temp dir, then atomically swap on success. Try HTTPS first,
+  // fall back to SSH for private/SSH-only repos. If every URL fails, the
+  // existing cache is preserved (no wipe before the new clone succeeds).
+  if (fs.existsSync(tempDir)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+  ensureDir(path.dirname(tempDir));
 
-    const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, cacheDir], {
+  for (const repoUrl of cloneUrls) {
+    const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60000,
     });
 
     if (result.status === 0) {
-      fs.writeFileSync(path.join(cacheDir, '.fetched'), new Date().toISOString());
+      fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
+      if (fs.existsSync(cacheDir)) {
+        fs.rmSync(cacheDir, { recursive: true, force: true });
+      }
+      fs.renameSync(tempDir, cacheDir);
       return;
     }
 
     const stderr = result.stderr?.toString().trim() || 'unknown error';
     errors.push(`${repoUrl}: ${stderr}`);
+    // Clean the temp dir between attempts so SSH retries from a clean slate.
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 
   throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
@@ -154,8 +184,8 @@ function fetchSource(source: Source): void {
 export function refreshSources(sourceName?: string): { name: string; ok: boolean; error?: string }[] {
   const config = loadSources();
   const targets = sourceName
-    ? config.sources.filter(s => s.name === sourceName)
-    : config.sources.filter(s => s.type === 'github' || s.type === 'bitbucket');
+    ? config.sources.filter(s => s.name === sourceName && isSourceEnabled(s))
+    : config.sources.filter(s => (s.type === 'github' || s.type === 'bitbucket') && isSourceEnabled(s));
 
   const results: { name: string; ok: boolean; error?: string }[] = [];
   for (const source of targets) {
@@ -428,6 +458,7 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
+    if (!isSourceEnabled(source)) continue;
 
     try {
       if (forceRefresh || isCacheStale(source, config.cacheTTL)) {

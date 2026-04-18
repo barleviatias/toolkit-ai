@@ -1,5 +1,5 @@
 import path from 'path';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
 import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import { extractMcpServers } from '../core/sources.js';
@@ -24,16 +24,35 @@ function loadExternalState(forceRefresh = false): ExternalResources {
   }
 }
 
+const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [] };
+
 export function useCatalog() {
-  const [external, setExternal] = useState<ExternalResources>(() => loadExternalState());
+  // Start empty so Ink can render the shell + spinner on first paint. The
+  // initial git clones are synchronous (spawnSync) and block for 5-30s on a
+  // fresh install, so deferring them past first paint is essential UX.
+  const [external, setExternal] = useState<ExternalResources>(EMPTY_EXTERNAL);
+  const [loading, setLoading] = useState(true);
   const [lock, setLock] = useState(() => readLock());
   const catalog: Catalog = useMemo(() => buildCatalog(external), [external]);
   const installedState = useMemo(() => getInstalledState(catalog, lock), [catalog, lock]);
 
+  useEffect(() => {
+    // setTimeout(0) yields to Ink so the spinner renders before the clone blocks.
+    const t = setTimeout(() => {
+      setExternal(loadExternalState());
+      setLoading(false);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
   const refreshLock = () => setLock(readLock());
   const refreshExternal = (forceRefresh = false) => {
     if (forceRefresh) scanCache.clear();
-    setExternal(loadExternalState(forceRefresh));
+    setLoading(true);
+    setTimeout(() => {
+      setExternal(loadExternalState(forceRefresh));
+      setLoading(false);
+    }, 0);
   };
 
   // Check if an item is installed (by lock-format key: "type:name")
@@ -80,6 +99,12 @@ export function useCatalog() {
                 name: entry.name,
                 type: server.type as string | undefined,
                 url: server.url as string | undefined,
+                command: server.command as string | undefined,
+                args: server.args as string[] | undefined,
+                env: server.env as Record<string, string> | undefined,
+                envVars: server.envVars as string[] | undefined,
+                httpHeaders: server.httpHeaders as Record<string, string> | undefined,
+                envHttpHeaders: server.envHttpHeaders as Record<string, string> | undefined,
               }, src);
             }
           } catch {
@@ -130,7 +155,7 @@ export function useCatalog() {
         trackedByLock: !installedState.recoveredKeys.has(lockKey),
       };
 
-      // Enrich MCP items with server-level config details (type/url/setupNote)
+      // Enrich MCP items with server-level config details (type/url/setupNote + command preview for consent dialog)
       if (type === 'mcp') {
         try {
           const rawConfig = loadMcpConfig(entry);
@@ -139,6 +164,8 @@ export function useCatalog() {
             item.mcpType = server.type as string | undefined;
             item.url = server.url as string | undefined;
             item.setupNote = (server.setupNote ?? (rawConfig as { setupNote?: string }).setupNote) as string | undefined;
+            item.mcpCommand = server.command as string | undefined;
+            item.mcpArgs = server.args as string[] | undefined;
           }
         } catch {
           // MCP config not loadable — skip enrichment
@@ -175,5 +202,5 @@ export function useCatalog() {
     return allItems.filter(i => i.installed);
   }, [allItems]);
 
-  return { catalog, lock, allItems, installedItems, refreshLock, refreshExternal };
+  return { catalog, lock, allItems, installedItems, refreshLock, refreshExternal, loading };
 }

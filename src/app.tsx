@@ -4,6 +4,7 @@ import { EscContext, useEscCoordinator } from './hooks/useEscContext.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { TabBar, type TabId, type Tab } from './components/TabBar.js';
 import { Logo } from './components/Logo.js';
+import { Spinner } from './components/Spinner.js';
 import { useCatalog } from './hooks/useCatalog.js';
 import { CatalogTab } from './tabs/CatalogTab.js';
 import { InstalledTab } from './tabs/InstalledTab.js';
@@ -35,6 +36,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     installedItems,
     refreshLock,
     refreshExternal,
+    loading,
   } = useCatalog();
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
@@ -103,31 +105,39 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
       <TabBar tabs={tabs} activeTab={activeTab} />
 
       <Box flexDirection="column" flexGrow={1}>
-        {activeTab === 'catalog' && (
-          <CatalogTab
-            items={allItems}
-            catalog={catalog}
-            onRefresh={handleRefresh}
-            onUpdateItem={handleUpdateItem}
-            onUpdateAll={handleUpdateAll}
-          />
-        )}
-        {activeTab === 'installed' && (
-          <InstalledTab
-            items={installedItems}
-            catalog={catalog}
-            onRefresh={handleRefresh}
-            onUpdateItem={handleUpdateItem}
-            onUpdateAll={handleUpdateAll}
-          />
-        )}
-        {activeTab === 'sources' && (
-          <SourcesTab
-            allItems={allItems}
-            catalog={catalog}
-            onRefresh={handleRefresh}
-            onRefreshSources={refreshExternal}
-          />
+        {loading && allItems.length === 0 ? (
+          <Box marginY={1} marginLeft={2}>
+            <Spinner label="Fetching sources from GitHub/Bitbucket..." />
+          </Box>
+        ) : (
+          <>
+            {activeTab === 'catalog' && (
+              <CatalogTab
+                items={allItems}
+                catalog={catalog}
+                onRefresh={handleRefresh}
+                onUpdateItem={handleUpdateItem}
+                onUpdateAll={handleUpdateAll}
+              />
+            )}
+            {activeTab === 'installed' && (
+              <InstalledTab
+                items={installedItems}
+                catalog={catalog}
+                onRefresh={handleRefresh}
+                onUpdateItem={handleUpdateItem}
+                onUpdateAll={handleUpdateAll}
+              />
+            )}
+            {activeTab === 'sources' && (
+              <SourcesTab
+                allItems={allItems}
+                catalog={catalog}
+                onRefresh={handleRefresh}
+                onRefreshSources={refreshExternal}
+              />
+            )}
+          </>
         )}
       </Box>
     </Box>

@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Disable a source without removing it.** Sources have a new `enabled` flag — disabled sources stay in `sources.json` but are skipped during fetch, so they contribute zero items to the catalog. Useful for temporarily muting a noisy internal repo without losing its URL. In the TUI, `d` toggles disable/enable and `r` removes with confirmation (was `d` = remove with no confirm, now impossible to delete by accident). CLI: `toolkit source disable <name>` / `toolkit source enable <name>`.
+
+### Performance / resilience
+- **Atomic `fetchSource`.** `src/core/sources.ts` now clones to a temp dir and swaps on success. If the network fails or the user Ctrl-Cs mid-clone, the existing cache is preserved instead of being wiped before the new clone even starts.
+- **Fewer lock-file reads in `updateAll`.** `src/core/updater.ts` previously did `readLock()` twice per iteration for the catalog-miss branches (once to check protection, once to mutate). Combined into a single read-mutate-write per case. Also drops the `.items!` non-null assertion in favor of a narrowed local variable.
+
+### UX
+- **No more frozen terminal on first launch.** `useCatalog` now hydrates external sources asynchronously after first paint — a spinner shows "Fetching sources from GitHub/Bitbucket..." while git cloning, instead of a black screen for 5-30s.
+- **Pressing `i`/`r`/`u` when the action doesn't apply now shows a hint** instead of silently doing nothing. Examples: "Already installed — press r to remove or u to update", "Not installed — press i to install", "No update available".
+- **Source refresh in the Sources tab actually paints "Refreshing..."** before the git clone blocks. Previously the message never appeared because the synchronous fetch ran before React could commit.
+
+### Security
+- Scanner catches more RCE patterns: interpreter-pipe variants (`curl | python/ruby/node/perl/php/fish/ksh`), `/dev/udp` reverse shells, `ncat --exec`, `socat EXEC:`/`SYSTEM:`, inline `python -c` / `node -e` / `ruby -e` / `perl -e` / `php -r`, base64-decoded execution, PowerShell short-flag encoded commands, `IEX(New-Object Net.WebClient)`.
+- Scanner now reads executable scripts (`.sh`, `.bash`, `.zsh`, `.fish`, `.py`, `.rb`, `.pl`, `.php`, `.ps1`, `.bat`, `.cmd`). Previously these files were copied into `~/.claude/skills/` etc. without being scanned.
+- `scanMcpConfig` emits a `mcp-stdio-exec` warn-level finding whenever an MCP has a `command` field, with the command + first args in the message. Makes exec intent visible in every UI surface.
+- Catalog pre-scan in the TUI and `toolkit scan` now pass the full MCP config (`command`, `args`, `env`, `httpHeaders`, `envHttpHeaders`) through the scanner. Previously only `url` and `type` were scanned — stdio MCPs with dangerous commands or headers appeared clean.
+
+### Changed
+- **Install policy is now "alert, never block".** Scanner findings surface via the log callback and the TUI consent dialog, but the install proceeds by default — running the command is treated as consent. This fits the dev-team target audience better than hard refusals.
+- New CLI flag `--strict` opts in to hard-fail on block-severity scan findings. Intended for CI. `InstallOptions.strict` on the programmatic API.
+- The `--force` flag now only means "force reinstall" (bypass hash check); it no longer bypasses the scanner.
+- TUI `CatalogTab.doInstall` now routes **any** item with scanner warnings/blocks OR any stdio MCP through `ConfirmDialog` showing the findings and (for MCPs) the command that will run. `y` proceeds, `n` cancels.
+- TUI now respects `action: 'blocked'` from install results and surfaces the message instead of falsely reporting success.
+
+### Tests
+- 37 → 38 tests. New coverage: interpreter-pipe variants, reverse-shell variants, inline interpreter exec, base64-decoded exec, `.sh`/`.py` script scanning, `mcp-stdio-exec` finding, strict-mode install gate.
+
 ## [2.0.7] - 2026-04-10
 
 ### Added
