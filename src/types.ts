@@ -67,6 +67,7 @@ export interface McpServerEntry {
 export interface McpConfigFile {
   mcpServers?: Record<string, McpServerEntry>;
   servers?: Record<string, McpServerEntry>;
+  'amp.mcpServers'?: Record<string, McpServerEntry>;
 }
 
 export interface LockEntry {

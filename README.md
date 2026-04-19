@@ -11,7 +11,7 @@
 
 # toolkit-ai
 
-**A package manager for AI coding assistants — manage skills, agents, and MCP servers across Claude Code, Codex, GitHub Copilot, and Cursor from any GitHub repo.**
+**A package manager for AI coding assistants — manage skills, agents, and MCP servers across Claude Code, Codex, Amp, GitHub Copilot, and Cursor from any GitHub repo.**
 
 [![npm version](https://img.shields.io/npm/v/toolkit-ai.svg)](https://www.npmjs.com/package/toolkit-ai)
 [![npm downloads](https://img.shields.io/npm/dm/toolkit-ai.svg)](https://www.npmjs.com/package/toolkit-ai)
@@ -30,12 +30,12 @@
 
 If your team works across more than one AI coding assistant, you've hit this wall:
 
-- Every tool keeps its own config (`~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.copilot/`)
+- Every tool keeps its own config (`~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.copilot/`, `~/.config/amp/`)
 - Skills, subagents, and MCP server configs live in different formats
 - There's no shared catalog, no versioning, no security review step
 - Shipping a skill to your team means a wiki page and a prayer
 
-`toolkit-ai` treats your AI tooling like dependencies. Point it at GitHub repos, browse everything in one TUI, install across all four tools at once, and keep a lockfile with content hashes so you know when something changed.
+`toolkit-ai` treats your AI tooling like dependencies. Point it at GitHub repos, browse everything in one TUI, install across all five tools at once, and keep a lockfile with content hashes so you know when something changed.
 
 ```bash
 npx toolkit-ai
@@ -43,7 +43,7 @@ npx toolkit-ai
 
 ### Features
 
-- **One catalog, four tools** — skills, agents, and MCP servers installed into Claude Code, Codex, GitHub Copilot, and Cursor from a single command
+- **One catalog, five tools** — skills, agents, and MCP servers installed into Claude Code, Codex, Amp, GitHub Copilot, and Cursor from a single command
 - **Source-driven** — every resource comes from a GitHub or Bitbucket repo you control; no bundled content
 - **Security scanner** — blocks curl-to-shell, reverse shells, invisible Unicode injection, SSRF, path traversal, and more before install
 - **Interactive TUI** — React Ink browser, installer, and updater with search, filters, and multi-select
@@ -149,7 +149,7 @@ Apply these conventions when designing new endpoints or reviewing API PRs.
 - Include pagination for list endpoints
 ```
 
-**Installs to:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`
+**Installs to:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`, `~/.config/amp/skills/`
 
 ### Agents
 
@@ -555,6 +555,10 @@ Installed items are **copied or generated** into each tool's config directory:
 
 ~/.agents/
   skills/api-design/SKILL.md          # Codex-discoverable shared skill
+
+~/.config/amp/
+  skills/api-design/SKILL.md          # Amp-discoverable skill
+  settings.json                       # MCP servers registered here (amp.mcpServers)
 
 ~/.codex/
   agents/code-reviewer.toml           # Generated Codex custom agent
