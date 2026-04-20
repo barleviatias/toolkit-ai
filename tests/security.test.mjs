@@ -35,12 +35,12 @@ test('Rejects unsafe source and install path segments, and scans MCP headers wit
   assert.deepEqual(data.parsedBitbucketSsh, {
     name: 'awesome-copilot',
     type: 'bitbucket',
-    repo: 'rdwrcloud/awesome-copilot',
+    repo: 'example-org/awesome-copilot',
   });
   assert.deepEqual(data.parsedBitbucketHttps, {
     name: 'awesome-copilot',
     type: 'bitbucket',
-    repo: 'rdwrcloud/awesome-copilot',
+    repo: 'example-org/awesome-copilot',
   });
   assert.deepEqual(data.parsedGitHubWithDot, {
     name: 'repo.name',
