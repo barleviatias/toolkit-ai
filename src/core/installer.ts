@@ -124,7 +124,10 @@ function writeMcpToConfigs(
       }
     }
 
-    const section = format === 'servers' ? 'servers' : 'mcpServers';
+    // Amp uses "amp.mcpServers" as a dotted key in its settings.json
+    const section = format === 'amp-mcp' ? 'amp.mcpServers'
+      : format === 'servers' ? 'servers'
+      : 'mcpServers';
     if (!config[section]) config[section] = {};
     const sharedEntry = toSharedMcpEntry(newEntry);
 

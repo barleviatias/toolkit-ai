@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository. Pairs with [AGENTS.md]
 
 ## What This Repo Is
 
-A source-driven CLI + React Ink TUI that acts as a **package manager for AI coding assistants**. It discovers, installs, and updates skills, subagents, and MCP servers across Claude Code, Codex, GitHub Copilot, and Cursor from any GitHub or Bitbucket repo.
+A source-driven CLI + React Ink TUI that acts as a **package manager for AI coding assistants**. It discovers, installs, and updates skills, subagents, and MCP servers across Claude Code, Codex, Amp, GitHub Copilot, and Cursor from any GitHub or Bitbucket repo.
 
 Key properties:
 - **No bundled content** — every resource comes from user-configured external sources
@@ -136,9 +136,9 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 
 ### Install targets
 
-- Skills: `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`
+- Skills: `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`, `~/.config/amp/skills/`
 - Agents: `~/.claude/agents/`, `~/.copilot/agents/`, generated Codex agents in `~/.codex/agents/*.toml`
-- MCPs: `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`, `~/.codex/config.toml`
+- MCPs: `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/amp/settings.json`
 
 ### CI (GitHub Actions)
 

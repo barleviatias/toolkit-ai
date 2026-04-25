@@ -58,7 +58,8 @@ export function removeItemFromFilesystem(
 
       let config: Record<string, any>;
       try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch { continue; }
-      const section = getConfigFormat(configPath) === 'servers' ? 'servers' : 'mcpServers';
+      const fmt = getConfigFormat(configPath);
+      const section = fmt === 'amp-mcp' ? 'amp.mcpServers' : fmt === 'servers' ? 'servers' : 'mcpServers';
       if (config[section]?.[name]) {
         delete config[section][name];
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));

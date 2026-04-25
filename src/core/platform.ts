@@ -9,6 +9,7 @@ export const SKILL_TARGETS = [
   path.join(HOME, '.claude', 'skills'),
   path.join(HOME, '.copilot', 'skills'),
   path.join(HOME, '.agents', 'skills'),
+  path.join(HOME, '.config', 'amp', 'skills'),
 ];
 
 export const AGENT_TARGETS = [
@@ -32,6 +33,7 @@ const GLOBAL_MCP_CONFIGS_ALL: { path: string; platform: NodeJS.Platform[] }[] = 
   { path: path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'), platform: ['win32'] },
   { path: path.join(HOME, '.claude.json'), platform: ['darwin', 'linux', 'win32'] },
   { path: path.join(HOME, '.codex', 'config.toml'), platform: ['darwin', 'linux', 'win32'] },
+  { path: path.join(HOME, '.config', 'amp', 'settings.json'), platform: ['darwin', 'linux', 'win32'] },
 ];
 
 // Filter global configs to current platform
@@ -65,8 +67,9 @@ export function assertSafePathSegment(value: string, label = 'path segment'): st
 }
 
 /** Determine the MCP config format for a given config file path. */
-export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' | 'codex-mcp' {
+export function getConfigFormat(configPath: string): 'servers' | 'mcpServers' | 'codex-mcp' | 'amp-mcp' {
   if (configPath.endsWith(path.join('.codex', 'config.toml'))) return 'codex-mcp';
+  if (configPath.endsWith(path.join('.config', 'amp', 'settings.json'))) return 'amp-mcp';
   const isVsCode = configPath.includes('.vscode') ||
     (configPath.includes('AppData') && configPath.includes('Code'));
   const isIntelliJ = configPath.includes('intellij');

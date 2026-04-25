@@ -42,7 +42,8 @@ function hasInstalledMcp(mcpName: string): boolean {
     }
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, any>;
-      const section = getConfigFormat(configPath) === 'servers' ? 'servers' : 'mcpServers';
+      const fmt = getConfigFormat(configPath);
+      const section = fmt === 'amp-mcp' ? 'amp.mcpServers' : fmt === 'servers' ? 'servers' : 'mcpServers';
       if (config[section]?.[mcpName]) return true;
     } catch {
       continue;

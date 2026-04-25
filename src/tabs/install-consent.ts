@@ -65,7 +65,7 @@ export function buildConsentPrompt(item: ItemData, bundleItems: ItemData[] = [])
     lines.push(item.scanSummary);
   }
   if (item.type === 'mcp') {
-    lines.push('Writes to Claude, Codex, Cursor, and VSCode MCP configs.');
+    lines.push('Writes to Claude, Codex, Amp, Cursor, and VSCode MCP configs.');
   }
 
   const severityIcon = item.scanStatus === 'block' || (item.type === 'mcp' && !!item.mcpCommand) ? '\u26a0 ' : '';

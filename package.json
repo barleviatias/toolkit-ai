@@ -1,7 +1,7 @@
 {
   "name": "toolkit-ai",
   "version": "2.1.3",
-  "description": "CLI with React Ink TUI for managing AI skills, agents, MCPs, and bundles across Claude Code, Codex, Copilot, and Cursor",
+  "description": "CLI with React Ink TUI for managing AI skills, agents, MCPs, and bundles across Claude Code, Codex, Amp, Copilot, and Cursor",
   "bin": {
     "toolkit-ai": "bin/ai-toolkit.mjs",
     "ai-toolkit": "bin/ai-toolkit.mjs",
@@ -42,6 +42,8 @@
     "claude",
     "claude-code",
     "codex",
+    "amp",
+    "ampcode",
     "copilot",
     "cursor",
     "cursor-ai",
