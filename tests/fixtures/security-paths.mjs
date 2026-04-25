@@ -46,8 +46,8 @@ try {
   parseSourceError = error instanceof Error ? error.message : String(error);
 }
 
-const parsedBitbucketSsh = parseSourceInput('git@bitbucket.org:rdwrcloud/awesome-copilot.git');
-const parsedBitbucketHttps = parseSourceInput('https://bitbucket.org/rdwrcloud/awesome-copilot');
+const parsedBitbucketSsh = parseSourceInput('git@bitbucket.org:example-org/awesome-copilot.git');
+const parsedBitbucketHttps = parseSourceInput('https://bitbucket.org/example-org/awesome-copilot');
 const parsedGitHubWithDot = parseSourceInput('https://github.com/org/repo.name.git');
 
 let skillInstallError = '';
