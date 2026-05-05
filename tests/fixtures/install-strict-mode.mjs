@@ -11,6 +11,10 @@ const buildDir = process.env.TEST_BUILD_DIR;
 const { installExternalSkill } =
   await import(pathToFileURL(path.join(buildDir, 'core', 'installer.js')).href);
 
+// Create a tool indicator so target detection finds at least one installed tool.
+// Without this, CI runners (no AI tools on PATH, empty temp HOME) skip the install.
+fs.mkdirSync(path.join(tempHome, '.claude'), { recursive: true });
+
 const sourceName = 'strict-src';
 const skillDir = path.join(tempHome, '.toolkit', 'cache', sourceName, 'skills', 'bad-skill');
 fs.mkdirSync(skillDir, { recursive: true });
