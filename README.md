@@ -149,7 +149,7 @@ Apply these conventions when designing new endpoints or reviewing API PRs.
 - Include pagination for list endpoints
 ```
 
-**Installs to:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`, `~/.config/amp/skills/`
+**Installs to detected targets:** `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/` (Codex), `~/.config/amp/skills/`
 
 ### Agents
 
@@ -178,7 +178,7 @@ You are a code review agent. Given a set of file changes, you:
 4. Suggest concrete improvements with code examples
 ```
 
-**Installs to:** `~/.claude/agents/`, `~/.copilot/agents/`, plus generated Codex custom agents in `~/.codex/agents/*.toml`
+**Installs to detected targets:** `~/.claude/agents/`, `~/.copilot/agents/`, plus generated Codex custom agents in `~/.codex/agents/*.toml`
 
 ### MCPs
 
@@ -217,7 +217,7 @@ Model Context Protocol server configurations. The toolkit reads these JSON files
 ~/.codex/config.toml       → [mcp_servers.<name>]
 ```
 
-Only config files that already exist locally are updated for editor-specific integrations. Global configs such as `~/.claude.json` and `~/.codex/config.toml` are created if missing.
+Only config files that already exist locally are updated for editor-specific integrations. Global configs such as `~/.claude.json` and `~/.codex/config.toml` are created only when that target app is detected. Run `toolkit targets` to see what the toolkit will write to.
 
 ### Bundles
 
@@ -305,6 +305,8 @@ toolkit remove bundle <name>       # Remove a bundle
 
 # Browse & update
 toolkit list                       # List all available items
+toolkit targets                    # Show detected install targets
+toolkit settings                   # Show install/cache settings
 toolkit check                      # Check for available updates
 toolkit update                     # Update all installed items
 
@@ -315,6 +317,13 @@ toolkit source disable <name>      # Temporarily skip a source (stays in config)
 toolkit source enable <name>       # Re-enable a disabled source
 toolkit source remove <name>       # Remove a source entirely
 toolkit refresh                    # Re-fetch all external sources
+
+# Settings
+toolkit settings install-mode copy # Install skills/agents as file copies
+toolkit settings install-mode link # Install skills/agents as symlinks
+toolkit settings cache 24h         # Refresh stale source cache after 24h
+toolkit settings cache 0           # Always check sources on launch/refresh
+toolkit settings concurrency 4     # Fetch up to 4 sources in parallel
 
 # Security
 toolkit scan                       # Scan all available items
@@ -347,6 +356,12 @@ toolkit scan skill suspicious-skill
 
 # Install in CI — fail the pipeline if the scanner finds anything risky
 toolkit skill suspicious-skill --strict
+
+# Symlink a skill/agent to the source cache instead of copying it
+toolkit skill brainstorming --link
+
+# Make symlink installs the default for future TUI and CLI installs
+toolkit settings install-mode link
 ```
 
 ---
@@ -373,6 +388,16 @@ The toolkit scans source repos recursively and discovers resources by file namin
 | **Agents** | Any `*.agent.md` file |
 | **MCPs** | Any `*.json` in a `mcps/` directory, or `*.mcp.json` anywhere |
 | **Bundles** | Any `*.json` in a `bundles/` directory, or `*.bundle.json` anywhere |
+
+### Settings
+
+The TUI includes a **Settings** tab for install mode, source cache duration, parallel source refreshes, detected providers, and the config/cache paths. The same values are stored in `~/.toolkit/config.json` and used by headless CLI commands.
+
+- `installMode: "copy"` installs stable snapshots of skills/agents.
+- `installMode: "link"` symlinks skills/agents to the source cache, useful when you want refreshes and local source edits to be reflected without reinstalling.
+- `cacheTTL` controls how long source clones are considered fresh before the next launch or refresh fetches updates.
+- `cacheTTL: 0` always checks remote sources.
+- `sourceConcurrency` controls how many source repos fetch in parallel.
 
 Directories named `node_modules`, `.git`, `dist`, `build`, `.next`, and `coverage` are automatically skipped.
 
@@ -579,6 +604,7 @@ git clone https://github.com/barleviatias/toolkit-ai.git
 cd toolkit-ai
 npm install
 npm run build    # Build → bin/ai-toolkit.mjs
+npm run build:dev # Local build with a visible "dev build" tag
 npm run dev      # Build with watch
 npm test         # Typecheck + 31 unit/integration tests
 npm link         # Link globally for testing

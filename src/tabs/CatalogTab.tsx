@@ -19,6 +19,7 @@ import {
 import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
+import { useRunBusy } from '../hooks/useRunBusy.js';
 
 interface CatalogTabProps {
   items: ItemData[];
@@ -42,15 +43,18 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   const [focus, setFocus] = useState<'list' | 'search'>('list');
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const updateCount = useMemo(() => items.filter(i => i.hasUpdate).length, [items]);
 
   const { filtered, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(items, query, typeFilter);
   const markEscConsumed = useMarkEscConsumed();
+  const runBusy = useRunBusy(setBusy, setMessage);
 
   // Focus switching + global keys
   useInput((input, key) => {
     if (detailItem || confirmAction) return;
+    if (busy) return;
     if (focus === 'search') {
       if (key.escape || key.downArrow) {
         if (key.escape) markEscConsumed();
@@ -64,9 +68,14 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (input === '4') toggleType('bundle');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U') {
-        onUpdateAll();
-        setMessage('Updated all items');
-        onRefresh();
+        if (updateCount === 0) {
+          setMessage('No updates available');
+          return;
+        }
+        runBusy(`Updating ${updateCount} item(s)`, () => {
+          onUpdateAll();
+          setMessage(`Updated ${updateCount} item(s)`);
+        });
       }
     }
   });
@@ -108,6 +117,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     }
   }, [catalog, onRefresh]);
 
+  const installWithBusy = useCallback((item: ItemData) => {
+    runBusy(`Installing ${item.type} ${item.name}`, () => runInstall(item));
+  }, [runBusy, runInstall]);
+
   const doInstall = useCallback((key: string) => {
     const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
     if (!item) { setMessage('Error: item not found'); return; }
@@ -129,14 +142,14 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         items: prompt.lines,
         onConfirm: () => {
           setConfirmAction(null);
-          runInstall(item);
+          installWithBusy(item);
         },
       });
       return;
     }
 
-    runInstall(item);
-  }, [items, filtered, runInstall]);
+    installWithBusy(item);
+  }, [items, filtered, installWithBusy]);
 
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
@@ -178,17 +191,35 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       setMessage(`No update available for ${item.type} ${item.name}`);
       return;
     }
-    onUpdateItem(item);
-    setMessage(`Updated ${item.type} ${item.name}`);
-    onRefresh();
-  }, [onUpdateItem, onRefresh]);
+    runBusy(`Updating ${item.type} ${item.name}`, () => {
+      onUpdateItem(item);
+      setMessage(`Updated ${item.type} ${item.name}`);
+    });
+  }, [onUpdateItem, runBusy]);
 
   const handleSubmit = useCallback((keys: string[]) => {
-    for (const key of keys) {
-      doInstall(key);
+    const itemsToInstall = keys
+      .map(key => items.find(item => item.key === key))
+      .filter((item): item is ItemData => !!item && (!item.installed || item.hasUpdate === true));
+
+    if (itemsToInstall.length === 0) {
+      setSelected(new Set());
+      setMessage('No selected items need installation');
+      return;
     }
+
+    const consentItem = itemsToInstall.find(item => needsConsent(item, resolveBundleChildren(item, items)));
+    if (consentItem) {
+      setMessage(`Install ${consentItem.type} ${consentItem.name} individually to review its safety prompt`);
+      return;
+    }
+
+    runBusy(`Installing ${itemsToInstall.length} item(s)`, () => {
+      for (const item of itemsToInstall) runInstall(item);
+      setMessage(`Installed ${itemsToInstall.length} item(s)`);
+    });
     setSelected(new Set());
-  }, [doInstall]);
+  }, [items, runBusy, runInstall]);
 
   const handleRemoveFromDetail = useCallback((key: string) => {
     const { type, name } = parseKey(key);
@@ -206,11 +237,12 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   const handleUpdateFromDetail = useCallback((key: string) => {
     const item = items.find(i => i.key === key);
     if (!item) return;
-    onUpdateItem(item);
-    setMessage(`Updated ${item.type} ${item.name}`);
-    onRefresh();
     setDetailItem(null);
-  }, [items, onUpdateItem, onRefresh]);
+    runBusy(`Updating ${item.type} ${item.name}`, () => {
+      onUpdateItem(item);
+      setMessage(`Updated ${item.type} ${item.name}`);
+    });
+  }, [items, onUpdateItem, runBusy]);
 
   // Confirm dialog
   if (confirmAction) {
@@ -260,12 +292,21 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         onInstall={handleInstallItem}
         onRemove={handleRemoveItem}
         onUpdate={handleUpdateItem}
-        isFocused={focus === 'list'}
+        isFocused={focus === 'list' && !busy}
       />
-      {message && <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>}
+      {busy && (
+        <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (please wait)</Text></Text>
+      )}
+      {!busy && message && (
+        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>
+      )}
       <StatusBar
         selectedCount={selected.size}
-        hints="/ search · 1-4 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch"
+        hints={
+          busy
+            ? 'Working...'
+            : '/ search · 1-4 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch'
+        }
       />
     </Box>
   );

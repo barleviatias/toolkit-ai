@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:dev": "TOOLKIT_DEV_BUILD=1 tsup",
     "dev": "tsup --watch",
     "prepare": "npm run build",
     "generate:catalog": "node scripts/generate-catalog.js",

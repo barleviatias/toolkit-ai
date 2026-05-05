@@ -14,6 +14,8 @@ export interface ItemData {
   scanStatus?: 'ok' | 'warn' | 'block';
   scanSummary?: string; // short summary of findings
   trackedByLock?: boolean;
+  targetLabels?: string[];
+  installedTargetLabels?: string[];
   // Bundle-specific
   bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
   // MCP-specific
@@ -37,6 +39,11 @@ interface ItemRowProps {
   isSelected: boolean;
 }
 
+function compactLabels(labels: string[] = []): string {
+  if (labels.length <= 3) return labels.join(', ');
+  return `${labels.slice(0, 3).join(', ')} +${labels.length - 3}`;
+}
+
 export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) => {
   const cursor = isActive ? '❯ ' : '  ';
   const check = isSelected ? '● ' : '○ ';
@@ -55,6 +62,12 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         {item.scanStatus === 'warn' && <Text color="yellow"> ⚠ notice</Text>}
         {item.installed && (
           <Text color="green">{item.trackedByLock === false ? ' · detected on disk' : ' · installed'}</Text>
+        )}
+        {item.installed && item.installedTargetLabels && item.installedTargetLabels.length > 0 && (
+          <Text dimColor> · in {compactLabels(item.installedTargetLabels)}</Text>
+        )}
+        {!item.installed && item.targetLabels && item.targetLabels.length > 0 && (
+          <Text dimColor> · targets {compactLabels(item.targetLabels)}</Text>
         )}
         {item.hasUpdate && <Text color="yellow"> · update available</Text>}
       </Box>

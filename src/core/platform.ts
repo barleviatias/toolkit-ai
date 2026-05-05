@@ -5,35 +5,61 @@ import type { McpServerEntry } from '../types.js';
 
 export const HOME = os.homedir();
 
+const CLAUDE_HOME = path.join(HOME, '.claude');
+const CLAUDE_GLOBAL_CONFIG = path.join(HOME, '.claude.json');
+const COPILOT_HOME = path.join(HOME, '.copilot');
+const CODEX_HOME = path.join(HOME, '.codex');
+const SHARED_AGENTS_HOME = path.join(HOME, '.agents');
+const AMP_HOME = path.join(HOME, '.config', 'amp');
+const CURSOR_HOME = path.join(HOME, '.cursor');
+const VSCODE_HOME = path.join(HOME, '.vscode');
+
+const CLAUDE_SKILL_TARGET = path.join(CLAUDE_HOME, 'skills');
+const COPILOT_SKILL_TARGET = path.join(COPILOT_HOME, 'skills');
+const CODEX_SKILL_TARGET = path.join(SHARED_AGENTS_HOME, 'skills');
+const AMP_SKILL_TARGET = path.join(AMP_HOME, 'skills');
+
+const CLAUDE_AGENT_TARGET = path.join(CLAUDE_HOME, 'agents');
+const COPILOT_AGENT_TARGET = path.join(COPILOT_HOME, 'agents');
+
 export const SKILL_TARGETS = [
-  path.join(HOME, '.claude', 'skills'),
-  path.join(HOME, '.copilot', 'skills'),
-  path.join(HOME, '.agents', 'skills'),
-  path.join(HOME, '.config', 'amp', 'skills'),
+  CLAUDE_SKILL_TARGET,
+  COPILOT_SKILL_TARGET,
+  CODEX_SKILL_TARGET,
+  AMP_SKILL_TARGET,
 ];
 
 export const AGENT_TARGETS = [
-  path.join(HOME, '.claude', 'agents'),
-  path.join(HOME, '.copilot', 'agents'),
+  CLAUDE_AGENT_TARGET,
+  COPILOT_AGENT_TARGET,
 ];
 
-export const CODEX_AGENT_TARGET = path.join(HOME, '.codex', 'agents');
+export const CODEX_AGENT_TARGET = path.join(CODEX_HOME, 'agents');
 
 // MCP config file paths
 // Local: only written to if the file already exists (tool must be installed)
 // Global: always written to, created if missing
 const LOCAL_MCP_CONFIGS = [
-  path.join(HOME, '.claude', 'settings.json'),
-  path.join(HOME, '.vscode', 'mcp.json'),
-  path.join(HOME, '.cursor', 'mcp.json'),
+  path.join(CLAUDE_HOME, 'settings.json'),
+  path.join(VSCODE_HOME, 'mcp.json'),
+  path.join(CURSOR_HOME, 'mcp.json'),
 ];
 
-const GLOBAL_MCP_CONFIGS_ALL: { path: string; platform: NodeJS.Platform[] }[] = [
-  { path: path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'), platform: ['win32'] },
-  { path: path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'), platform: ['win32'] },
-  { path: path.join(HOME, '.claude.json'), platform: ['darwin', 'linux', 'win32'] },
-  { path: path.join(HOME, '.codex', 'config.toml'), platform: ['darwin', 'linux', 'win32'] },
-  { path: path.join(HOME, '.config', 'amp', 'settings.json'), platform: ['darwin', 'linux', 'win32'] },
+export type ToolId = 'claude' | 'codex' | 'copilot' | 'amp' | 'cursor' | 'vscode';
+
+interface McpConfigTarget {
+  path: string;
+  platform: NodeJS.Platform[];
+  tool: ToolId;
+  createIfDetected: boolean;
+}
+
+const GLOBAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
+  { path: path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'), platform: ['win32'], tool: 'vscode', createIfDetected: true },
+  { path: path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'), platform: ['win32'], tool: 'copilot', createIfDetected: true },
+  { path: CLAUDE_GLOBAL_CONFIG, platform: ['darwin', 'linux', 'win32'], tool: 'claude', createIfDetected: true },
+  { path: path.join(CODEX_HOME, 'config.toml'), platform: ['darwin', 'linux', 'win32'], tool: 'codex', createIfDetected: true },
+  { path: path.join(AMP_HOME, 'settings.json'), platform: ['darwin', 'linux', 'win32'], tool: 'amp', createIfDetected: true },
 ];
 
 // Filter global configs to current platform
@@ -44,8 +70,235 @@ export const GLOBAL_MCP_CONFIG_FILES = GLOBAL_MCP_CONFIGS_ALL
 export const LOCAL_MCP_CONFIG_FILES = LOCAL_MCP_CONFIGS;
 export const MCP_CONFIG_FILES = [...LOCAL_MCP_CONFIG_FILES, ...GLOBAL_MCP_CONFIG_FILES];
 
+export interface ToolInstallation {
+  id: ToolId;
+  label: string;
+  installed: boolean;
+  reasons: string[];
+  supportsSkills: boolean;
+  supportsAgents: boolean;
+  supportsMcps: boolean;
+}
+
+interface ToolDefinition {
+  id: ToolId;
+  label: string;
+  command?: string;
+  indicators: string[];
+  skillTarget?: string;
+  agentTarget?: string;
+  mcpConfigTargets: string[];
+}
+
+const TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    command: 'claude',
+    indicators: [CLAUDE_HOME, CLAUDE_GLOBAL_CONFIG],
+    skillTarget: CLAUDE_SKILL_TARGET,
+    agentTarget: CLAUDE_AGENT_TARGET,
+    mcpConfigTargets: [path.join(CLAUDE_HOME, 'settings.json'), CLAUDE_GLOBAL_CONFIG],
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    command: 'codex',
+    indicators: [CODEX_HOME, SHARED_AGENTS_HOME],
+    skillTarget: CODEX_SKILL_TARGET,
+    agentTarget: CODEX_AGENT_TARGET,
+    mcpConfigTargets: [path.join(CODEX_HOME, 'config.toml')],
+  },
+  {
+    id: 'copilot',
+    label: 'GitHub Copilot',
+    indicators: [COPILOT_HOME, path.join(HOME, 'AppData', 'Local', 'github-copilot')],
+    skillTarget: COPILOT_SKILL_TARGET,
+    agentTarget: COPILOT_AGENT_TARGET,
+    mcpConfigTargets: [path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json')],
+  },
+  {
+    id: 'amp',
+    label: 'Amp',
+    command: 'amp',
+    indicators: [AMP_HOME],
+    skillTarget: AMP_SKILL_TARGET,
+    mcpConfigTargets: [path.join(AMP_HOME, 'settings.json')],
+  },
+  {
+    id: 'cursor',
+    label: 'Cursor',
+    command: 'cursor',
+    indicators: [CURSOR_HOME, path.join(CURSOR_HOME, 'mcp.json')],
+    mcpConfigTargets: [path.join(CURSOR_HOME, 'mcp.json')],
+  },
+  {
+    id: 'vscode',
+    label: 'VS Code',
+    command: 'code',
+    indicators: [VSCODE_HOME, path.join(VSCODE_HOME, 'mcp.json'), path.join(HOME, 'AppData', 'Roaming', 'Code')],
+    mcpConfigTargets: [path.join(VSCODE_HOME, 'mcp.json'), path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json')],
+  },
+];
+
+function pathExists(p: string): boolean {
+  try {
+    return fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
+function isExecutable(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function commandExists(command: string): boolean {
+  const pathEnv = process.env.PATH || '';
+  const dirs = pathEnv.split(path.delimiter).filter(Boolean);
+  const extensions = process.platform === 'win32'
+    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';')
+    : [''];
+
+  for (const dir of dirs) {
+    for (const ext of extensions) {
+      const candidate = path.join(dir, `${command}${ext.toLowerCase()}`);
+      const upperCandidate = path.join(dir, `${command}${ext.toUpperCase()}`);
+      if (isExecutable(candidate) || isExecutable(upperCandidate)) return true;
+    }
+  }
+  return false;
+}
+
+function reasonsForTool(definition: ToolDefinition): string[] {
+  const reasons = definition.indicators
+    .filter(pathExists)
+    .map(indicator => `found ${indicator}`);
+
+  if (definition.command && commandExists(definition.command)) {
+    reasons.push(`found ${definition.command} on PATH`);
+  }
+
+  return reasons;
+}
+
+/** Detect supported AI tools installed for the current user. */
+export function detectToolInstallations(): ToolInstallation[] {
+  return TOOL_DEFINITIONS.map(definition => {
+    const reasons = reasonsForTool(definition);
+    return {
+      id: definition.id,
+      label: definition.label,
+      installed: reasons.length > 0,
+      reasons,
+      supportsSkills: !!definition.skillTarget,
+      supportsAgents: !!definition.agentTarget,
+      supportsMcps: definition.mcpConfigTargets.length > 0,
+    };
+  });
+}
+
+function detectedToolIds(): Set<ToolId> {
+  return new Set(detectToolInstallations().filter(tool => tool.installed).map(tool => tool.id));
+}
+
+/** Return skill install directories for tools detected on this machine. */
+export function getWritableSkillTargets(): string[] {
+  const installed = detectedToolIds();
+  return TOOL_DEFINITIONS
+    .filter(tool => tool.skillTarget && installed.has(tool.id))
+    .map(tool => tool.skillTarget as string);
+}
+
+/** Return agent install directories for tools detected on this machine. */
+export function getWritableAgentTargets(): string[] {
+  const installed = detectedToolIds();
+  return TOOL_DEFINITIONS
+    .filter(tool => tool.agentTarget && installed.has(tool.id))
+    .map(tool => tool.agentTarget as string);
+}
+
+/** Return MCP config files that should be updated, creating global configs only for detected tools. */
+export function getWritableMcpConfigFiles(): string[] {
+  const installed = detectedToolIds();
+  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(pathExists);
+  const globalWritable = GLOBAL_MCP_CONFIGS_ALL
+    .filter(target => target.platform.includes(process.platform))
+    .filter(target => pathExists(target.path) || (target.createIfDetected && installed.has(target.tool)))
+    .map(target => target.path);
+
+  return Array.from(new Set([...localExisting, ...globalWritable]));
+}
+
+function supportsItemType(tool: ToolInstallation, type: string): boolean {
+  if (type === 'skill') return tool.supportsSkills;
+  if (type === 'agent') return tool.supportsAgents;
+  if (type === 'mcp') return tool.supportsMcps;
+  if (type === 'bundle') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps;
+  return false;
+}
+
+/** Return labels for detected target apps that can receive this item type. */
+export function getWritableTargetLabelsForType(type: string): string[] {
+  return detectToolInstallations()
+    .filter(tool => tool.installed && supportsItemType(tool, type))
+    .map(tool => tool.label);
+}
+
+function hasMcpInConfig(configPath: string, mcpName: string): boolean {
+  if (!pathExists(configPath)) return false;
+  if (getConfigFormat(configPath) === 'codex-mcp') {
+    return !!parseCodexMcpSection(fs.readFileSync(configPath, 'utf8'), mcpName);
+  }
+
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    const format = getConfigFormat(configPath);
+    const sectionName = format === 'amp-mcp' ? 'amp.mcpServers' : format === 'servers' ? 'servers' : 'mcpServers';
+    const section = config[sectionName];
+    return !!section && typeof section === 'object' && !Array.isArray(section) &&
+      mcpName in (section as Record<string, unknown>);
+  } catch {
+    return false;
+  }
+}
+
+/** Return labels for target apps where this specific item currently exists. */
+export function getInstalledTargetLabelsForType(type: string, name: string, itemPath = ''): string[] {
+  if (type === 'skill') {
+    return TOOL_DEFINITIONS
+      .filter(tool => tool.skillTarget && pathExists(path.join(tool.skillTarget, name)))
+      .map(tool => tool.label);
+  }
+
+  if (type === 'agent') {
+    const filename = itemPath ? path.basename(itemPath) : `${name}.agent.md`;
+    return TOOL_DEFINITIONS
+      .filter(tool => {
+        if (!tool.agentTarget) return false;
+        if (tool.agentTarget === CODEX_AGENT_TARGET) return pathExists(path.join(CODEX_AGENT_TARGET, `${name}.toml`));
+        return pathExists(path.join(tool.agentTarget, filename));
+      })
+      .map(tool => tool.label);
+  }
+
+  if (type === 'mcp') {
+    return TOOL_DEFINITIONS
+      .filter(tool => tool.mcpConfigTargets.some(configPath => hasMcpInConfig(configPath, name)))
+      .map(tool => tool.label);
+  }
+
+  return [];
+}
+
 // ~/.toolkit/ — user-level config, state, and cache for the toolkit
 export const TOOLKIT_HOME = path.join(HOME, '.toolkit');
+export const CONFIG_FILE = path.join(TOOLKIT_HOME, 'config.json');
 export const LOCK_FILE = path.join(TOOLKIT_HOME, 'lock.json');
 export const SOURCES_FILE = path.join(TOOLKIT_HOME, 'sources.json');
 export const UPDATE_CHECK_FILE = path.join(TOOLKIT_HOME, 'update-check.json');
@@ -54,6 +307,9 @@ export const CACHE_DIR = path.join(TOOLKIT_HOME, 'cache');
 /** Version baked in at build time by tsup's `define` (see tsup.config.ts).
  *  Falls back to 'dev' when running from the unbuilt source tree. */
 export const TOOLKIT_VERSION = process.env.TOOLKIT_VERSION || 'dev';
+export const TOOLKIT_BUILD_CHANNEL = process.env.TOOLKIT_BUILD_CHANNEL || 'dev';
+export const IS_DEV_BUILD = TOOLKIT_VERSION === 'dev' || TOOLKIT_BUILD_CHANNEL === 'dev';
+export const TOOLKIT_VERSION_LABEL = `${TOOLKIT_VERSION}${IS_DEV_BUILD ? ' dev build' : ''}`;
 
 /** Validate that a string is safe to use as a single path segment (no traversal, no slashes). */
 export function assertSafePathSegment(value: string, label = 'path segment'): string {

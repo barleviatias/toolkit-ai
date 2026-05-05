@@ -24,8 +24,8 @@ interface ItemListProps {
  */
 function computeMaxVisible(rows: number): number {
   const CHROME_RESERVE = rows >= 30
-    ? 20  // with logo: logo 9 + tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 1
-    : 12; // no logo:  tabs 2 + search 2 + filters 2 + header 2 + status 2 + margin 2
+    ? 21  // with logo: logo 9 + tabs 2 + targets 1 + search 2 + filters 2 + header 2 + status 2 + margin 1
+    : 13; // no logo: tabs 2 + targets 1 + search 2 + filters 2 + header 2 + status 2 + margin 2
   const ROWS_PER_ITEM = 2;
   const available = Math.max(3, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
   return Math.min(15, available);

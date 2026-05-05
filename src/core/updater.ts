@@ -107,7 +107,7 @@ export function updateSelected(
 /** Update all installed items that have newer versions in the catalog. */
 export function updateAll(
   catalog: Catalog,
-  opts: { force?: boolean; strict?: boolean } = {},
+  opts: { force?: boolean; strict?: boolean; link?: boolean } = {},
   log: LogFn = console.log,
 ): InstallResult[] {
   const lock = readLock();
@@ -134,7 +134,7 @@ export function updateAll(
     }
 
     if (opts.force || catalogEntry.hash !== lockEntry.hash) {
-      results.push(...installBundle(catalog, name, { force: true, strict }, log));
+      results.push(...installBundle(catalog, name, { force: true, strict, link: opts.link }, log));
       continue;
     }
 
@@ -159,7 +159,7 @@ export function updateAll(
         continue;
       }
       if (catalogItem.hash !== itemEntry.hash) {
-        const installOpts = { force: true, bundleName: name, strict };
+        const installOpts = { force: true, bundleName: name, strict, link: opts.link };
         if (type === 'skill')      results.push(installSkill(catalog, itemName, installOpts, log));
         else if (type === 'agent') results.push(installAgent(catalog, itemName, installOpts, log));
         else if (type === 'mcp')   results.push(installMcp(catalog, itemName, installOpts, log));
@@ -192,8 +192,8 @@ export function updateAll(
       log(`  [OK] ${type} ${name} (up to date)`);
       continue;
     }
-    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true, strict }, log));
-    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true, strict }, log));
+    if (type === 'skill')      results.push(installSkill(catalog, name, { force: true, strict, link: opts.link }, log));
+    else if (type === 'agent') results.push(installAgent(catalog, name, { force: true, strict, link: opts.link }, log));
     else if (type === 'mcp')   results.push(installMcp(catalog, name, { force: true, strict }, log));
   }
 

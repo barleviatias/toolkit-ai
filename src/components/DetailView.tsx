@@ -19,6 +19,9 @@ export const DetailView: React.FC<DetailViewProps> = ({
   onUpdate,
 }) => {
   const markEscConsumed = useMarkEscConsumed();
+  const installTargets = item.targetLabels || [];
+  const installedTargets = item.installedTargetLabels || [];
+
   useInput((input, key) => {
     if (key.escape) {
       markEscConsumed();
@@ -42,6 +45,20 @@ export const DetailView: React.FC<DetailViewProps> = ({
 
       <Box marginTop={1}>
         <Text>{item.description}</Text>
+      </Box>
+
+      <Box marginTop={1} flexDirection="column">
+        {item.type === 'bundle' && installTargets.length > 0 ? (
+          <Text dimColor>Bundle target providers: {installTargets.join(', ')}</Text>
+        ) : item.installed && installedTargets.length > 0 ? (
+          <Text dimColor>Installed in: {installedTargets.join(', ')}</Text>
+        ) : item.installed ? (
+          <Text dimColor>Installed target: lock file only; no target files detected</Text>
+        ) : installTargets.length > 0 ? (
+          <Text dimColor>Will install to: {installTargets.join(', ')}</Text>
+        ) : (
+          <Text color="yellow">No compatible target providers detected</Text>
+        )}
       </Box>
 
       {item.scanStatus === 'block' && (

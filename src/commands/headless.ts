@@ -7,7 +7,8 @@ import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
-import { CACHE_DIR, TOOLKIT_VERSION } from '../core/platform.js';
+import { CACHE_DIR, CONFIG_FILE, TOOLKIT_VERSION_LABEL, detectToolInstallations } from '../core/platform.js';
+import { formatDuration, loadSettings, updateSettings } from '../core/settings.js';
 import { RESET, BOLD, DIM, GREEN, RED, YELLOW } from '../core/ansi.js';
 
 const GRAYS = [
@@ -117,6 +118,94 @@ function showBanner() {
   console.log();
 }
 
+function showTargets() {
+  showLogo();
+  console.log();
+  console.log(`${BOLD}Detected target apps${RESET}\n`);
+
+  for (const tool of detectToolInstallations()) {
+    const status = tool.installed ? `${GREEN}installed${RESET}` : `${DIM}not detected${RESET}`;
+    const capabilities = [
+      tool.supportsSkills ? 'skills' : null,
+      tool.supportsAgents ? 'agents' : null,
+      tool.supportsMcps ? 'MCPs' : null,
+    ].filter((value): value is string => value !== null).join(', ');
+
+    console.log(`  ${tool.label.padEnd(16)} ${status} ${DIM}${capabilities}${RESET}`);
+    if (tool.installed) {
+      for (const reason of tool.reasons) console.log(`    ${DIM}- ${reason}${RESET}`);
+    }
+  }
+
+  console.log();
+}
+
+function parseDurationInput(input: string): number | null {
+  const match = input.trim().match(/^(\d+)([smhd])?$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const unit = (match[2] || 's').toLowerCase();
+  if (unit === 'd') return amount * 24 * 60 * 60;
+  if (unit === 'h') return amount * 60 * 60;
+  if (unit === 'm') return amount * 60;
+  return amount;
+}
+
+function showSettings() {
+  const settings = loadSettings();
+  showLogo();
+  console.log();
+  console.log(`${BOLD}Settings${RESET}\n`);
+  console.log(`  Install mode        ${BOLD}${settings.installMode}${RESET}`);
+  console.log(`  Source cache TTL    ${BOLD}${formatDuration(settings.cacheTTL)}${RESET} ${DIM}(${settings.cacheTTL}s)${RESET}`);
+  console.log(`  Source concurrency  ${BOLD}${settings.sourceConcurrency}${RESET}`);
+  console.log();
+  console.log(`  ${DIM}Config: ${CONFIG_FILE}${RESET}`);
+  console.log(`  ${DIM}Cache:  ${CACHE_DIR}${RESET}`);
+  console.log();
+}
+
+function runSettingsCommand(args: string[]): boolean {
+  if (args.length === 0 || args[0] === 'show') {
+    showSettings();
+    return true;
+  }
+
+  if ((args[0] === 'install-mode' || args[0] === 'mode') && (args[1] === 'copy' || args[1] === 'link')) {
+    const settings = updateSettings({ installMode: args[1] });
+    console.log(`  ${GREEN}[OK]${RESET} Install mode set to ${BOLD}${settings.installMode}${RESET}`);
+    return true;
+  }
+
+  if (args[0] === 'symlink' && (args[1] === 'on' || args[1] === 'off')) {
+    const settings = updateSettings({ installMode: args[1] === 'on' ? 'link' : 'copy' });
+    console.log(`  ${GREEN}[OK]${RESET} Install mode set to ${BOLD}${settings.installMode}${RESET}`);
+    return true;
+  }
+
+  if ((args[0] === 'cache' || args[0] === 'cache-ttl') && args[1]) {
+    const cacheTTL = parseDurationInput(args[1]);
+    if (cacheTTL !== null) {
+      const settings = updateSettings({ cacheTTL });
+      console.log(`  ${GREEN}[OK]${RESET} Cache duration set to ${BOLD}${formatDuration(settings.cacheTTL)}${RESET}`);
+      return true;
+    }
+  }
+
+  if ((args[0] === 'concurrency' || args[0] === 'parallel') && args[1]) {
+    const sourceConcurrency = Number(args[1]);
+    if (Number.isFinite(sourceConcurrency)) {
+      const settings = updateSettings({ sourceConcurrency });
+      console.log(`  ${GREEN}[OK]${RESET} Source concurrency set to ${BOLD}${settings.sourceConcurrency}${RESET}`);
+      return true;
+    }
+  }
+
+  console.log(`Usage: ai-toolkit settings [show|install-mode copy|install-mode link|symlink on|symlink off|cache 24h|concurrency 4]`);
+  return true;
+}
+
 function usage() {
   console.log(`
 ${BOLD}Usage:${RESET} ai-toolkit [command] [options]
@@ -137,6 +226,8 @@ ${BOLD}Updates:${RESET}
 
 ${BOLD}Install:${RESET}
   list                            List all available items
+  targets                         Show detected AI tool install targets
+  settings                        Show toolkit settings
   skill <name>                    Install a skill
   agent <name>                    Install an agent
   mcp <name>                      Register an MCP server
@@ -159,6 +250,12 @@ ${BOLD}Sources:${RESET}
   ${DIM}Accepts: owner/repo, https://github.com/owner/repo,
           https://bitbucket.org/owner/repo, git@github.com:owner/repo.git${RESET}
 
+${BOLD}Settings:${RESET}
+  settings install-mode copy      Copy skills/agents when installing
+  settings install-mode link      Symlink skills/agents to the source cache
+  settings cache 24h              Set source cache duration
+  settings concurrency 4          Set parallel source refresh workers
+
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
   --force                         Force reinstall even if up to date
@@ -166,6 +263,8 @@ ${BOLD}Flags:${RESET}
                                   flags a block-severity issue. Off by default
                                   — running the command is treated as consent.
                                   Use in CI to hard-fail on risky content.
+  --link                          Symlink skills/agents to the source cache
+                                  for this run, overriding saved settings.
   --version                       Show version
   --help, -h                      Show this help message
 `);
@@ -355,13 +454,17 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // --version
   if (flag(args, '--version')) {
-    console.log(`ai-toolkit v${TOOLKIT_VERSION}`);
+    console.log(`ai-toolkit v${TOOLKIT_VERSION_LABEL}`);
     return true;
   }
 
   // Source commands (don't need catalog)
   if (args[0] === 'source') {
     return runSourceCommand(args.slice(1));
+  }
+
+  if (args[0] === 'settings' || args[0] === 'config') {
+    return runSettingsCommand(args.slice(1));
   }
 
   const isForce = flag(args, '--force');
@@ -376,6 +479,13 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   const isUpdate   = flag(args, '--update') || flag(args, 'update');
   const isScan     = flag(args, 'scan');
   const isRefresh  = flag(args, 'refresh') || flag(args, '--refresh');
+  const isTargets  = flag(args, 'targets') || flag(args, 'doctor');
+  const isLink     = flag(args, '--link');
+
+  if (isTargets) {
+    showTargets();
+    return true;
+  }
 
   // Subcommand style: toolkit skill <name> / toolkit remove skill <name>
   // Also supports legacy --flag style for backwards compat
@@ -390,7 +500,12 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     const sources = loadSources();
     console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
     const resources = fetchExternalResources(true);
-    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs\n`);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles`);
+    for (const warning of resources.warnings) {
+      const cacheNote = warning.usedCache ? ' (using cached data)' : '';
+      console.log(`  ${YELLOW}[!]${RESET} ${warning.name}${cacheNote}: ${warning.message}`);
+    }
+    console.log();
     return true;
   }
 
@@ -423,7 +538,9 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     showLogo();
     console.log();
     console.log(`${BOLD}Updating all installed items...${RESET}\n`);
-    const results = updateAll(catalog, { force: isForce, strict: isStrict });
+    const opts: { force: boolean; strict: boolean; link?: boolean } = { force: isForce, strict: isStrict };
+    if (isLink) opts.link = true;
+    const results = updateAll(catalog, opts);
     printSummary(results);
     return true;
   }
@@ -440,7 +557,8 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Direct install
   const results: InstallResult[] = [];
-  const opts = { force: isForce, strict: isStrict };
+  const opts: { force: boolean; strict: boolean; link?: boolean } = { force: isForce, strict: isStrict };
+  if (isLink) opts.link = true;
   if (skillName)       results.push(installSkill(catalog, skillName, opts));
   else if (agentName)  results.push(installAgent(catalog, agentName, opts));
   else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));

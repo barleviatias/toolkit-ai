@@ -71,6 +71,8 @@ for (const configPath of [
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, '{}');
 }
+fs.mkdirSync(path.join(tempHome, '.codex'), { recursive: true });
+fs.mkdirSync(path.join(tempHome, '.copilot'), { recursive: true });
 
 const catalog = {
   skills: [{

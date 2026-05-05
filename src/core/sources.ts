@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import type { Source, SourcesConfig, CatalogEntry } from '../types.js';
 import { SOURCES_FILE, CACHE_DIR, assertSafePathSegment } from './platform.js';
+import { loadSettings } from './settings.js';
 import { ensureDir } from './fs-helpers.js';
 import { parseFrontmatter, hashDir, hashFile } from './catalog.js';
 
@@ -80,7 +81,7 @@ export function saveSources(config: SourcesConfig): void {
   fs.writeFileSync(SOURCES_FILE, JSON.stringify(config, null, 2));
 }
 
-/** Add an external source and immediately fetch it. */
+/** Add an external source to the sources config. The next catalog refresh fetches it. */
 export function addSource(source: Source): void {
   const config = loadSources();
   const existing = config.sources.findIndex(s => s.name === source.name);
@@ -171,6 +172,67 @@ function fetchSource(source: Source): void {
     const stderr = result.stderr?.toString().trim() || 'unknown error';
     errors.push(`${repoUrl}: ${stderr}`);
     // Clean the temp dir between attempts so SSH retries from a clean slate.
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
+}
+
+function cloneSource(repoUrl: string, tempDir: string): Promise<{ ok: boolean; error: string }> {
+  return new Promise(resolve => {
+    const child = spawn('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    const stderr: Buffer[] = [];
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, 60000);
+
+    child.stderr.on('data', chunk => {
+      stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    });
+    child.on('error', error => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: error.message });
+    });
+    child.on('close', code => {
+      clearTimeout(timer);
+      const error = Buffer.concat(stderr).toString('utf8').trim() || 'unknown error';
+      resolve({ ok: code === 0, error: timedOut ? `timed out after 60s: ${error}` : error });
+    });
+  });
+}
+
+async function fetchSourceAsync(source: Source): Promise<void> {
+  if (source.type !== 'github' && source.type !== 'bitbucket') return;
+
+  const cacheDir = getCacheDir(source);
+  const tempDir = `${cacheDir}.fetching-${process.pid}`;
+  const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
+  const cloneUrls = [`https://${host}/${source.repo}.git`, `git@${host}:${source.repo}.git`];
+  const errors: string[] = [];
+
+  if (fs.existsSync(tempDir)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+  ensureDir(path.dirname(tempDir));
+
+  for (const repoUrl of cloneUrls) {
+    const result = await cloneSource(repoUrl, tempDir);
+    if (result.ok) {
+      fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
+      if (fs.existsSync(cacheDir)) {
+        fs.rmSync(cacheDir, { recursive: true, force: true });
+      }
+      fs.renameSync(tempDir, cacheDir);
+      return;
+    }
+
+    errors.push(`${repoUrl}: ${result.error}`);
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -439,6 +501,13 @@ export interface ExternalResources {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+  warnings: SourceLoadWarning[];
+}
+
+export interface SourceLoadWarning {
+  name: string;
+  message: string;
+  usedCache: boolean;
 }
 
 /** Build a unified catalog from discovered external resources. */
@@ -451,26 +520,134 @@ export function buildCatalog(resources: ExternalResources): { skills: CatalogEnt
   };
 }
 
-/** Fetch all external sources and scan for resources. Optionally force a re-clone. */
+/** Fetch all external sources and scan for resources. Optionally force a re-clone. Falls back to the existing cache when a refresh fails. */
 export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [] };
+  const settings = loadSettings();
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
     if (!isSourceEnabled(source)) continue;
 
+    let fetchError: string | null = null;
+    let usedCacheAfterFetchFailure = false;
+
     try {
-      if (forceRefresh || isCacheStale(source, config.cacheTTL)) {
-        fetchSource(source);
+      if (forceRefresh || isCacheStale(source, settings.cacheTTL)) {
+        try {
+          fetchSource(source);
+        } catch (e: unknown) {
+          fetchError = e instanceof Error ? e.message : String(e);
+          usedCacheAfterFetchFailure = fs.existsSync(getCacheDir(source));
+        }
       }
+
       result.skills.push(...scanSourceSkills(source));
       result.agents.push(...scanSourceAgents(source));
       result.mcps.push(...scanSourceMcps(source));
       result.bundles.push(...scanSourceBundles(source));
-    } catch {
-      // Silently skip failed sources in TUI
+
+      if (fetchError) {
+        result.warnings.push({
+          name: source.name,
+          message: fetchError,
+          usedCache: usedCacheAfterFetchFailure,
+        });
+      }
+    } catch (e: unknown) {
+      const scanError = e instanceof Error ? e.message : String(e);
+      result.warnings.push({
+        name: source.name,
+        message: fetchError ? `${fetchError}; cached scan failed: ${scanError}` : `Cached scan failed: ${scanError}`,
+        usedCache: false,
+      });
     }
+  }
+
+  return result;
+}
+
+async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefresh: boolean): Promise<ExternalResources> {
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  let fetchError: string | null = null;
+  let usedCacheAfterFetchFailure = false;
+
+  try {
+    if (forceRefresh || isCacheStale(source, ttl)) {
+      try {
+        await fetchSourceAsync(source);
+      } catch (e: unknown) {
+        fetchError = e instanceof Error ? e.message : String(e);
+        usedCacheAfterFetchFailure = fs.existsSync(getCacheDir(source));
+      }
+    }
+
+    result.skills.push(...scanSourceSkills(source));
+    result.agents.push(...scanSourceAgents(source));
+    result.mcps.push(...scanSourceMcps(source));
+    result.bundles.push(...scanSourceBundles(source));
+
+    if (fetchError) {
+      result.warnings.push({
+        name: source.name,
+        message: fetchError,
+        usedCache: usedCacheAfterFetchFailure,
+      });
+    }
+  } catch (e: unknown) {
+    const scanError = e instanceof Error ? e.message : String(e);
+    result.warnings.push({
+      name: source.name,
+      message: fetchError ? `${fetchError}; cached scan failed: ${scanError}` : `Cached scan failed: ${scanError}`,
+      usedCache: false,
+    });
+  }
+
+  return result;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await fn(items[current]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+/** Fetch and scan external sources concurrently for interactive UI refreshes. */
+export async function fetchExternalResourcesAsync(forceRefresh = false): Promise<ExternalResources> {
+  const config = loadSources();
+  const settings = loadSettings();
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  const targets = config.sources.filter(source =>
+    (source.type === 'github' || source.type === 'bitbucket') && isSourceEnabled(source)
+  );
+
+  const perSource = await mapWithConcurrency(
+    targets,
+    settings.sourceConcurrency,
+    source => loadSourceResourcesAsync(source, settings.cacheTTL, forceRefresh),
+  );
+  for (const resources of perSource) {
+    result.skills.push(...resources.skills);
+    result.agents.push(...resources.agents);
+    result.mcps.push(...resources.mcps);
+    result.bundles.push(...resources.bundles);
+    result.warnings.push(...resources.warnings);
   }
 
   return result;

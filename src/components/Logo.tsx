@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, Box } from 'ink';
-import { TOOLKIT_VERSION } from '../core/platform.js';
+import { IS_DEV_BUILD, TOOLKIT_VERSION } from '../core/platform.js';
 
 const GRAY_D = '#808080';
 
@@ -25,6 +25,9 @@ export const Logo: React.FC = () => (
         ))}
       </Box>
     </Box>
-    <Text bold color={GRAY_D}>  toolkit-ai <Text dimColor>v{TOOLKIT_VERSION}</Text></Text>
+    <Text bold color={GRAY_D}>
+      {'  '}toolkit-ai <Text dimColor>v{TOOLKIT_VERSION}</Text>
+      {IS_DEV_BUILD && <Text color="yellow"> dev build</Text>}
+    </Text>
   </Box>
 );

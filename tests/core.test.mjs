@@ -121,6 +121,36 @@ test('findSkill, findAgent, findMcp, findBundle return correct entries', () => {
   assert.equal(data.findBundleFound, true);
 });
 
+test('source refresh falls back to cached resources when fetch fails', () => {
+  const data = runFixture('source-refresh-cache.mjs');
+  assert.deepEqual(data.skillNames, ['cached-skill']);
+  assert.equal(data.warnings.length, 1);
+  assert.equal(data.warnings[0].name, 'cached-src');
+  assert.equal(data.warnings[0].usedCache, true);
+  assert.equal(data.warnings[0].hasOfflineMessage, true);
+});
+
+test('target detection limits writable paths to installed tools', () => {
+  const data = runFixture('target-detection.mjs');
+  assert.deepEqual(data.installedIds, ['claude', 'codex']);
+  assert.deepEqual(data.skillTargets, ['.agents/skills', '.claude/skills']);
+  assert.deepEqual(data.agentTargets, ['.claude/agents', '.codex/agents']);
+  assert.deepEqual(data.mcpTargets, ['.claude.json', '.codex/config.toml']);
+});
+
+test('settings persist install/cache defaults and symlink mode drives installs', () => {
+  const data = runFixture('settings.mjs');
+  assert.equal(data.initial.installMode, 'copy');
+  assert.equal(data.initial.cacheTTL, data.defaultCacheTTL);
+  assert.deepEqual(data.saved, { installMode: 'link', cacheTTL: 3600, sourceConcurrency: 2 });
+  assert.equal(data.clamped.cacheTTL, 0);
+  assert.equal(data.clamped.sourceConcurrency, 8);
+  assert.equal(data.duration, '1h');
+  assert.equal(data.zeroDuration, 'always');
+  assert.equal(data.installAction, 'installed');
+  assert.equal(data.linkedInstallIsSymlink, true);
+});
+
 // ===========================================================================
 // fs-helpers-ops tests
 // ===========================================================================

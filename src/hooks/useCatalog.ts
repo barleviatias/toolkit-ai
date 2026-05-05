@@ -1,12 +1,12 @@
 import path from 'path';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { Catalog, CatalogEntry } from '../types.js';
 import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import { extractMcpServers } from '../core/sources.js';
 import { readLock } from '../core/lock.js';
-import { fetchExternalResources, buildCatalog, type ExternalResources } from '../core/sources.js';
+import { fetchExternalResourcesAsync, buildCatalog, type ExternalResources } from '../core/sources.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
-import { CACHE_DIR } from '../core/platform.js';
+import { CACHE_DIR, getInstalledTargetLabelsForType, getWritableTargetLabelsForType } from '../core/platform.js';
 import { makeKey } from '../core/item-key.js';
 import { getInstalledState } from '../core/installed-state.js';
 import type { ItemData } from '../components/ItemRow.js';
@@ -16,15 +16,25 @@ import type { ItemData } from '../components/ItemRow.js';
 // to persist across renders and avoids expensive filesystem I/O on every state change.
 const scanCache = new Map<string, { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string }>();
 
-function loadExternalState(forceRefresh = false): ExternalResources {
+async function loadExternalState(forceRefresh = false): Promise<ExternalResources> {
   try {
-    return fetchExternalResources(forceRefresh);
-  } catch {
-    return { skills: [], agents: [], mcps: [], bundles: [] };
+    return await fetchExternalResourcesAsync(forceRefresh);
+  } catch (e: unknown) {
+    return {
+      skills: [],
+      agents: [],
+      mcps: [],
+      bundles: [],
+      warnings: [{
+        name: 'catalog',
+        message: e instanceof Error ? e.message : String(e),
+        usedCache: false,
+      }],
+    };
   }
 }
 
-const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [] };
+const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
 
 export function useCatalog() {
   // Start empty so Ink can render the shell + spinner on first paint. The
@@ -38,22 +48,32 @@ export function useCatalog() {
 
   useEffect(() => {
     // setTimeout(0) yields to Ink so the spinner renders before the clone blocks.
+    let cancelled = false;
     const t = setTimeout(() => {
-      setExternal(loadExternalState());
-      setLoading(false);
+      void loadExternalState().then(next => {
+        if (cancelled) return;
+        setExternal(next);
+        setLoading(false);
+      });
     }, 0);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, []);
 
   const refreshLock = () => setLock(readLock());
-  const refreshExternal = (forceRefresh = false) => {
+  const refreshExternal = useCallback(async (forceRefresh = false): Promise<ExternalResources> => {
     if (forceRefresh) scanCache.clear();
     setLoading(true);
-    setTimeout(() => {
-      setExternal(loadExternalState(forceRefresh));
+    try {
+      const next = await loadExternalState(forceRefresh);
+      setExternal(next);
+      return next;
+    } finally {
       setLoading(false);
-    }, 0);
-  };
+    }
+  }, []);
 
   // Check if an item is installed (by lock-format key: "type:name")
   function isInstalled(lockKey: string): boolean {
@@ -73,6 +93,12 @@ export function useCatalog() {
   // Build flat item list with security scan results and update detection
   const allItems: ItemData[] = useMemo(() => {
     const items: ItemData[] = [];
+    const targetLabelsByType: Record<string, string[]> = {
+      skill: getWritableTargetLabelsForType('skill'),
+      agent: getWritableTargetLabelsForType('agent'),
+      mcp: getWritableTargetLabelsForType('mcp'),
+      bundle: getWritableTargetLabelsForType('bundle'),
+    };
 
     function scanItem(type: string, entry: CatalogEntry): { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string } {
       const cacheKey = `${type}:${entry.source}:${entry.hash}`;
@@ -139,6 +165,9 @@ export function useCatalog() {
       const installedHash = installed ? getInstalledHash(lockKey) : null;
       const hasUpdate = installed && installedHash !== null && installedHash !== entry.hash;
       const { scanStatus, scanSummary } = scanItem(type, entry);
+      const installedTargetLabels = installed
+        ? getInstalledTargetLabelsForType(type, entry.name, entry.path)
+        : [];
 
       const item: ItemData = {
         key: uiKey,
@@ -153,6 +182,8 @@ export function useCatalog() {
         scanStatus,
         scanSummary,
         trackedByLock: !installedState.recoveredKeys.has(lockKey),
+        targetLabels: targetLabelsByType[type] || [],
+        installedTargetLabels,
       };
 
       // Enrich MCP items with server-level config details (type/url/setupNote + command preview for consent dialog)
@@ -202,5 +233,14 @@ export function useCatalog() {
     return allItems.filter(i => i.installed);
   }, [allItems]);
 
-  return { catalog, lock, allItems, installedItems, refreshLock, refreshExternal, loading };
+  return {
+    catalog,
+    lock,
+    allItems,
+    installedItems,
+    refreshLock,
+    refreshExternal,
+    loading,
+    sourceWarnings: external.warnings,
+  };
 }

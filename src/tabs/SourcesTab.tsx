@@ -8,20 +8,34 @@ import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput } from '../core/sources.js';
+import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources } from '../core/sources.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 
-import { TOOLKIT_VERSION } from '../core/platform.js';
+import { IS_DEV_BUILD, TOOLKIT_VERSION } from '../core/platform.js';
 
 interface SourcesTabProps {
   allItems: ItemData[];
   catalog: Catalog;
   onRefresh: () => void;
-  onRefreshSources: (forceRefresh?: boolean) => void;
+  onRefreshSources: (forceRefresh?: boolean) => Promise<ExternalResources>;
+}
+
+function countResources(resources: ExternalResources): number {
+  return resources.skills.length + resources.agents.length + resources.mcps.length + resources.bundles.length;
+}
+
+function formatRefreshMessage(resources: ExternalResources, label: string): string {
+  const total = countResources(resources);
+  if (resources.warnings.length === 0) {
+    return `${label} (${total} item${total === 1 ? '' : 's'})`;
+  }
+  const cached = resources.warnings.filter(warning => warning.usedCache).length;
+  const cacheNote = cached > 0 ? `${cached} kept cached data` : 'some sources unavailable';
+  return `${label} with ${resources.warnings.length} warning${resources.warnings.length === 1 ? '' : 's'} (${cacheNote})`;
 }
 
 export const SourcesTab: React.FC<SourcesTabProps> = ({
@@ -61,10 +75,10 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
     if (mode === 'list') {
       if (ch === 'f') {
-        runBusy('Refreshing all sources', () => {
-          onRefreshSources(true);
+        runBusy('Refreshing all sources', async () => {
+          const resources = await onRefreshSources(true);
           refresh();
-          setMessage('Sources refreshed');
+          setMessage(formatRefreshMessage(resources, 'Sources refreshed'));
         });
       } else if (ch === 'a') {
         setMode('add');
@@ -74,11 +88,11 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         if (source) {
           const nextEnabled = source.enabled === false;
           const label = nextEnabled ? 'Enabling' : 'Disabling';
-          runBusy(`${label} ${source.name}`, () => {
+          runBusy(`${label} ${source.name}`, async () => {
             setSourceEnabled(source.name, nextEnabled);
-            onRefreshSources(true);
+            const resources = await onRefreshSources(false);
             refresh();
-            setMessage(`${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`);
+            setMessage(formatRefreshMessage(resources, `${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`));
           });
         }
       } else if (ch === 'r' && config.sources.length > 0) {
@@ -91,12 +105,14 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
               'Deletes the source config and its cache. Installed items stay put.',
             ],
             onConfirm: () => {
-              removeSource(source.name);
-              setMessage(`Removed source: ${source.name}`);
-              setCursor(c => Math.max(0, c - 1));
               setConfirmAction(null);
-              onRefreshSources(true);
-              refresh();
+              runBusy(`Removing ${source.name}`, async () => {
+                removeSource(source.name);
+                const resources = await onRefreshSources(false);
+                refresh();
+                setCursor(c => Math.max(0, c - 1));
+                setMessage(formatRefreshMessage(resources, `Removed source: ${source.name}`));
+              });
             },
           });
         }
@@ -118,11 +134,11 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         setMode('list');
       } else if (key.return && input.trim()) {
         const source = parseSourceInput(input.trim());
-        runBusy(`Cloning ${source.repo || source.name}`, () => {
+        runBusy(`Cloning ${source.repo || source.name}`, async () => {
           addSource(source);
-          onRefreshSources(true);
+          const resources = await onRefreshSources(false);
           refresh();
-          setMessage(`Added source: ${source.name} (${source.type}: ${source.repo})`);
+          setMessage(formatRefreshMessage(resources, `Added source: ${source.name} (${source.type}: ${source.repo})`));
           setInput('');
           setMode('list');
         });
@@ -209,11 +225,24 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       .map(k => sourceItems.find(i => i.key === k))
       .filter((i): i is ItemData => !!i && !i.installed);
 
-    for (const item of itemsToInstall) {
-      doInstall(item);
+    if (itemsToInstall.length === 0) {
+      setSelected(new Set());
+      setMessage('No selected items need installation');
+      return;
     }
+
+    const consentItem = itemsToInstall.find(item => needsConsent(item, resolveBundleChildren(item, allItems)));
+    if (consentItem) {
+      setMessage(`Install ${consentItem.type} ${consentItem.name} individually to review its safety prompt`);
+      return;
+    }
+
+    runBusy(`Installing ${itemsToInstall.length} item(s)`, () => {
+      for (const item of itemsToInstall) runInstall(item);
+      setMessage(`Installed ${itemsToInstall.length} item(s)`);
+    });
     setSelected(new Set());
-  }, [sourceItems, doInstall]);
+  }, [sourceItems, allItems, runBusy, runInstall]);
 
   const TYPE_COLORS: Record<string, string> = {
     github: 'white',
@@ -273,7 +302,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           onRemove={(item) => doRemove(item)}
           isFocused={true}
         />
-        {message && <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>}
+        {message && <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>}
         <StatusBar
           selectedCount={selected.size}
           hints="Esc back · Space select · Enter details · i install · r remove · Tab switch"
@@ -288,6 +317,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       <Box>
         <Text bold>Sources ({config.sources.length})</Text>
         <Text dimColor>  ·  ai-toolkit v{TOOLKIT_VERSION}</Text>
+        {IS_DEV_BUILD && <Text color="yellow"> dev build</Text>}
       </Box>
 
       {config.sources.length === 0 && mode === 'list' && (
@@ -332,7 +362,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (blocking, please wait)</Text></Text>
       )}
       {!busy && message && (
-        <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>
+        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>
       )}
 
       <StatusBar hints={

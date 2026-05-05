@@ -27,6 +27,7 @@ node bin/ai-toolkit.mjs
 node bin/ai-toolkit.mjs --list
 node bin/ai-toolkit.mjs refresh
 node bin/ai-toolkit.mjs --version
+node bin/ai-toolkit.mjs settings
 ```
 
 ## Development
@@ -69,10 +70,11 @@ All runtime deps (ink, react) are bundled — consumers install zero dependencie
 ```
 src/
   index.tsx              # Entry point — routes to headless CLI or Ink TUI
-  app.tsx                # Root Ink app with 3-tab layout (Catalog, Installed, Sources)
+  app.tsx                # Root Ink app with 4-tab layout (Catalog, Installed, Sources, Settings)
   types.ts               # Shared TypeScript interfaces
   core/
     platform.ts          # OS paths, targets, path validation, Codex TOML parsing
+    settings.ts          # User config (~/.toolkit/config.json) for install/cache defaults
     fs-helpers.ts        # Symlink/copy/remove operations
     catalog.ts           # Frontmatter parser, hash helpers, catalog lookups
     lock.ts              # Lock file CRUD (~/.toolkit/lock.json)
@@ -97,6 +99,7 @@ src/
     CatalogTab.tsx       # Unified browse + install + update
     InstalledTab.tsx     # Manage installed items with detail view and type filters
     SourcesTab.tsx       # Source management with per-source item browsing
+    SettingsTab.tsx      # Install mode, cache TTL, fetch concurrency, target diagnostics
   hooks/
     useCatalog.ts        # Central data hook — loads catalog + external resources + lock + scan cache
     useFilteredItems.ts  # Shared filter/search/count logic for item lists
@@ -129,6 +132,7 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 
 ```
 ~/.toolkit/
+  config.json            # User settings: installMode, cacheTTL, sourceConcurrency
   lock.json              # Tracks installed items with content hashes
   sources.json           # User's custom sources (overrides bundled defaults)
   cache/                 # Shallow-cloned repos from external sources
@@ -136,9 +140,10 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 
 ### Install targets
 
-- Skills: `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`, `~/.config/amp/skills/`
-- Agents: `~/.claude/agents/`, `~/.copilot/agents/`, generated Codex agents in `~/.codex/agents/*.toml`
-- MCPs: `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/amp/settings.json`
+- Skills: detected targets among `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`, `~/.config/amp/skills/`
+- Agents: detected targets among `~/.claude/agents/`, `~/.copilot/agents/`, generated Codex agents in `~/.codex/agents/*.toml`
+- MCPs: existing local configs plus detected global targets among `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/amp/settings.json`
+- Skills/agents copy by default unless `~/.toolkit/config.json` sets `installMode: "link"` or the CLI call passes `--link`
 
 ### CI (GitHub Actions)
 

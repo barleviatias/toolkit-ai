@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import { EscContext, useEscCoordinator } from './hooks/useEscContext.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
@@ -10,6 +10,7 @@ import { useUpdateCheck } from './hooks/useUpdateCheck.js';
 import { CatalogTab } from './tabs/CatalogTab.js';
 import { InstalledTab } from './tabs/InstalledTab.js';
 import { SourcesTab } from './tabs/SourcesTab.js';
+import { SettingsTab } from './tabs/SettingsTab.js';
 import {
   installSkill,
   installAgent,
@@ -17,13 +18,14 @@ import {
   installBundle,
 } from './core/installer.js';
 import { updateAll } from './core/updater.js';
+import { detectToolInstallations } from './core/platform.js';
 import type { ItemData } from './components/ItemRow.js';
 
 interface AppProps {
   initialTab: TabId;
 }
 
-const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources'];
+const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources', 'settings'];
 
 const App: React.FC<AppProps> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
@@ -31,6 +33,11 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   const { rows: termRows } = useTerminalSize();
   const esc = useEscCoordinator();
   const updateInfo = useUpdateCheck();
+  const detectedTargets = useMemo(
+    () => detectToolInstallations().filter(target => target.installed),
+    [],
+  );
+  const targetLabels = detectedTargets.map(target => target.label);
 
   const {
     catalog,
@@ -39,6 +46,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     refreshLock,
     refreshExternal,
     loading,
+    sourceWarnings,
   } = useCatalog();
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
@@ -47,6 +55,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     { id: 'catalog', label: updateCount > 0 ? `Catalog ~${updateCount}` : 'Catalog', badge: allItems.length },
     { id: 'installed', label: 'Installed', badge: installedItems.length },
     { id: 'sources', label: 'Sources' },
+    { id: 'settings', label: 'Settings' },
   ];
 
   const handleRefresh = useCallback(() => {
@@ -55,20 +64,16 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
 
   const handleUpdateItem = useCallback((item: ItemData) => {
     const { type, name } = item;
-    try {
-      if (type === 'skill')      installSkill(catalog, name, { force: true }, () => {});
-      else if (type === 'agent') installAgent(catalog, name, { force: true }, () => {});
-      else if (type === 'mcp')   installMcp(catalog, name, { force: true }, () => {});
-      else if (type === 'bundle') installBundle(catalog, name, { force: true }, () => {});
-      refreshLock();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      process.stderr.write(`[toolkit] update failed for ${type} ${name}: ${msg}\n`);
-    }
+    if (type === 'skill')       installSkill(catalog, name, { force: true }, () => {});
+    else if (type === 'agent')  installAgent(catalog, name, { force: true }, () => {});
+    else if (type === 'mcp')    installMcp(catalog, name, { force: true }, () => {});
+    else if (type === 'bundle') installBundle(catalog, name, { force: true }, () => {});
+    else throw new Error(`${type} ${name} cannot be updated`);
+    refreshLock();
   }, [catalog, refreshLock]);
 
   const handleUpdateAll = useCallback(() => {
-    updateAll(catalog, { force: true }, () => {});
+    updateAll(catalog, { force: false }, () => {});
     refreshLock();
   }, [catalog, refreshLock]);
 
@@ -105,6 +110,16 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     <Box flexDirection="column" height={termRows}>
       {showLogo && <Logo />}
       <TabBar tabs={tabs} activeTab={activeTab} />
+      <Box marginLeft={2}>
+        {targetLabels.length > 0 ? (
+          <>
+            <Text dimColor>Targets: </Text>
+            <Text color="cyan">{targetLabels.join(', ')}</Text>
+          </>
+        ) : (
+          <Text color="yellow">No target providers detected. Run `toolkit targets` for details.</Text>
+        )}
+      </Box>
       {updateInfo.newer && updateInfo.latest && (
         <Box marginLeft={2}>
           {updateInfo.autoUpdating ? (
@@ -120,9 +135,15 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
           )}
         </Box>
       )}
+      {sourceWarnings.length > 0 && (
+        <Box marginLeft={2}>
+          <Text color="yellow">! Source refresh warning</Text>
+          <Text dimColor>  ({sourceWarnings.length} source{sourceWarnings.length > 1 ? 's' : ''}; cached data kept where available)</Text>
+        </Box>
+      )}
 
       <Box flexDirection="column" flexGrow={1}>
-        {loading && allItems.length === 0 ? (
+        {loading && allItems.length === 0 && activeTab !== 'settings' ? (
           <Box marginY={1} marginLeft={2}>
             <Spinner label="Fetching sources from GitHub/Bitbucket..." />
           </Box>
@@ -154,6 +175,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
                 onRefreshSources={refreshExternal}
               />
             )}
+            {activeTab === 'settings' && <SettingsTab />}
           </>
         )}
       </Box>

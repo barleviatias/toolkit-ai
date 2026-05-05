@@ -2,15 +2,17 @@ import fs from 'fs';
 import path from 'path';
 import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry } from '../types.js';
 import {
-  SKILL_TARGETS, AGENT_TARGETS,
   CODEX_AGENT_TARGET,
-  LOCAL_MCP_CONFIG_FILES, GLOBAL_MCP_CONFIG_FILES,
   CACHE_DIR,
   getConfigFormat,
+  getWritableAgentTargets,
+  getWritableMcpConfigFiles,
+  getWritableSkillTargets,
   writeCodexMcpServer,
   assertSafePathSegment,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
+import { shouldInstallWithSymlink } from './settings.js';
 import {
   findSkill,
   findAgent,
@@ -37,6 +39,8 @@ export interface InstallOptions {
    * are treated as having already consented.
    */
   strict?: boolean;
+  /** Override the saved install mode. True symlinks resources; false copies bytes. */
+  link?: boolean;
 }
 
 export type LogFn = (msg: string) => void;
@@ -87,15 +91,17 @@ function writeMcpToConfigs(
   newEntry: McpServerEntry,
   opts: InstallOptions,
   log: LogFn,
-): InstallResult['action'] {
-  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(f => fs.existsSync(f));
-  const configsToWrite = [...localExisting, ...GLOBAL_MCP_CONFIG_FILES];
+): { action: InstallResult['action']; targetCount: number } {
+  const configsToWrite = getWritableMcpConfigFiles();
+  if (configsToWrite.length === 0) {
+    log(`  [skip] mcp ${mcpName}: no supported target apps detected`);
+    return { action: 'skipped', targetCount: 0 };
+  }
 
   let action: InstallResult['action'] = 'skipped';
   for (const configPath of configsToWrite) {
-    if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
-      ensureDir(path.dirname(configPath));
-    }
+    const existedBefore = fs.existsSync(configPath);
+    ensureDir(path.dirname(configPath));
 
     const format = getConfigFormat(configPath);
     if (format === 'codex-mcp') {
@@ -116,12 +122,11 @@ function writeMcpToConfigs(
     try {
       config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as McpConfigFile;
     } catch {
-      if (GLOBAL_MCP_CONFIG_FILES.includes(configPath)) {
-        config = {};
-      } else {
+      if (existedBefore) {
         log(`  [!] Could not parse ${configPath}, skipping`);
         continue;
       }
+      config = {};
     }
 
     // Amp uses "amp.mcpServers" as a dotted key in its settings.json
@@ -152,7 +157,7 @@ function writeMcpToConfigs(
     }
   }
 
-  return action;
+  return { action, targetCount: configsToWrite.length };
 }
 
 function initBundleLock(bundleName: string, bundleHash: string): void {
@@ -243,11 +248,17 @@ export function installExternalSkill(
   const needsUpdate = lockEntry && lockEntry.hash !== hash;
   const shouldForce = opts.force || needsUpdate;
 
+  const targets = getWritableSkillTargets();
+  if (targets.length === 0) {
+    log(`  [skip] skill ${skillName}: no supported target apps detected`);
+    return { type: 'skill', name: skillName, action: 'skipped' };
+  }
+
+  const useSymlink = shouldInstallWithSymlink(opts.link);
   let action: InstallResult['action'] = 'skipped';
-  for (const dir of SKILL_TARGETS) {
+  for (const dir of targets) {
     const dest = path.join(dir, skillName);
-    // Always copy for external skills (source is a cache dir)
-    const result = linkOrCopyDir(src, dest, shouldForce || false, true);
+    const result = linkOrCopyDir(src, dest, shouldForce || false, !useSymlink);
     if (result === 'updated') {
       log(`  [~] skill ${skillName} updated in ${dest}`);
       action = 'updated';
@@ -298,10 +309,19 @@ export function installExternalAgent(
   const needsUpdate = lockEntry && lockEntry.hash !== hash;
   const shouldForce = opts.force || needsUpdate;
 
+  const agentTargets = getWritableAgentTargets();
+  const fileTargets = agentTargets.filter(dir => dir !== CODEX_AGENT_TARGET);
+  const shouldWriteCodex = agentTargets.includes(CODEX_AGENT_TARGET);
+  if (fileTargets.length === 0 && !shouldWriteCodex) {
+    log(`  [skip] agent ${agentName}: no supported target apps detected`);
+    return { type: 'agent', name: agentName, action: 'skipped' };
+  }
+
+  const useSymlink = shouldInstallWithSymlink(opts.link);
   let action: InstallResult['action'] = 'skipped';
-  for (const dir of AGENT_TARGETS) {
+  for (const dir of fileTargets) {
     const dest = path.join(dir, filename);
-    const result = linkOrCopyFile(src, dest, shouldForce || false, true);
+    const result = linkOrCopyFile(src, dest, shouldForce || false, !useSymlink);
     if (result === 'updated') {
       log(`  [~] agent ${agentName} updated in ${dest}`);
       action = 'updated';
@@ -313,20 +333,22 @@ export function installExternalAgent(
     }
   }
 
-  const codexDest = path.join(CODEX_AGENT_TARGET, `${codexAgent.name}.toml`);
-  ensureDir(path.dirname(codexDest));
-  const codexExists = fs.existsSync(codexDest);
-  if (!codexExists || shouldForce) {
-    fs.writeFileSync(codexDest, codexAgent.content, 'utf8');
-    if (codexExists) {
-      if (action !== 'installed') action = 'updated';
-      log(`  [~] agent ${agentName} updated in ${codexDest}`);
+  if (shouldWriteCodex) {
+    const codexDest = path.join(CODEX_AGENT_TARGET, `${codexAgent.name}.toml`);
+    ensureDir(path.dirname(codexDest));
+    const codexExists = fs.existsSync(codexDest);
+    if (!codexExists || shouldForce) {
+      fs.writeFileSync(codexDest, codexAgent.content, 'utf8');
+      if (codexExists) {
+        if (action !== 'installed') action = 'updated';
+        log(`  [~] agent ${agentName} updated in ${codexDest}`);
+      } else {
+        action = 'installed';
+        log(`  [+] agent ${agentName} -> ${codexDest}`);
+      }
     } else {
-      action = 'installed';
-      log(`  [+] agent ${agentName} -> ${codexDest}`);
+      log(`  [OK] agent ${agentName} (up to date)`);
     }
-  } else {
-    log(`  [OK] agent ${agentName} (up to date)`);
   }
 
   recordInstall(lock, itemKey, hash);
@@ -405,7 +427,8 @@ export function installExternalMcp(
   };
   const lock = readLock();
   const itemKey = `mcp:${mcpName}`;
-  const action = writeMcpToConfigs(mcpName, newEntry, opts, log);
+  const { action, targetCount } = writeMcpToConfigs(mcpName, newEntry, opts, log);
+  if (targetCount === 0) return { type: 'mcp', name: mcpName, action };
 
   recordInstall(lock, itemKey, hash);
   writeLock(lock);

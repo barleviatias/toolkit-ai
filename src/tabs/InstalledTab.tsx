@@ -71,7 +71,6 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (input === 'U' && updateCount > 0) {
         runBusy(`Updating ${updateCount} item(s)`, () => {
           onUpdateAll();
-          onRefresh();
           setMessage(`Updated ${updateCount} item(s)`);
         });
       }
@@ -136,23 +135,30 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   }, [doRemove, onRefresh]);
 
   const handleUpdateFromList = useCallback((item: ItemData) => {
+    if (!item.hasUpdate) {
+      setMessage(`No update available for ${item.type} ${item.name}`);
+      return;
+    }
     runBusy(`Updating ${item.type} ${item.name}`, () => {
       onUpdateItem(item);
-      onRefresh();
       setMessage(`Updated ${item.type} ${item.name}`);
     });
-  }, [onUpdateItem, onRefresh, runBusy]);
+  }, [onUpdateItem, runBusy]);
 
   const handleUpdateFromDetail = useCallback((key: string) => {
     const item = items.find(i => i.key === key);
     if (!item) return;
+    if (!item.hasUpdate) {
+      setMessage(`No update available for ${item.type} ${item.name}`);
+      setDetailItem(null);
+      return;
+    }
+    setDetailItem(null);
     runBusy(`Updating ${item.type} ${item.name}`, () => {
       onUpdateItem(item);
-      onRefresh();
       setMessage(`Updated ${item.type} ${item.name}`);
-      setDetailItem(null);
     });
-  }, [items, onUpdateItem, onRefresh, runBusy]);
+  }, [items, onUpdateItem, runBusy]);
 
   // Confirm dialog
   if (confirmAction) {
@@ -212,7 +218,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
         <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (please wait)</Text></Text>
       )}
       {!busy && message && (
-        <Text color={message.startsWith('\u2715') ? 'red' : 'green'}>  {message}</Text>
+        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>
       )}
       <StatusBar
         hints={

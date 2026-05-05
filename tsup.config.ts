@@ -3,6 +3,8 @@ import { readFileSync } from 'fs';
 import { builtinModules } from 'module';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
+const isWatch = process.argv.includes('--watch');
+const buildChannel = process.env.TOOLKIT_DEV_BUILD === '1' || isWatch ? 'dev' : 'production';
 
 // Node builtins should not be bundled
 const nodeBuiltins = [
@@ -30,5 +32,6 @@ export default defineConfig({
   },
   define: {
     'process.env.TOOLKIT_VERSION': JSON.stringify(pkg.version),
+    'process.env.TOOLKIT_BUILD_CHANNEL': JSON.stringify(buildChannel),
   },
 });
