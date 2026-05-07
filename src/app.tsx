@@ -45,6 +45,10 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     installedItems,
     refreshLock,
     refreshExternal,
+    refreshSingleSource,
+    forgetSource,
+    adoptSource,
+    sourceStatus,
     loading,
     sourceWarnings,
   } = useCatalog();
@@ -147,42 +151,44 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         </Box>
       )}
 
+      {loading && allItems.length === 0 && activeTab !== 'settings' && (
+        <Box marginLeft={2}>
+          <Spinner label="Fetching sources from GitHub/Bitbucket..." />
+        </Box>
+      )}
+
       <Box flexDirection="column" flexGrow={1}>
-        {loading && allItems.length === 0 && activeTab !== 'settings' ? (
-          <Box marginY={1} marginLeft={2}>
-            <Spinner label="Fetching sources from GitHub/Bitbucket..." />
-          </Box>
-        ) : (
-          <>
-            {activeTab === 'catalog' && (
-              <CatalogTab
-                items={allItems}
-                catalog={catalog}
-                onRefresh={handleRefresh}
-                onUpdateItem={handleUpdateItem}
-                onUpdateAll={handleUpdateAll}
-              />
-            )}
-            {activeTab === 'installed' && (
-              <InstalledTab
-                items={installedItems}
-                catalog={catalog}
-                onRefresh={handleRefresh}
-                onUpdateItem={handleUpdateItem}
-                onUpdateAll={handleUpdateAll}
-              />
-            )}
-            {activeTab === 'sources' && (
-              <SourcesTab
-                allItems={allItems}
-                catalog={catalog}
-                onRefresh={handleRefresh}
-                onRefreshSources={refreshExternal}
-              />
-            )}
-            {activeTab === 'settings' && <SettingsTab />}
-          </>
+        {activeTab === 'catalog' && (
+          <CatalogTab
+            items={allItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+            onUpdateItem={handleUpdateItem}
+            onUpdateAll={handleUpdateAll}
+          />
         )}
+        {activeTab === 'installed' && (
+          <InstalledTab
+            items={installedItems}
+            catalog={catalog}
+            onRefresh={handleRefresh}
+            onUpdateItem={handleUpdateItem}
+            onUpdateAll={handleUpdateAll}
+          />
+        )}
+        {activeTab === 'sources' && (
+          <SourcesTab
+            allItems={allItems}
+            catalog={catalog}
+            sourceStatus={sourceStatus}
+            onRefresh={handleRefresh}
+            onRefreshSources={refreshExternal}
+            onRefreshSingleSource={refreshSingleSource}
+            onForgetSource={forgetSource}
+            onAdoptSource={adoptSource}
+          />
+        )}
+        {activeTab === 'settings' && <SettingsTab />}
       </Box>
     </Box>
     </EscContext.Provider>

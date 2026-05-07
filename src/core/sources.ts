@@ -597,6 +597,48 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
   return result;
 }
 
+/**
+ * Scan a single source's existing on-disk cache without touching the network.
+ * Returns whatever skills/agents/mcps/bundles are already present locally so
+ * the TUI can paint instantly on startup (or on enable-toggle) and refresh in
+ * the background. If the cache is empty, returns empty arrays — caller decides
+ * whether to fetch.
+ */
+export function scanCachedSource(source: Source): ExternalResources {
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  try {
+    result.skills.push(...scanSourceSkills(source));
+    result.agents.push(...scanSourceAgents(source));
+    result.mcps.push(...scanSourceMcps(source));
+    result.bundles.push(...scanSourceBundles(source));
+  } catch (e: unknown) {
+    result.warnings.push({
+      name: source.name,
+      message: `Cached scan failed: ${e instanceof Error ? e.message : String(e)}`,
+      usedCache: false,
+    });
+  }
+  return result;
+}
+
+/** True when this source has no on-disk cache yet (fresh add or wiped). */
+export function hasCache(source: Source): boolean {
+  return fs.existsSync(getCacheDir(source));
+}
+
+/** True when the cache is stale per TTL — caller decides whether to fetch. */
+export function isStale(source: Source, ttl: number): boolean {
+  return isCacheStale(source, ttl);
+}
+
+/**
+ * Fetch a single source from the network (if stale or forced) and re-scan.
+ * Used for per-source background refresh after the initial cache paint.
+ */
+export async function fetchAndScanSource(source: Source, ttl: number, forceRefresh: boolean): Promise<ExternalResources> {
+  return loadSourceResourcesAsync(source, ttl, forceRefresh);
+}
+
 async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefresh: boolean): Promise<ExternalResources> {
   const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
   let fetchError: string | null = null;

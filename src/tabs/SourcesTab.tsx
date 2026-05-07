@@ -9,19 +9,27 @@ import { parseKey } from '../core/item-key.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources } from '../core/sources.js';
+import type { Source } from '../types.js';
 import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
+import type { SourceFetchStatus } from '../hooks/useCatalog.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 
-import { IS_DEV_BUILD, TOOLKIT_VERSION } from '../core/platform.js';
+import { IS_DEV_BUILD, TOOLKIT_VERSION, CACHE_DIR } from '../core/platform.js';
+import fs from 'fs';
+import path from 'path';
 
 interface SourcesTabProps {
   allItems: ItemData[];
   catalog: Catalog;
+  sourceStatus: Map<string, SourceFetchStatus>;
   onRefresh: () => void;
   onRefreshSources: (forceRefresh?: boolean) => Promise<ExternalResources>;
+  onRefreshSingleSource: (source: Source, forceRefresh: boolean) => Promise<void>;
+  onForgetSource: (name: string) => void;
+  onAdoptSource: (source: Source) => void;
 }
 
 function countResources(resources: ExternalResources): number {
@@ -41,8 +49,12 @@ function formatRefreshMessage(resources: ExternalResources, label: string): stri
 export const SourcesTab: React.FC<SourcesTabProps> = ({
   allItems,
   catalog,
+  sourceStatus,
   onRefresh,
   onRefreshSources,
+  onRefreshSingleSource,
+  onForgetSource,
+  onAdoptSource,
 }) => {
   const [config, setConfig] = useState<SourcesConfig>(() => loadSources());
   const [mode, setMode] = useState<'list' | 'add' | 'browse'>('list');
@@ -70,13 +82,17 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
   useInput((ch, key) => {
     if (detailItem || confirmAction) return;
-    // Block all input while a blocking op is running — prevents double-submit
+    // `busy` only gates synchronous install/remove flows. Fetches now run in
+    // the background via the per-source streaming hooks, so the user can keep
+    // browsing, toggling, and quitting while clones are in flight.
     if (busy) return;
 
     if (mode === 'list') {
       if (ch === 'f') {
-        runBusy('Refreshing all sources', async () => {
-          const resources = await onRefreshSources(true);
+        // Background refresh: don't block input, don't wipe the catalog.
+        // Per-source status badges show progress; existing items stay visible.
+        setMessage('Refreshing sources in background…');
+        void onRefreshSources(true).then(resources => {
           refresh();
           setMessage(formatRefreshMessage(resources, 'Sources refreshed'));
         });
@@ -87,13 +103,23 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         const source = config.sources[cursor];
         if (source) {
           const nextEnabled = source.enabled === false;
-          const label = nextEnabled ? 'Enabling' : 'Disabling';
-          runBusy(`${label} ${source.name}`, async () => {
-            setSourceEnabled(source.name, nextEnabled);
-            const resources = await onRefreshSources(false);
-            refresh();
-            setMessage(formatRefreshMessage(resources, `${nextEnabled ? 'Enabled' : 'Disabled'} source: ${source.name}`));
-          });
+          // Instant toggle: persist to disk + flip in-memory state. Only fetch
+          // if enabling and we don't have usable cache yet.
+          setSourceEnabled(source.name, nextEnabled);
+          refresh();
+          if (nextEnabled) {
+            onAdoptSource({ ...source, enabled: true });
+            // No cache → kick off a background fetch so the source's items
+            // appear when ready. Cache present → already showing, nothing to do.
+            const cachePath = path.join(CACHE_DIR, source.name);
+            if (!fs.existsSync(cachePath)) {
+              void onRefreshSingleSource({ ...source, enabled: true }, false);
+            }
+            setMessage(`Enabled source: ${source.name}`);
+          } else {
+            onForgetSource(source.name);
+            setMessage(`Disabled source: ${source.name}`);
+          }
         }
       } else if (ch === 'r' && config.sources.length > 0) {
         const source = config.sources[cursor];
@@ -106,13 +132,11 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
             ],
             onConfirm: () => {
               setConfirmAction(null);
-              runBusy(`Removing ${source.name}`, async () => {
-                removeSource(source.name);
-                const resources = await onRefreshSources(false);
-                refresh();
-                setCursor(c => Math.max(0, c - 1));
-                setMessage(formatRefreshMessage(resources, `Removed source: ${source.name}`));
-              });
+              removeSource(source.name);
+              onForgetSource(source.name);
+              refresh();
+              setCursor(c => Math.max(0, c - 1));
+              setMessage(`Removed source: ${source.name}`);
             },
           });
         }
@@ -134,13 +158,16 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         setMode('list');
       } else if (key.return && input.trim()) {
         const source = parseSourceInput(input.trim());
-        runBusy(`Cloning ${source.repo || source.name}`, async () => {
-          addSource(source);
-          const resources = await onRefreshSources(false);
-          refresh();
-          setMessage(formatRefreshMessage(resources, `Added source: ${source.name} (${source.type}: ${source.repo})`));
-          setInput('');
-          setMode('list');
+        // Non-blocking add: persist + return to list immediately. The new
+        // source row shows "⟳ fetching" via sourceStatus while the clone runs.
+        addSource(source);
+        onAdoptSource(source);
+        refresh();
+        setMessage(`Added source: ${source.name} — fetching in background…`);
+        setInput('');
+        setMode('list');
+        void onRefreshSingleSource(source, false).then(() => {
+          setMessage(`Source ready: ${source.name}`);
         });
       }
     } else if (mode === 'browse') {
@@ -332,6 +359,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         {config.sources.map((source, i) => {
           const itemCount = allItems.filter(item => item.source === source.name).length;
           const disabled = source.enabled === false;
+          const status = sourceStatus.get(source.name);
           return (
             <Box key={source.name} marginLeft={1}>
               <Text color={i === cursor ? 'cyan' : undefined}>
@@ -340,6 +368,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
               <Text color={TYPE_COLORS[source.type] || 'white'} bold dimColor={disabled}>{source.type.padEnd(10)}</Text>
               <Text bold={i === cursor} dimColor={disabled}>{source.name}</Text>
               <Text dimColor> · {source.repo || source.path} · {disabled ? 'disabled' : `${itemCount} items`}</Text>
+              {!disabled && status === 'fetching' && <Text color="yellow"> · ⟳ fetching</Text>}
+              {!disabled && status === 'error' && <Text color="red"> · ! warning</Text>}
             </Box>
           );
         })}
