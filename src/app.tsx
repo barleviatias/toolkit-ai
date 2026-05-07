@@ -91,6 +91,11 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     if (key.escape) esc.onEscape(exit);
     if (input === 'q' || (key.ctrl && input === 'c')) {
       exit();
+      // Ink's exit() only unmounts; if a git clone (or other spawned child) is
+      // still running, the process stays alive and the terminal looks frozen.
+      // Force-exit on the next tick so cleanup runs but we don't wait on
+      // children that may be wedged on a credential prompt.
+      setImmediate(() => process.exit(0));
     }
   });
 

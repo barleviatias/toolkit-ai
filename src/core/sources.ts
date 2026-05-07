@@ -137,6 +137,29 @@ function isCacheStale(source: Source, ttl: number): boolean {
   }
 }
 
+// Force every git invocation to fail fast instead of prompting on /dev/tty.
+// Without these, a private repo (or an SSH key with a passphrase) makes git
+// open the controlling terminal directly to ask for credentials — invisible
+// under Ink's alt-screen, the spawn hangs until the timeout fires.
+//
+// `accept-new` silently trusts hosts on first connect. Fine for a tool that
+// already runs `git clone` on user-supplied URLs; matches what an interactive
+// user would type. We spread `process.env` so SSH_AUTH_SOCK / PATH / HOME
+// still flow through and working ssh-agent keys keep working.
+const NON_INTERACTIVE_GIT_ENV: Record<string, string> = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: 'echo',
+  SSH_ASKPASS: 'echo',
+  SSH_ASKPASS_REQUIRE: 'never',
+  GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10',
+};
+
+function gitEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, ...NON_INTERACTIVE_GIT_ENV };
+}
+
+const CLONE_TIMEOUT_MS = 25000;
+
 function fetchSource(source: Source): void {
   if (source.type !== 'github' && source.type !== 'bitbucket') return;
 
@@ -157,7 +180,8 @@ function fetchSource(source: Source): void {
   for (const repoUrl of cloneUrls) {
     const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 60000,
+      timeout: CLONE_TIMEOUT_MS,
+      env: gitEnv(),
     });
 
     if (result.status === 0) {
@@ -184,13 +208,18 @@ function cloneSource(repoUrl: string, tempDir: string): Promise<{ ok: boolean; e
   return new Promise(resolve => {
     const child = spawn('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
       stdio: ['ignore', 'ignore', 'pipe'],
+      env: gitEnv(),
     });
     const stderr: Buffer[] = [];
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
-    }, 60000);
+      // Belt-and-suspenders: if SIGTERM doesn't unblock git (rare, but happens
+      // if it's wedged in a syscall), force-kill so the promise resolves and
+      // the UI doesn't stay frozen.
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already dead */ } }, 2000);
+    }, CLONE_TIMEOUT_MS);
 
     child.stderr.on('data', chunk => {
       stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
@@ -202,7 +231,7 @@ function cloneSource(repoUrl: string, tempDir: string): Promise<{ ok: boolean; e
     child.on('close', code => {
       clearTimeout(timer);
       const error = Buffer.concat(stderr).toString('utf8').trim() || 'unknown error';
-      resolve({ ok: code === 0, error: timedOut ? `timed out after 60s: ${error}` : error });
+      resolve({ ok: code === 0, error: timedOut ? `timed out after ${CLONE_TIMEOUT_MS / 1000}s: ${error}` : error });
     });
   });
 }
