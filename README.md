@@ -101,6 +101,23 @@ toolkit --help             # CLI reference
 npx toolkit-ai
 ```
 
+### Without npm
+
+Don't have npm (or just don't want to use it)? Pipe the installer instead.
+It downloads the bundled `.mjs` from GitHub Releases and drops it in
+`~/.local/bin` (or `/usr/local/bin`). Node 20+ on PATH is the only requirement.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/barleviatias/toolkit-ai/main/install.sh | bash
+```
+
+Pin a specific version or override the install dir:
+
+```bash
+AI_TOOLKIT_VERSION=v2.1.6 curl -fsSL .../install.sh | bash
+AI_TOOLKIT_BIN_DIR=~/bin   curl -fsSL .../install.sh | bash
+```
+
 **Auto-updates:** when launched from a global npm install, toolkit-ai checks the
 npm registry once per 24h and, if a newer version exists, silently runs
 `npm install -g toolkit-ai@latest` in the background. The upgrade takes effect

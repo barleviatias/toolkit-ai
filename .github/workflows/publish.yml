@@ -6,8 +6,10 @@ on:
       - 'v*'
 
 permissions:
+  # id-token: npm OIDC trusted publishing.
+  # contents: write so we can create a GitHub Release with the bundled asset.
   id-token: write
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -23,3 +25,14 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm publish
+
+      # Attach the bundled .mjs to a GitHub Release so the curl|sh installer
+      # in install.sh can fetch it without going through npm.
+      - name: Create GitHub Release with bundled asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Install without npm: \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | bash\`" \
+            bin/ai-toolkit.mjs
