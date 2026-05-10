@@ -11,6 +11,7 @@ export interface Catalog {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+  commands: CatalogEntry[];
 }
 
 export interface BundleConfig {
@@ -20,6 +21,7 @@ export interface BundleConfig {
   skills?: string[];
   agents?: string[];
   mcps?: string[];
+  commands?: string[];
 }
 
 export interface McpConfig {
@@ -98,7 +100,7 @@ export interface SourcesConfig {
   cacheTTL: number; // seconds
 }
 
-export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle';
+export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command';
 
 export interface InstallResult {
   type: ItemType;

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, SKILL_TARGETS, getConfigFormat, parseCodexMcpSection, assertSafePathSegment } from './platform.js';
+import { AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, SKILL_TARGETS, getConfigFormat, getWritableCommandTargets, parseCodexMcpSection, assertSafePathSegment, type CommandTarget } from './platform.js';
 
 export interface InstalledState {
   installedKeys: Set<string>;
@@ -30,6 +30,14 @@ function hasInstalledAgent(agentName: string, agentPath: string): boolean {
   const filename = path.basename(agentPath);
   return AGENT_TARGETS.some(dir => fs.existsSync(path.join(dir, filename))) ||
     fs.existsSync(path.join(CODEX_AGENT_TARGET, `${agentName}.toml`));
+}
+
+function hasInstalledCommand(commandName: string, targets: CommandTarget[]): boolean {
+  try { assertSafePathSegment(commandName, 'command name'); } catch { return false; }
+  return targets.some(target => {
+    const filename = target.format === 'vscode-prompt' ? `${commandName}.prompt.md` : `${commandName}.md`;
+    return fs.existsSync(path.join(target.dir, filename));
+  });
 }
 
 function hasInstalledMcp(mcpName: string): boolean {
@@ -78,6 +86,15 @@ export function getInstalledState(catalog: Catalog, lock: LockFile): InstalledSt
   for (const mcp of catalog.mcps) {
     const key = `mcp:${mcp.name}`;
     if (!installedKeys.has(key) && hasInstalledMcp(mcp.name)) {
+      installedKeys.add(key);
+      recoveredKeys.add(key);
+    }
+  }
+
+  const commandTargets = getWritableCommandTargets();
+  for (const command of catalog.commands) {
+    const key = `command:${command.name}`;
+    if (!installedKeys.has(key) && hasInstalledCommand(command.name, commandTargets)) {
       installedKeys.add(key);
       recoveredKeys.add(key);
     }

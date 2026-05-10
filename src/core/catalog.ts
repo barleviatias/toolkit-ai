@@ -8,6 +8,13 @@ import { CACHE_DIR } from './platform.js';
 // Frontmatter parser (YAML --- blocks, zero deps)
 // ---------------------------------------------------------------------------
 
+const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+
+/** Strip a leading YAML frontmatter block, returning the body. */
+export function stripFrontmatter(content: string): string {
+  return content.replace(FRONTMATTER_BLOCK, '');
+}
+
 /** Parse YAML frontmatter from a `---` delimited block. Returns key-value pairs. */
 export function parseFrontmatter(content: string): Record<string, string> {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -64,24 +71,39 @@ export function hashDir(dirPath: string): string {
 // Lookup helpers
 // ---------------------------------------------------------------------------
 
-/** Find a skill entry by name in the catalog. */
+const TYPE_TO_BUCKET: Record<string, keyof Catalog> = {
+  skill: 'skills',
+  agent: 'agents',
+  mcp: 'mcps',
+  bundle: 'bundles',
+  command: 'commands',
+};
+
+/** Find an entry in the catalog by item type and name. Returns undefined for unknown types. */
+export function findEntry(catalog: Catalog, type: string, name: string): CatalogEntry | undefined {
+  const bucket = TYPE_TO_BUCKET[type];
+  if (!bucket) return undefined;
+  return (catalog[bucket] as CatalogEntry[]).find(entry => entry.name === name);
+}
+
 export function findSkill(catalog: Catalog, name: string): CatalogEntry | undefined {
-  return catalog.skills.find(s => s.name === name);
+  return findEntry(catalog, 'skill', name);
 }
 
-/** Find an agent entry by name in the catalog. */
 export function findAgent(catalog: Catalog, name: string): CatalogEntry | undefined {
-  return catalog.agents.find(a => a.name === name);
+  return findEntry(catalog, 'agent', name);
 }
 
-/** Find an MCP entry by name in the catalog. */
 export function findMcp(catalog: Catalog, name: string): CatalogEntry | undefined {
-  return catalog.mcps.find(m => m.name === name);
+  return findEntry(catalog, 'mcp', name);
 }
 
-/** Find a bundle entry by name in the catalog. */
 export function findBundle(catalog: Catalog, name: string): CatalogEntry | undefined {
-  return catalog.bundles.find(p => p.name === name);
+  return findEntry(catalog, 'bundle', name);
+}
+
+export function findCommand(catalog: Catalog, name: string): CatalogEntry | undefined {
+  return findEntry(catalog, 'command', name);
 }
 
 /** Load and parse a bundle's JSON config from the source cache. */

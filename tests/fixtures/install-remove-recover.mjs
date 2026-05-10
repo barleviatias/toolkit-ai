@@ -97,6 +97,7 @@ const catalog = {
     source: sourceName,
   }],
   bundles: [],
+  commands: [],
 };
 
 const skillResult = installExternalSkill(sourceName, 'example-skill', 'resources/skills/example-skill', 'skill-hash', {}, noop);

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
-import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat, removeCodexMcpServer, assertSafePathSegment } from './platform.js';
+import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat, getWritableCommandTargets, removeCodexMcpServer, assertSafePathSegment } from './platform.js';
 import { removeLink } from './fs-helpers.js';
 import { findAgent, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
@@ -68,6 +68,15 @@ export function removeItemFromFilesystem(
       }
     }
     if (!removed) log(`  mcp ${name} was not found in any config file`);
+  } else if (type === 'command') {
+    assertSafePathSegment(name, 'command name');
+    let removed = false;
+    for (const target of getWritableCommandTargets()) {
+      const filename = target.format === 'vscode-prompt' ? `${name}.prompt.md` : `${name}.md`;
+      const dest = path.join(target.dir, filename);
+      if (removeLink(dest)) { log(`  [-] command ${name} removed from ${dest}`); removed = true; }
+    }
+    if (!removed) log(`  command ${name} was not installed`);
   }
 }
 
@@ -109,6 +118,19 @@ export function removeMcp(catalog: Catalog, name: string, log?: LogFn): void {
     removeItemFromFilesystem(catalog, itemKey, log);
   } else {
     (log || console.log)(`  [skip] mcp ${name} still referenced by an installed bundle`);
+  }
+  delete lock.installed[itemKey];
+  writeLock(lock);
+}
+
+/** Remove a command by name, cleaning up all install targets and the lock file. */
+export function removeCommand(catalog: Catalog, name: string, log?: LogFn): void {
+  const lock = readLock();
+  const itemKey = `command:${name}`;
+  if (!isItemProtected(itemKey, null, lock, catalog)) {
+    removeItemFromFilesystem(catalog, itemKey, log);
+  } else {
+    (log || console.log)(`  [skip] command ${name} still referenced by an installed bundle`);
   }
   delete lock.installed[itemKey];
   writeLock(lock);

@@ -15,8 +15,9 @@ import {
   installAgent,
   installMcp,
   installBundle,
+  installCommand,
 } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand } from '../core/remover.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
@@ -66,6 +67,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (input === '2') toggleType('agent');
       else if (input === '3') toggleType('mcp');
       else if (input === '4') toggleType('bundle');
+      else if (input === '5') toggleType('command');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U') {
         if (updateCount === 0) {
@@ -102,10 +104,11 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     const { type, name } = item;
     try {
       const opts = { force: false };
-      if (type === 'skill')       installSkill(catalog, name, opts, () => {});
-      else if (type === 'agent')  installAgent(catalog, name, opts, () => {});
-      else if (type === 'mcp')    installMcp(catalog, name, opts, () => {});
-      else if (type === 'bundle') installBundle(catalog, name, opts, () => {});
+      if (type === 'skill')        installSkill(catalog, name, opts, () => {});
+      else if (type === 'agent')   installAgent(catalog, name, opts, () => {});
+      else if (type === 'mcp')     installMcp(catalog, name, opts, () => {});
+      else if (type === 'bundle')  installBundle(catalog, name, opts, () => {});
+      else if (type === 'command') installCommand(catalog, name, opts, () => {});
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -154,10 +157,11 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
     try {
-      if (type === 'skill')       removeSkill(catalog, name, () => {});
-      else if (type === 'agent')  removeAgent(catalog, name, () => {});
-      else if (type === 'mcp')    removeMcp(catalog, name, () => {});
-      else if (type === 'bundle') removeBundle(catalog, name, () => {});
+      if (type === 'skill')        removeSkill(catalog, name, () => {});
+      else if (type === 'agent')   removeAgent(catalog, name, () => {});
+      else if (type === 'mcp')     removeMcp(catalog, name, () => {});
+      else if (type === 'bundle')  removeBundle(catalog, name, () => {});
+      else if (type === 'command') removeCommand(catalog, name, () => {});
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ensureDir } from './fs-helpers.js';
-import { CONFIG_FILE, SOURCES_FILE } from './platform.js';
+import { CONFIG_FILE, SOURCES_FILE, KNOWN_TOOL_IDS, type ToolId } from './platform.js';
 
 export type InstallMode = 'copy' | 'link';
 
@@ -9,12 +9,19 @@ export interface ToolkitSettings {
   installMode: InstallMode;
   cacheTTL: number;
   sourceConcurrency: number;
+  /**
+   * Provider opt-out list. Tools listed here are skipped during install even
+   * if their target dirs/binaries are detected. Empty (the default) means
+   * "write to every detected tool" — preserves the previous behaviour.
+   */
+  disabledTools: ToolId[];
 }
 
 export const DEFAULT_SETTINGS: ToolkitSettings = {
   installMode: 'copy',
   cacheTTL: 24 * 60 * 60,
   sourceConcurrency: 4,
+  disabledTools: [],
 };
 
 const MIN_CACHE_TTL = 0;
@@ -46,6 +53,18 @@ function normalizeInstallMode(value: unknown, fallback: InstallMode): InstallMod
   return value === 'link' || value === 'copy' ? value : fallback;
 }
 
+function normalizeDisabledTools(value: unknown, fallback: ToolId[]): ToolId[] {
+  if (!Array.isArray(value)) return fallback;
+  const known = new Set<string>(KNOWN_TOOL_IDS);
+  const seen = new Set<ToolId>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    if (!known.has(entry)) continue;
+    seen.add(entry as ToolId);
+  }
+  return Array.from(seen).sort();
+}
+
 function settingsFallback(): ToolkitSettings {
   return {
     ...DEFAULT_SETTINGS,
@@ -69,6 +88,7 @@ export function normalizeSettings(raw: unknown, fallback: ToolkitSettings = DEFA
       MIN_SOURCE_CONCURRENCY,
       MAX_SOURCE_CONCURRENCY,
     ),
+    disabledTools: normalizeDisabledTools(raw.disabledTools, fallback.disabledTools),
   };
 }
 

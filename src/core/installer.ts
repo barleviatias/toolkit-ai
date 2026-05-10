@@ -6,10 +6,12 @@ import {
   CACHE_DIR,
   getConfigFormat,
   getWritableAgentTargets,
+  getWritableCommandTargets,
   getWritableMcpConfigFiles,
   getWritableSkillTargets,
   writeCodexMcpServer,
   assertSafePathSegment,
+  type CommandTarget,
 } from './platform.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import { shouldInstallWithSymlink } from './settings.js';
@@ -18,13 +20,15 @@ import {
   findAgent,
   findMcp,
   findBundle,
+  findCommand,
   loadBundleConfig,
   loadMcpConfig,
   parseFrontmatter,
+  stripFrontmatter,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources, extractMcpServers } from './sources.js';
-import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from './scanner.js';
+import { scanSkillDir, scanAgentFile, scanMcpConfig, scanCommandFile, formatReport } from './scanner.js';
 
 export interface InstallOptions {
   force?: boolean;
@@ -50,6 +54,7 @@ interface ExternalResourcesLike {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+  commands: CatalogEntry[];
 }
 
 function renderCodexAgent(agentPath: string): { name: string; description: string; content: string } {
@@ -57,7 +62,7 @@ function renderCodexAgent(agentPath: string): { name: string; description: strin
   const meta = parseFrontmatter(source);
   const name = assertSafePathSegment(meta.name || path.basename(agentPath, '.agent.md'), 'agent name');
   const description = meta.description || '';
-  const developerInstructions = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+  const developerInstructions = stripFrontmatter(source).trim();
   const tomlMultiline = (value: string) => `"""\n${value.replace(/\r\n/g, '\n').replace(/"""/g, '\\"""')}\n"""`;
   const tomlString = (value: string) => JSON.stringify(value);
 
@@ -174,7 +179,7 @@ function installBundleEntry(
   catalog: Catalog,
   external: ExternalResourcesLike,
   sourceName: string,
-  type: 'skill' | 'agent' | 'mcp',
+  type: 'skill' | 'agent' | 'mcp' | 'command',
   name: string,
   installOpts: InstallOptions,
   log: LogFn,
@@ -182,6 +187,7 @@ function installBundleEntry(
   const externalEntry =
     type === 'skill' ? external.skills.find(item => item.source === sourceName && item.name === name) :
     type === 'agent' ? external.agents.find(item => item.source === sourceName && item.name === name) :
+    type === 'command' ? external.commands.find(item => item.source === sourceName && item.name === name) :
     external.mcps.find(item => item.source === sourceName && item.name === name);
 
   if (externalEntry?.path && externalEntry.hash) {
@@ -191,11 +197,15 @@ function installBundleEntry(
     if (type === 'agent') {
       return installExternalAgent(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
     }
+    if (type === 'command') {
+      return installExternalCommand(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
+    }
     return installExternalMcp(sourceName, name, externalEntry.path, externalEntry.hash, installOpts, log);
   }
 
   if (type === 'skill') return installSkill(catalog, name, installOpts, log);
   if (type === 'agent') return installAgent(catalog, name, installOpts, log);
+  if (type === 'command') return installCommand(catalog, name, installOpts, log);
   return installMcp(catalog, name, installOpts, log);
 }
 
@@ -469,6 +479,153 @@ export function installMcp(
 }
 
 // ---------------------------------------------------------------------------
+// Install a command (slash prompt) — verbatim for Claude/Cursor, transformed
+// for VS Code's *.prompt.md user prompts
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a `*.prompt.md` source as a VS Code user prompt: rewrite frontmatter
+ * to `{mode: agent, description: ...}` (description JSON-stringified to safely
+ * carry colons and quotes), and substitute `$ARGUMENTS` with `${input:topic:<hint>}`
+ * when an argument-hint is set.
+ */
+function renderVsCodePrompt(source: string): string {
+  const meta = parseFrontmatter(source);
+  const description = meta.description || '';
+  const hint = meta['argument-hint'] || '';
+
+  const body = stripFrontmatter(source);
+
+  const useHint = hint && hint !== '<empty>';
+  const transformedBody = useHint
+    ? body.replace(/\$ARGUMENTS/g, `\${input:topic:${hint}}`)
+    : body;
+
+  const frontmatter = [
+    '---',
+    'mode: agent',
+    `description: ${JSON.stringify(description)}`,
+    '---',
+    '',
+  ].join('\n');
+
+  return frontmatter + transformedBody;
+}
+
+/**
+ * Write or update a single command file in one target. Returns the action
+ * the caller should report. Hashing is done on the source file, so a
+ * transformed VS Code prompt that diffs from the source still tracks
+ * correctly via the lock.
+ */
+function writeCommandToTarget(
+  target: CommandTarget,
+  src: string,
+  commandName: string,
+  shouldForce: boolean,
+  useSymlink: boolean,
+  log: LogFn,
+): InstallResult['action'] {
+  const filename = target.format === 'vscode-prompt' ? `${commandName}.prompt.md` : `${commandName}.md`;
+  const dest = path.join(target.dir, filename);
+
+  if (target.format === 'verbatim') {
+    const result = linkOrCopyFile(src, dest, shouldForce, !useSymlink);
+    if (result === 'updated') {
+      log(`  [~] command ${commandName} updated in ${dest}`);
+      return 'updated';
+    }
+    if (result === 'installed') {
+      log(`  [+] command ${commandName} -> ${dest}`);
+      return 'installed';
+    }
+    log(`  [OK] command ${commandName} (up to date)`);
+    return 'skipped';
+  }
+
+  // vscode-prompt: write transformed bytes; idempotent on byte-equal.
+  const sourceText = fs.readFileSync(src, 'utf8');
+  const rendered = renderVsCodePrompt(sourceText);
+  ensureDir(target.dir);
+  let existing: string | null;
+  try {
+    existing = fs.readFileSync(dest, 'utf8');
+  } catch {
+    existing = null;
+  }
+  if (existing !== null && !shouldForce && existing === rendered) {
+    log(`  [OK] command ${commandName} (up to date)`);
+    return 'skipped';
+  }
+  fs.writeFileSync(dest, rendered, 'utf8');
+  if (existing !== null) {
+    log(`  [~] command ${commandName} updated in ${dest}`);
+    return 'updated';
+  }
+  log(`  [+] command ${commandName} -> ${dest}`);
+  return 'installed';
+}
+
+/** Install a command by name from the catalog. */
+export function installCommand(
+  catalog: Catalog,
+  name: string,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+): InstallResult {
+  const entry = findCommand(catalog, name);
+  if (!entry) throw new Error(`Command not found in catalog: ${name}`);
+  return installExternalCommand(entry.source, name, entry.path, entry.hash, opts, log);
+}
+
+/** Install a command from an external source cache. Writes verbatim to Claude/Cursor and a transformed prompt to VS Code. */
+export function installExternalCommand(
+  sourceName: string,
+  commandName: string,
+  commandPath: string,
+  hash: string,
+  opts: InstallOptions = {},
+  log: LogFn = console.log,
+): InstallResult {
+  assertSafePathSegment(commandName, 'command name');
+  const src = path.join(CACHE_DIR, sourceName, commandPath);
+  if (!fs.existsSync(src)) throw new Error(`External command not found at: ${src}`);
+
+  const report = scanCommandFile(src, commandName, sourceName);
+  if (!report.passed && opts.strict) {
+    log(formatReport(report));
+    log(`      Blocked by --strict. Remove the flag to proceed at your own risk.`);
+    return { type: 'command', name: commandName, action: 'blocked' };
+  }
+  if (report.findings.length > 0) log(formatReport(report));
+
+  const lock = readLock();
+  const itemKey = `command:${commandName}`;
+
+  const lockEntry = lock.installed[itemKey];
+  const needsUpdate = lockEntry && lockEntry.hash !== hash;
+  const shouldForce = opts.force || needsUpdate || false;
+
+  const targets = getWritableCommandTargets();
+  if (targets.length === 0) {
+    log(`  [skip] command ${commandName}: no supported target apps detected`);
+    return { type: 'command', name: commandName, action: 'skipped' };
+  }
+
+  const useSymlink = shouldInstallWithSymlink(opts.link);
+  let action: InstallResult['action'] = 'skipped';
+  for (const target of targets) {
+    const result = writeCommandToTarget(target, src, commandName, shouldForce, useSymlink, log);
+    if (result === 'installed') action = 'installed';
+    else if (result === 'updated' && action !== 'installed') action = 'updated';
+  }
+
+  recordInstall(lock, itemKey, hash);
+  writeLock(lock);
+  return { type: 'command', name: commandName, action };
+}
+
+// ---------------------------------------------------------------------------
 // Install a bundle (collection of skills + agents + mcps)
 // ---------------------------------------------------------------------------
 
@@ -511,6 +668,9 @@ export function installExternalBundle(
   }
   for (const mcpName of bundle.mcps || []) {
     results.push(installBundleEntry(catalog, external, sourceName, 'mcp', mcpName, installOpts, log));
+  }
+  for (const commandName of bundle.commands || []) {
+    results.push(installBundleEntry(catalog, external, sourceName, 'command', commandName, installOpts, log));
   }
 
   return results;

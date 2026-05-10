@@ -10,7 +10,7 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 
@@ -67,6 +67,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (input === '2') toggleType('agent');
       else if (input === '3') toggleType('mcp');
       else if (input === '4') toggleType('bundle');
+      else if (input === '5') toggleType('command');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U' && updateCount > 0) {
         runBusy(`Updating ${updateCount} item(s)`, () => {
@@ -89,10 +90,11 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
     try {
-      if (type === 'skill')       removeSkill(catalog, name, () => {});
-      else if (type === 'agent')  removeAgent(catalog, name, () => {});
-      else if (type === 'mcp')    removeMcp(catalog, name, () => {});
-      else if (type === 'bundle') removeBundle(catalog, name, () => {});
+      if (type === 'skill')        removeSkill(catalog, name, () => {});
+      else if (type === 'agent')   removeAgent(catalog, name, () => {});
+      else if (type === 'mcp')     removeMcp(catalog, name, () => {});
+      else if (type === 'bundle')  removeBundle(catalog, name, () => {});
+      else if (type === 'command') removeCommand(catalog, name, () => {});
     } catch (e: unknown) {
       setMessage(`Error removing ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }

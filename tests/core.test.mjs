@@ -130,6 +130,41 @@ test('source refresh falls back to cached resources when fetch fails', () => {
   assert.equal(data.warnings[0].hasOfflineMessage, true);
 });
 
+test('disabled providers are excluded from skill, command, and MCP write targets', () => {
+  const data = runFixture('disabled-providers.mjs');
+
+  // Baseline: Claude + Cursor are detected, nothing user-disabled.
+  assert.deepEqual(data.before.detected, ['claude', 'cursor']);
+  assert.deepEqual(data.before.disabled, []);
+  assert.ok(data.before.skillTargets.some(p => p.includes('.claude/skills')));
+  assert.ok(data.before.commandTargets.some(p => p.includes('.cursor/commands')));
+  assert.ok(data.before.commandTargets.some(p => p.includes('.claude/commands')));
+  assert.ok(data.before.mcpTargets.some(p => p.includes('.claude/settings.json')));
+  assert.ok(data.before.mcpTargets.some(p => p.includes('.cursor/mcp.json')));
+
+  // Disable Claude — Claude targets drop out, Cursor stays.
+  assert.deepEqual(data.afterDisableClaude.disabled, ['claude']);
+  assert.ok(!data.afterDisableClaude.skillTargets.some(p => p.includes('.claude/skills')));
+  assert.ok(!data.afterDisableClaude.commandTargets.some(p => p.includes('.claude/commands')));
+  assert.ok(!data.afterDisableClaude.mcpTargets.some(p => p.includes('.claude/settings.json')));
+  assert.ok(data.afterDisableClaude.commandTargets.some(p => p.includes('.cursor/commands')));
+  assert.ok(data.afterDisableClaude.mcpTargets.some(p => p.includes('.cursor/mcp.json')));
+
+  // Disable both — neither writes for claude/cursor.
+  assert.deepEqual(data.afterDisableBoth.disabled, ['claude', 'cursor']);
+  assert.ok(!data.afterDisableBoth.commandTargets.some(p => p.includes('.claude/commands')));
+  assert.ok(!data.afterDisableBoth.commandTargets.some(p => p.includes('.cursor/commands')));
+
+  // Re-enable: behaviour matches baseline.
+  assert.deepEqual(data.afterReenable.disabled, []);
+  assert.deepEqual(data.afterReenable.skillTargets, data.before.skillTargets);
+  assert.deepEqual(data.afterReenable.commandTargets, data.before.commandTargets);
+  assert.deepEqual(data.afterReenable.mcpTargets, data.before.mcpTargets);
+
+  // Persisted in config.json.
+  assert.deepEqual(data.persisted, []);
+});
+
 test('target detection limits writable paths to installed tools', () => {
   const data = runFixture('target-detection.mjs');
   assert.deepEqual(data.installedIds, ['claude', 'codex']);
@@ -142,7 +177,7 @@ test('settings persist install/cache defaults and symlink mode drives installs',
   const data = runFixture('settings.mjs');
   assert.equal(data.initial.installMode, 'copy');
   assert.equal(data.initial.cacheTTL, data.defaultCacheTTL);
-  assert.deepEqual(data.saved, { installMode: 'link', cacheTTL: 3600, sourceConcurrency: 2 });
+  assert.deepEqual(data.saved, { installMode: 'link', cacheTTL: 3600, sourceConcurrency: 2, disabledTools: [] });
   assert.equal(data.clamped.cacheTTL, 0);
   assert.equal(data.clamped.sourceConcurrency, 8);
   assert.equal(data.duration, '1h');

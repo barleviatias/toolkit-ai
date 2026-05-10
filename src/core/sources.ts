@@ -319,7 +319,8 @@ function findSkillDirs(dir: string): string[] {
   return results;
 }
 
-function findAgentFiles(dir: string): string[] {
+/** Recursively collect every file in `dir` (skipping SKIP_DIRS and dotfolders) whose name ends with `suffix`. */
+function walkFilesBySuffix(dir: string, suffix: string): string[] {
   const results: string[] = [];
 
   function walk(current: string) {
@@ -327,7 +328,7 @@ function findAgentFiles(dir: string): string[] {
     try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
 
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.agent.md')) {
+      if (entry.isFile() && entry.name.endsWith(suffix)) {
         results.push(path.join(current, entry.name));
       } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
         walk(path.join(current, entry.name));
@@ -338,6 +339,8 @@ function findAgentFiles(dir: string): string[] {
   walk(dir);
   return results;
 }
+
+const findAgentFiles = (dir: string): string[] => walkFilesBySuffix(dir, '.agent.md');
 
 function findMcpFiles(dir: string): string[] {
   const results: string[] = [];
@@ -404,6 +407,24 @@ function scanSourceAgents(source: Source): CatalogEntry[] {
       description: meta.description || '',
       hash: hashFile(agentFile),
       path: path.relative(cacheDir, agentFile),
+      source: source.name,
+    };
+  }));
+}
+
+const findCommandFiles = (dir: string): string[] => walkFilesBySuffix(dir, '.prompt.md');
+
+function scanSourceCommands(source: Source): CatalogEntry[] {
+  const cacheDir = getCacheDir(source);
+  if (!fs.existsSync(cacheDir)) return [];
+
+  return dedupeByName(findCommandFiles(cacheDir).map(commandFile => {
+    const meta = parseFrontmatter(fs.readFileSync(commandFile, 'utf8'));
+    return {
+      name: meta.name || path.basename(commandFile, '.prompt.md'),
+      description: meta.description || '',
+      hash: hashFile(commandFile),
+      path: path.relative(cacheDir, commandFile),
       source: source.name,
     };
   }));
@@ -530,6 +551,7 @@ export interface ExternalResources {
   agents: CatalogEntry[];
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
+  commands: CatalogEntry[];
   warnings: SourceLoadWarning[];
 }
 
@@ -540,12 +562,13 @@ export interface SourceLoadWarning {
 }
 
 /** Build a unified catalog from discovered external resources. */
-export function buildCatalog(resources: ExternalResources): { skills: CatalogEntry[]; agents: CatalogEntry[]; mcps: CatalogEntry[]; bundles: CatalogEntry[] } {
+export function buildCatalog(resources: ExternalResources): { skills: CatalogEntry[]; agents: CatalogEntry[]; mcps: CatalogEntry[]; bundles: CatalogEntry[]; commands: CatalogEntry[] } {
   return {
     skills: resources.skills,
     agents: resources.agents,
     mcps: resources.mcps,
     bundles: resources.bundles,
+    commands: resources.commands,
   };
 }
 
@@ -553,7 +576,7 @@ export function buildCatalog(resources: ExternalResources): { skills: CatalogEnt
 export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
   const settings = loadSettings();
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
@@ -576,6 +599,7 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
       result.agents.push(...scanSourceAgents(source));
       result.mcps.push(...scanSourceMcps(source));
       result.bundles.push(...scanSourceBundles(source));
+      result.commands.push(...scanSourceCommands(source));
 
       if (fetchError) {
         result.warnings.push({
@@ -605,12 +629,13 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
  * whether to fetch.
  */
 export function scanCachedSource(source: Source): ExternalResources {
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
   try {
     result.skills.push(...scanSourceSkills(source));
     result.agents.push(...scanSourceAgents(source));
     result.mcps.push(...scanSourceMcps(source));
     result.bundles.push(...scanSourceBundles(source));
+    result.commands.push(...scanSourceCommands(source));
   } catch (e: unknown) {
     result.warnings.push({
       name: source.name,
@@ -640,7 +665,7 @@ export async function fetchAndScanSource(source: Source, ttl: number, forceRefre
 }
 
 async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefresh: boolean): Promise<ExternalResources> {
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
   let fetchError: string | null = null;
   let usedCacheAfterFetchFailure = false;
 
@@ -658,6 +683,7 @@ async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefres
     result.agents.push(...scanSourceAgents(source));
     result.mcps.push(...scanSourceMcps(source));
     result.bundles.push(...scanSourceBundles(source));
+    result.commands.push(...scanSourceCommands(source));
 
     if (fetchError) {
       result.warnings.push({
@@ -703,7 +729,7 @@ async function mapWithConcurrency<T, R>(
 export async function fetchExternalResourcesAsync(forceRefresh = false): Promise<ExternalResources> {
   const config = loadSources();
   const settings = loadSettings();
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
   const targets = config.sources.filter(source =>
     (source.type === 'github' || source.type === 'bitbucket') && isSourceEnabled(source)
   );
@@ -718,6 +744,7 @@ export async function fetchExternalResourcesAsync(forceRefresh = false): Promise
     result.agents.push(...resources.agents);
     result.mcps.push(...resources.mcps);
     result.bundles.push(...resources.bundles);
+    result.commands.push(...resources.commands);
     result.warnings.push(...resources.warnings);
   }
 

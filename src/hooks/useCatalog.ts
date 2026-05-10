@@ -25,7 +25,7 @@ import type { ItemData } from '../components/ItemRow.js';
 // to persist across renders and avoids expensive filesystem I/O on every state change.
 const scanCache = new Map<string, { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string }>();
 
-const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
 
 export type SourceFetchStatus = 'idle' | 'fetching' | 'ready' | 'error';
 
@@ -40,7 +40,7 @@ function mergePerSource(
   // Stable order: iterate sources by their config order (matches the Sources tab),
   // then keep the per-source dedupe ordering inside each. Without this, items
   // shift under the user's cursor when sources stream in out-of-order.
-  const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], warnings: [] };
+  const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
   for (const name of sourceOrder) {
     const r = perSource.get(name);
     if (!r) continue;
@@ -48,6 +48,7 @@ function mergePerSource(
     merged.agents.push(...r.agents);
     merged.mcps.push(...r.mcps);
     merged.bundles.push(...r.bundles);
+    merged.commands.push(...r.commands);
     merged.warnings.push(...r.warnings);
   }
   return merged;
@@ -87,7 +88,7 @@ export function useCatalog() {
       result = await fetchAndScanSource(source, settings.cacheTTL, forceRefresh);
     } catch (e: unknown) {
       result = {
-        skills: [], agents: [], mcps: [], bundles: [],
+        skills: [], agents: [], mcps: [], bundles: [], commands: [],
         warnings: [{
           name: source.name,
           message: e instanceof Error ? e.message : String(e),
@@ -242,6 +243,7 @@ export function useCatalog() {
       agent: getWritableTargetLabelsForType('agent'),
       mcp: getWritableTargetLabelsForType('mcp'),
       bundle: getWritableTargetLabelsForType('bundle'),
+      command: getWritableTargetLabelsForType('command'),
     };
 
     function scanItem(type: string, entry: CatalogEntry): { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string } {
@@ -368,6 +370,7 @@ export function useCatalog() {
     for (const a of catalog.agents) items.push(toItem('agent', a));
     for (const m of catalog.mcps) items.push(toItem('mcp', m));
     for (const b of catalog.bundles) items.push(toItem('bundle', b));
+    for (const c of catalog.commands) items.push(toItem('command', c));
 
     return items;
   }, [catalog, lock, installedState]);

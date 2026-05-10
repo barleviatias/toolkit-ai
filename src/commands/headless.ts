@@ -1,13 +1,13 @@
 import path from 'path';
 import type { Catalog, InstallResult } from '../types.js';
 import { loadMcpConfig } from '../core/catalog.js';
-import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand } from '../core/remover.js';
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
-import { CACHE_DIR, CONFIG_FILE, TOOLKIT_VERSION_LABEL, detectToolInstallations } from '../core/platform.js';
+import { CACHE_DIR, CONFIG_FILE, TOOLKIT_VERSION_LABEL, KNOWN_TOOL_IDS, detectToolInstallations, getDisabledToolIds, type ToolId } from '../core/platform.js';
 import { formatDuration, loadSettings, updateSettings } from '../core/settings.js';
 import { RESET, BOLD, DIM, GREEN, RED, YELLOW } from '../core/ansi.js';
 
@@ -104,6 +104,10 @@ function listAll(catalog: Catalog) {
   for (const b of catalog.bundles)
     console.log(`  ${b.name.padEnd(28)} ${DIM}${b.description}${RESET}`);
 
+  console.log(`\n${BOLD}=== Commands ===${RESET}`);
+  for (const c of catalog.commands)
+    console.log(`  ${c.name.padEnd(28)} ${DIM}${c.description}${RESET}`);
+
   console.log();
 }
 
@@ -123,15 +127,18 @@ function showTargets() {
   console.log();
   console.log(`${BOLD}Detected target apps${RESET}\n`);
 
+  const disabled = getDisabledToolIds();
   for (const tool of detectToolInstallations()) {
-    const status = tool.installed ? `${GREEN}installed${RESET}` : `${DIM}not detected${RESET}`;
+    const detectedNote = tool.installed ? `${GREEN}installed${RESET}` : `${DIM}not detected${RESET}`;
+    const userNote = disabled.has(tool.id) ? `${YELLOW} · user-disabled${RESET}` : '';
     const capabilities = [
       tool.supportsSkills ? 'skills' : null,
       tool.supportsAgents ? 'agents' : null,
       tool.supportsMcps ? 'MCPs' : null,
+      tool.supportsCommands ? 'commands' : null,
     ].filter((value): value is string => value !== null).join(', ');
 
-    console.log(`  ${tool.label.padEnd(16)} ${status} ${DIM}${capabilities}${RESET}`);
+    console.log(`  ${tool.label.padEnd(16)} ${detectedNote}${userNote} ${DIM}${capabilities}${RESET}`);
     if (tool.installed) {
       for (const reason of tool.reasons) console.log(`    ${DIM}- ${reason}${RESET}`);
     }
@@ -160,10 +167,40 @@ function showSettings() {
   console.log(`  Install mode        ${BOLD}${settings.installMode}${RESET}`);
   console.log(`  Source cache TTL    ${BOLD}${formatDuration(settings.cacheTTL)}${RESET} ${DIM}(${settings.cacheTTL}s)${RESET}`);
   console.log(`  Source concurrency  ${BOLD}${settings.sourceConcurrency}${RESET}`);
+  const disabled = settings.disabledTools.length > 0 ? settings.disabledTools.join(', ') : `${DIM}none${RESET}`;
+  console.log(`  Disabled providers  ${BOLD}${disabled}${RESET}`);
   console.log();
   console.log(`  ${DIM}Config: ${CONFIG_FILE}${RESET}`);
   console.log(`  ${DIM}Cache:  ${CACHE_DIR}${RESET}`);
   console.log();
+}
+
+function showProviderToggles() {
+  const disabled = getDisabledToolIds();
+  showLogo();
+  console.log();
+  console.log(`${BOLD}Providers${RESET} ${DIM}(toolkit settings tool <id> on|off)${RESET}\n`);
+  for (const tool of detectToolInstallations()) {
+    const detected = tool.installed ? `${GREEN}detected${RESET}` : `${DIM}not detected${RESET}`;
+    const userState = disabled.has(tool.id)
+      ? `${YELLOW}disabled${RESET}`
+      : tool.installed ? `${GREEN}enabled${RESET}` : `${DIM}—${RESET}`;
+    console.log(`  ${tool.id.padEnd(8)} ${tool.label.padEnd(16)} ${detected.padEnd(22)} ${userState}`);
+  }
+  console.log();
+}
+
+function setProviderEnabled(id: ToolId, enabled: boolean): void {
+  const known = new Set<string>(KNOWN_TOOL_IDS);
+  if (!known.has(id)) {
+    console.log(`  ${RED}[!]${RESET} Unknown provider: ${BOLD}${id}${RESET}. Known: ${KNOWN_TOOL_IDS.join(', ')}`);
+    return;
+  }
+  const current = new Set(loadSettings().disabledTools);
+  if (enabled) current.delete(id); else current.add(id);
+  const next = updateSettings({ disabledTools: Array.from(current).sort() as ToolId[] });
+  const state = next.disabledTools.includes(id) ? `${YELLOW}disabled${RESET}` : `${GREEN}enabled${RESET}`;
+  console.log(`  ${GREEN}[OK]${RESET} Provider ${BOLD}${id}${RESET} is now ${state}.`);
 }
 
 function runSettingsCommand(args: string[]): boolean {
@@ -202,7 +239,17 @@ function runSettingsCommand(args: string[]): boolean {
     }
   }
 
-  console.log(`Usage: ai-toolkit settings [show|install-mode copy|install-mode link|symlink on|symlink off|cache 24h|concurrency 4]`);
+  if (args[0] === 'tools' || args[0] === 'providers') {
+    showProviderToggles();
+    return true;
+  }
+
+  if ((args[0] === 'tool' || args[0] === 'provider') && args[1] && (args[2] === 'on' || args[2] === 'off')) {
+    setProviderEnabled(args[1] as ToolId, args[2] === 'on');
+    return true;
+  }
+
+  console.log(`Usage: ai-toolkit settings [show|install-mode copy|install-mode link|symlink on|symlink off|cache 24h|concurrency 4|tools|tool <id> on|tool <id> off]`);
   return true;
 }
 
@@ -214,7 +261,7 @@ ${BOLD}Interactive:${RESET}
   ${DIM}(no args)${RESET}                       Launch TUI (browse, install, remove, update)
 
 ${BOLD}Scaffold:${RESET}
-  init [dir]                        Create a boilerplate skill repo
+  init [dir]                        Scaffold a starter toolkit pack (toolkit-usage skill + sample command + bundle)
 
 ${BOLD}Security:${RESET}
   scan                              Scan all available items for threats
@@ -232,12 +279,14 @@ ${BOLD}Install:${RESET}
   agent <name>                    Install an agent
   mcp <name>                      Register an MCP server
   bundle <name>                   Install a bundle
+  command <name>                  Install a slash command (prompt)
 
 ${BOLD}Remove:${RESET}
   remove skill <name>             Remove a skill
   remove agent <name>             Remove an agent
   remove mcp <name>               Deregister an MCP server
   remove bundle <name>            Remove a bundle
+  remove command <name>           Remove a slash command
 
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
@@ -255,6 +304,8 @@ ${BOLD}Settings:${RESET}
   settings install-mode link      Symlink skills/agents to the source cache
   settings cache 24h              Set source cache duration
   settings concurrency 4          Set parallel source refresh workers
+  settings tools                  List providers and per-provider on/off state
+  settings tool <id> on|off       Enable or disable a provider (claude, cursor, vscode, codex, copilot, amp)
 
 ${BOLD}Flags:${RESET}
   --verbose, -v                   Print detailed logs
@@ -490,17 +541,18 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   // Subcommand style: toolkit skill <name> / toolkit remove skill <name>
   // Also supports legacy --flag style for backwards compat
   const subArgs = isRemove ? args.slice(args.indexOf('remove') + 1) : args;
-  const skillName  = option(subArgs, '--skill')  || (subArgs[0] === 'skill'  && subArgs[1] ? subArgs[1] : null);
-  const agentName  = option(subArgs, '--agent')  || (subArgs[0] === 'agent'  && subArgs[1] ? subArgs[1] : null);
-  const mcpName    = option(subArgs, '--mcp')    || (subArgs[0] === 'mcp'    && subArgs[1] ? subArgs[1] : null);
-  const bundleName = option(subArgs, '--bundle') || (subArgs[0] === 'bundle' && subArgs[1] ? subArgs[1] : null);
+  const skillName   = option(subArgs, '--skill')   || (subArgs[0] === 'skill'   && subArgs[1] ? subArgs[1] : null);
+  const agentName   = option(subArgs, '--agent')   || (subArgs[0] === 'agent'   && subArgs[1] ? subArgs[1] : null);
+  const mcpName     = option(subArgs, '--mcp')     || (subArgs[0] === 'mcp'     && subArgs[1] ? subArgs[1] : null);
+  const bundleName  = option(subArgs, '--bundle')  || (subArgs[0] === 'bundle'  && subArgs[1] ? subArgs[1] : null);
+  const commandName = option(subArgs, '--command') || (subArgs[0] === 'command' && subArgs[1] ? subArgs[1] : null);
 
   // Source refresh — re-fetch all external sources
   if (isRefresh) {
     const sources = loadSources();
     console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
     const resources = fetchExternalResources(true);
-    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles`);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles, ${resources.commands.length} commands`);
     for (const warning of resources.warnings) {
       const cacheNote = warning.usedCache ? ' (using cached data)' : '';
       console.log(`  ${YELLOW}[!]${RESET} ${warning.name}${cacheNote}: ${warning.message}`);
@@ -511,7 +563,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||
-    skillName || agentName || mcpName || bundleName;
+    skillName || agentName || mcpName || bundleName || commandName;
 
   if (!needsCatalog) return false; // not a headless command
 
@@ -547,10 +599,11 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Direct remove
   if (isRemove) {
-    if (skillName)       removeSkill(catalog, skillName);
-    else if (agentName)  removeAgent(catalog, agentName);
-    else if (mcpName)    removeMcp(catalog, mcpName);
-    else if (bundleName) removeBundle(catalog, bundleName);
+    if (skillName)        removeSkill(catalog, skillName);
+    else if (agentName)   removeAgent(catalog, agentName);
+    else if (mcpName)     removeMcp(catalog, mcpName);
+    else if (bundleName)  removeBundle(catalog, bundleName);
+    else if (commandName) removeCommand(catalog, commandName);
     else return false; // interactive remove -> TUI
     return true;
   }
@@ -559,10 +612,11 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   const results: InstallResult[] = [];
   const opts: { force: boolean; strict: boolean; link?: boolean } = { force: isForce, strict: isStrict };
   if (isLink) opts.link = true;
-  if (skillName)       results.push(installSkill(catalog, skillName, opts));
-  else if (agentName)  results.push(installAgent(catalog, agentName, opts));
-  else if (mcpName)    results.push(installMcp(catalog, mcpName, opts));
-  else if (bundleName) results.push(...installBundle(catalog, bundleName, opts));
+  if (skillName)        results.push(installSkill(catalog, skillName, opts));
+  else if (agentName)   results.push(installAgent(catalog, agentName, opts));
+  else if (mcpName)     results.push(installMcp(catalog, mcpName, opts));
+  else if (bundleName)  results.push(...installBundle(catalog, bundleName, opts));
+  else if (commandName) results.push(installCommand(catalog, commandName, opts));
 
   if (results.length > 0) {
     printSummary(results);

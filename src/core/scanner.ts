@@ -279,6 +279,45 @@ export function scanAgentFile(agentPath: string, name: string, source: string, o
   };
 }
 
+/** Scan a single command (slash prompt) file for security issues. Same shape as scanAgentFile. */
+export function scanCommandFile(commandPath: string, name: string, source: string, opts: ScanOptions = {}): ScanReport {
+  const findings: ScanFinding[] = [];
+
+  if (!fs.existsSync(commandPath)) {
+    return { item: `command:${name}`, source, findings, passed: true, scannedAt: new Date().toISOString() };
+  }
+
+  const stat = fs.statSync(commandPath);
+  if (stat.size > MAX_FILE_SIZE) {
+    findings.push({
+      rule: 'large-file',
+      severity: 'warn',
+      message: `Command file exceeds ${MAX_FILE_SIZE / 1024}KB (${Math.round(stat.size / 1024)}KB)`,
+    });
+  }
+
+  try {
+    const content = fs.readFileSync(commandPath, 'utf-8');
+    scanTextContent(content, path.basename(commandPath), findings);
+  } catch {
+    // skip unreadable
+  }
+
+  if (opts.trusted) {
+    for (const f of findings) {
+      if (f.severity === 'block') f.severity = 'warn';
+    }
+  }
+
+  return {
+    item: `command:${name}`,
+    source,
+    findings,
+    passed: !findings.some(f => f.severity === 'block'),
+    scannedAt: new Date().toISOString(),
+  };
+}
+
 export interface McpConfigInput {
   name: string;
   type?: string;

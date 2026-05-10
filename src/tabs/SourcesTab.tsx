@@ -10,8 +10,8 @@ import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources } from '../core/sources.js';
 import type { Source } from '../types.js';
-import { installSkill, installAgent, installMcp, installBundle } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeCommand } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 import type { SourceFetchStatus } from '../hooks/useCatalog.js';
@@ -196,6 +196,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       else if (type === 'agent') installAgent(catalog, name, { force: false }, () => {});
       else if (type === 'mcp') installMcp(catalog, name, { force: false }, () => {});
       else if (type === 'bundle') installBundle(catalog, name, { force: false }, () => {});
+      else if (type === 'command') installCommand(catalog, name, { force: false }, () => {});
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -234,9 +235,10 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       items: [`${type} ${name}`],
       onConfirm: () => {
         try {
-          if (type === 'skill')       removeSkill(catalog, name, () => {});
-          else if (type === 'agent')  removeAgent(catalog, name, () => {});
-          else if (type === 'mcp')    removeMcp(catalog, name, () => {});
+          if (type === 'skill')        removeSkill(catalog, name, () => {});
+          else if (type === 'agent')   removeAgent(catalog, name, () => {});
+          else if (type === 'mcp')     removeMcp(catalog, name, () => {});
+          else if (type === 'command') removeCommand(catalog, name, () => {});
           setMessage(`Removed ${type} ${name}`);
           onRefresh();
         } catch (e: unknown) {

@@ -14,6 +14,7 @@ import {
   HOME,
   SOURCES_FILE,
   detectToolInstallations,
+  type ToolId,
   type ToolInstallation,
 } from '../core/platform.js';
 
@@ -58,6 +59,7 @@ function capabilities(tool: ToolInstallation): string {
     tool.supportsSkills ? 'skills' : null,
     tool.supportsAgents ? 'agents' : null,
     tool.supportsMcps ? 'MCPs' : null,
+    tool.supportsCommands ? 'commands' : null,
   ].filter((value): value is string => value !== null).join(', ');
 }
 
@@ -89,6 +91,22 @@ export const SettingsTab: React.FC = () => {
   ], [settings]);
 
   const installedTargets = useMemo(() => targets.filter(target => target.installed), [targets]);
+  const disabledSet = useMemo(() => new Set(settings.disabledTools), [settings.disabledTools]);
+  // Cursor walks settings rows first, then provider rows. Index range:
+  //   [0, rows.length)                                  → settings rows
+  //   [rows.length, rows.length + targets.length)       → provider rows
+  const totalSelectable = rows.length + targets.length;
+  const providerIndex = cursor - rows.length;
+  const activeProvider: ToolInstallation | null = providerIndex >= 0 ? targets[providerIndex] ?? null : null;
+
+  const toggleProvider = useCallback((tool: ToolInstallation) => {
+    const current = new Set(settings.disabledTools);
+    if (current.has(tool.id)) current.delete(tool.id); else current.add(tool.id);
+    const next = updateSettings({ disabledTools: Array.from(current).sort() as ToolId[] });
+    setSettings(next);
+    const state = next.disabledTools.includes(tool.id) ? 'disabled' : 'enabled';
+    setMessage(`${tool.label} is now ${state}`);
+  }, [settings.disabledTools]);
 
   const persist = useCallback((patch: Partial<ToolkitSettings>, nextMessage: string) => {
     const next = updateSettings(patch);
@@ -120,13 +138,16 @@ export const SettingsTab: React.FC = () => {
     if (key.upArrow) {
       setCursor(current => Math.max(0, current - 1));
     } else if (key.downArrow) {
-      setCursor(current => Math.min(rows.length - 1, current + 1));
+      setCursor(current => Math.min(totalSelectable - 1, current + 1));
     } else if (key.return || input === ' ') {
-      updateActiveRow(1);
+      if (activeProvider) toggleProvider(activeProvider);
+      else updateActiveRow(1);
     } else if (input === '+' || input === '=') {
-      updateActiveRow(1);
+      if (activeProvider) toggleProvider(activeProvider);
+      else updateActiveRow(1);
     } else if (input === '-') {
-      updateActiveRow(-1);
+      if (activeProvider) toggleProvider(activeProvider);
+      else updateActiveRow(-1);
     } else if (input === 'l') {
       const nextMode = settings.installMode === 'link' ? 'copy' : 'link';
       persist({ installMode: nextMode }, `Install mode set to ${nextMode === 'link' ? 'symlink' : 'copy'}`);
@@ -165,15 +186,24 @@ export const SettingsTab: React.FC = () => {
       </Box>
 
       <Box flexDirection="column">
-        <Text bold>Providers ({installedTargets.length}/{targets.length})</Text>
-        {targets.map(target => (
-          <Box key={target.id} marginLeft={1}>
-            <Text color={target.installed ? 'green' : 'gray'}>{target.installed ? '● ' : '○ '}</Text>
-            <Text bold={target.installed}>{target.label.padEnd(18)}</Text>
-            <Text dimColor>{capabilities(target)}</Text>
-            {!target.installed && <Text dimColor> · not detected</Text>}
-          </Box>
-        ))}
+        <Text bold>Providers ({installedTargets.length - settings.disabledTools.filter(id => installedTargets.some(t => t.id === id)).length}/{installedTargets.length} active)</Text>
+        {targets.map((target, index) => {
+          const rowIndex = rows.length + index;
+          const isActive = cursor === rowIndex;
+          const isDisabledByUser = disabledSet.has(target.id);
+          const dot = isDisabledByUser ? '○ ' : target.installed ? '● ' : '○ ';
+          const dotColor = isDisabledByUser ? 'yellow' : target.installed ? 'green' : 'gray';
+          return (
+            <Box key={target.id} marginLeft={1}>
+              <Text color={isActive ? 'cyan' : undefined}>{isActive ? '❯ ' : '  '}</Text>
+              <Text color={dotColor}>{dot}</Text>
+              <Text bold={isActive || (target.installed && !isDisabledByUser)}>{target.label.padEnd(18)}</Text>
+              <Text dimColor>{capabilities(target)}</Text>
+              {!target.installed && <Text dimColor> · not detected</Text>}
+              {target.installed && isDisabledByUser && <Text color="yellow"> · disabled</Text>}
+            </Box>
+          );
+        })}
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
@@ -186,7 +216,7 @@ export const SettingsTab: React.FC = () => {
         <Text color="green">  {message}</Text>
       )}
 
-      <StatusBar hints="Enter cycle · +/- adjust · l link · c cache · p parallel · d defaults · r detect · Tab switch" />
+      <StatusBar hints="↑/↓ move · Enter/Space toggle · l link · c cache · p parallel · d defaults · r detect · Tab switch" />
     </Box>
   );
 };

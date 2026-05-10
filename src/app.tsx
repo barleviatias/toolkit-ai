@@ -16,6 +16,7 @@ import {
   installAgent,
   installMcp,
   installBundle,
+  installCommand,
 } from './core/installer.js';
 import { updateAll } from './core/updater.js';
 import { detectToolInstallations } from './core/platform.js';
@@ -68,10 +69,11 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
 
   const handleUpdateItem = useCallback((item: ItemData) => {
     const { type, name } = item;
-    if (type === 'skill')       installSkill(catalog, name, { force: true }, () => {});
-    else if (type === 'agent')  installAgent(catalog, name, { force: true }, () => {});
-    else if (type === 'mcp')    installMcp(catalog, name, { force: true }, () => {});
-    else if (type === 'bundle') installBundle(catalog, name, { force: true }, () => {});
+    if (type === 'skill')        installSkill(catalog, name, { force: true }, () => {});
+    else if (type === 'agent')   installAgent(catalog, name, { force: true }, () => {});
+    else if (type === 'mcp')     installMcp(catalog, name, { force: true }, () => {});
+    else if (type === 'bundle')  installBundle(catalog, name, { force: true }, () => {});
+    else if (type === 'command') installCommand(catalog, name, { force: true }, () => {});
     else throw new Error(`${type} ${name} cannot be updated`);
     refreshLock();
   }, [catalog, refreshLock]);

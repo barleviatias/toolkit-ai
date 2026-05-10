@@ -27,10 +27,11 @@ export interface ItemData {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  skill:  'magenta',
-  agent:  'blue',
-  mcp:    'yellow',
-  bundle: 'cyan',
+  skill:   'magenta',
+  agent:   'blue',
+  mcp:     'yellow',
+  bundle:  'cyan',
+  command: 'green',
 };
 
 interface ItemRowProps {
@@ -55,7 +56,7 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
       <Box>
         <Text color={isActive ? 'cyan' : undefined}>{cursor}</Text>
         <Text color={checkColor}>{check}</Text>
-        <Text color={typeColor} bold>{item.type.toUpperCase().padEnd(6)} </Text>
+        <Text color={typeColor} bold>{item.type.toUpperCase().padEnd(7)} </Text>
         <Text bold={isActive}>{item.name}</Text>
         <Text dimColor> · {item.source}</Text>
         {item.scanStatus === 'block' && <Text color="red"> ⚠ suspicious</Text>}

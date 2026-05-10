@@ -22,6 +22,36 @@ const AMP_SKILL_TARGET = path.join(AMP_HOME, 'skills');
 const CLAUDE_AGENT_TARGET = path.join(CLAUDE_HOME, 'agents');
 const COPILOT_AGENT_TARGET = path.join(COPILOT_HOME, 'agents');
 
+const CLAUDE_COMMAND_TARGET = path.join(CLAUDE_HOME, 'commands');
+const CURSOR_COMMAND_TARGET = path.join(CURSOR_HOME, 'commands');
+
+/**
+ * VS Code (and Insiders) reads user-level prompts from a per-flavor user
+ * directory under the OS-specific config path. Each flavor + base contributes
+ * one writable target.
+ */
+function vscodePromptDirs(): string[] {
+  const flavors = ['Code', 'Code - Insiders'];
+  const bases: string[] = [];
+  if (process.platform === 'darwin') {
+    bases.push(path.join(HOME, 'Library', 'Application Support'));
+  } else if (process.platform === 'win32') {
+    if (process.env.APPDATA) bases.push(process.env.APPDATA);
+  } else {
+    bases.push(path.join(HOME, '.config'));
+  }
+  return bases.flatMap(base => flavors.map(f => path.join(base, f, 'User', 'prompts')));
+}
+
+const VSCODE_PROMPT_TARGETS = vscodePromptDirs();
+
+export type CommandFormat = 'verbatim' | 'vscode-prompt';
+
+export interface CommandTarget {
+  dir: string;
+  format: CommandFormat;
+}
+
 export const SKILL_TARGETS = [
   CLAUDE_SKILL_TARGET,
   COPILOT_SKILL_TARGET,
@@ -36,16 +66,10 @@ export const AGENT_TARGETS = [
 
 export const CODEX_AGENT_TARGET = path.join(CODEX_HOME, 'agents');
 
-// MCP config file paths
-// Local: only written to if the file already exists (tool must be installed)
-// Global: always written to, created if missing
-const LOCAL_MCP_CONFIGS = [
-  path.join(CLAUDE_HOME, 'settings.json'),
-  path.join(VSCODE_HOME, 'mcp.json'),
-  path.join(CURSOR_HOME, 'mcp.json'),
-];
-
 export type ToolId = 'claude' | 'codex' | 'copilot' | 'amp' | 'cursor' | 'vscode';
+
+/** Stable list of tool IDs the toolkit knows how to target. */
+export const KNOWN_TOOL_IDS: readonly ToolId[] = ['claude', 'codex', 'copilot', 'amp', 'cursor', 'vscode'];
 
 interface McpConfigTarget {
   path: string;
@@ -53,6 +77,16 @@ interface McpConfigTarget {
   tool: ToolId;
   createIfDetected: boolean;
 }
+
+// MCP config file paths, tagged by tool so per-provider opt-outs apply
+// uniformly to local and global writes.
+//   Local  (createIfDetected=false): write only if the file already exists.
+//   Global (createIfDetected=true):  write to existing OR create if the tool is detected.
+const LOCAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
+  { path: path.join(CLAUDE_HOME, 'settings.json'), platform: ['darwin', 'linux', 'win32'], tool: 'claude', createIfDetected: false },
+  { path: path.join(VSCODE_HOME, 'mcp.json'),      platform: ['darwin', 'linux', 'win32'], tool: 'vscode', createIfDetected: false },
+  { path: path.join(CURSOR_HOME, 'mcp.json'),      platform: ['darwin', 'linux', 'win32'], tool: 'cursor', createIfDetected: false },
+];
 
 const GLOBAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
   { path: path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'), platform: ['win32'], tool: 'vscode', createIfDetected: true },
@@ -67,7 +101,7 @@ export const GLOBAL_MCP_CONFIG_FILES = GLOBAL_MCP_CONFIGS_ALL
   .filter(c => c.platform.includes(process.platform))
   .map(c => c.path);
 
-export const LOCAL_MCP_CONFIG_FILES = LOCAL_MCP_CONFIGS;
+export const LOCAL_MCP_CONFIG_FILES = LOCAL_MCP_CONFIGS_ALL.map(c => c.path);
 export const MCP_CONFIG_FILES = [...LOCAL_MCP_CONFIG_FILES, ...GLOBAL_MCP_CONFIG_FILES];
 
 export interface ToolInstallation {
@@ -78,6 +112,7 @@ export interface ToolInstallation {
   supportsSkills: boolean;
   supportsAgents: boolean;
   supportsMcps: boolean;
+  supportsCommands: boolean;
 }
 
 interface ToolDefinition {
@@ -88,6 +123,7 @@ interface ToolDefinition {
   skillTarget?: string;
   agentTarget?: string;
   mcpConfigTargets: string[];
+  commandTargets?: CommandTarget[];
 }
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -99,6 +135,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     skillTarget: CLAUDE_SKILL_TARGET,
     agentTarget: CLAUDE_AGENT_TARGET,
     mcpConfigTargets: [path.join(CLAUDE_HOME, 'settings.json'), CLAUDE_GLOBAL_CONFIG],
+    commandTargets: [{ dir: CLAUDE_COMMAND_TARGET, format: 'verbatim' }],
   },
   {
     id: 'codex',
@@ -131,13 +168,23 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     command: 'cursor',
     indicators: [CURSOR_HOME, path.join(CURSOR_HOME, 'mcp.json')],
     mcpConfigTargets: [path.join(CURSOR_HOME, 'mcp.json')],
+    commandTargets: [{ dir: CURSOR_COMMAND_TARGET, format: 'verbatim' }],
   },
   {
     id: 'vscode',
     label: 'VS Code',
     command: 'code',
-    indicators: [VSCODE_HOME, path.join(VSCODE_HOME, 'mcp.json'), path.join(HOME, 'AppData', 'Roaming', 'Code')],
+    indicators: [
+      VSCODE_HOME,
+      path.join(VSCODE_HOME, 'mcp.json'),
+      path.join(HOME, 'AppData', 'Roaming', 'Code'),
+      // VS Code (and Insiders) write user settings/prompts to platform-specific
+      // dirs even on machines that never created ~/.vscode (e.g. Insiders-only
+      // setups). The parent dir of any prompt target is enough signal.
+      ...VSCODE_PROMPT_TARGETS.map(dir => path.dirname(dir)),
+    ],
     mcpConfigTargets: [path.join(VSCODE_HOME, 'mcp.json'), path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json')],
+    commandTargets: VSCODE_PROMPT_TARGETS.map(dir => ({ dir, format: 'vscode-prompt' as CommandFormat })),
   },
 ];
 
@@ -199,6 +246,7 @@ export function detectToolInstallations(): ToolInstallation[] {
       supportsSkills: !!definition.skillTarget,
       supportsAgents: !!definition.agentTarget,
       supportsMcps: definition.mcpConfigTargets.length > 0,
+      supportsCommands: !!definition.commandTargets && definition.commandTargets.length > 0,
     };
   });
 }
@@ -207,29 +255,88 @@ function detectedToolIds(): Set<ToolId> {
   return new Set(detectToolInstallations().filter(tool => tool.installed).map(tool => tool.id));
 }
 
-/** Return skill install directories for tools detected on this machine. */
+// Read disabledTools straight off disk to avoid a cycle with settings.ts
+// (which already imports CONFIG_FILE/KNOWN_TOOL_IDS from this module).
+// Cached by config.json mtime so repeated calls during one render don't
+// re-parse — useCatalog's allItems memo and getInstalledState's per-command
+// loop would otherwise hit the file N+ times.
+let disabledToolsCache: { mtimeMs: number; ids: Set<ToolId> } | null = null;
+
+function disabledToolIds(): Set<ToolId> {
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(CONFIG_FILE).mtimeMs;
+  } catch {
+    disabledToolsCache = null;
+    return new Set();
+  }
+  if (disabledToolsCache && disabledToolsCache.mtimeMs === mtimeMs) {
+    return disabledToolsCache.ids;
+  }
+  let ids: Set<ToolId>;
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as unknown;
+    const list = (raw as { disabledTools?: unknown } | null)?.disabledTools;
+    const known = new Set<string>(KNOWN_TOOL_IDS);
+    ids = Array.isArray(list)
+      ? new Set(list.filter((id): id is ToolId => typeof id === 'string' && known.has(id)))
+      : new Set();
+  } catch {
+    ids = new Set();
+  }
+  disabledToolsCache = { mtimeMs, ids };
+  return ids;
+}
+
+/** Read the user's per-provider opt-out list (UI surfaces a "disabled" badge from this). */
+export function getDisabledToolIds(): Set<ToolId> {
+  return disabledToolIds();
+}
+
+/** Detected tools minus the user's per-provider opt-outs. */
+function selectedToolIds(): Set<ToolId> {
+  const detected = detectedToolIds();
+  const disabled = disabledToolIds();
+  if (disabled.size === 0) return detected;
+  return new Set([...detected].filter(id => !disabled.has(id)));
+}
+
+/** Return skill install directories for tools detected and not opted out. */
 export function getWritableSkillTargets(): string[] {
-  const installed = detectedToolIds();
+  const selected = selectedToolIds();
   return TOOL_DEFINITIONS
-    .filter(tool => tool.skillTarget && installed.has(tool.id))
+    .filter(tool => tool.skillTarget && selected.has(tool.id))
     .map(tool => tool.skillTarget as string);
 }
 
-/** Return agent install directories for tools detected on this machine. */
+/** Return agent install directories for tools detected and not opted out. */
 export function getWritableAgentTargets(): string[] {
-  const installed = detectedToolIds();
+  const selected = selectedToolIds();
   return TOOL_DEFINITIONS
-    .filter(tool => tool.agentTarget && installed.has(tool.id))
+    .filter(tool => tool.agentTarget && selected.has(tool.id))
     .map(tool => tool.agentTarget as string);
 }
 
-/** Return MCP config files that should be updated, creating global configs only for detected tools. */
+/** Return command install targets for tools detected and not opted out. */
+export function getWritableCommandTargets(): CommandTarget[] {
+  const selected = selectedToolIds();
+  return TOOL_DEFINITIONS
+    .filter(tool => tool.commandTargets && tool.commandTargets.length > 0 && selected.has(tool.id))
+    .flatMap(tool => tool.commandTargets as CommandTarget[]);
+}
+
+/** Return MCP config files that should be updated, scoped to detected and not-opted-out tools. */
 export function getWritableMcpConfigFiles(): string[] {
-  const installed = detectedToolIds();
-  const localExisting = LOCAL_MCP_CONFIG_FILES.filter(pathExists);
+  const selected = selectedToolIds();
+  const localExisting = LOCAL_MCP_CONFIGS_ALL
+    .filter(target => target.platform.includes(process.platform))
+    .filter(target => selected.has(target.tool))
+    .filter(target => pathExists(target.path))
+    .map(target => target.path);
   const globalWritable = GLOBAL_MCP_CONFIGS_ALL
     .filter(target => target.platform.includes(process.platform))
-    .filter(target => pathExists(target.path) || (target.createIfDetected && installed.has(target.tool)))
+    .filter(target => selected.has(target.tool))
+    .filter(target => pathExists(target.path) || target.createIfDetected)
     .map(target => target.path);
 
   return Array.from(new Set([...localExisting, ...globalWritable]));
@@ -239,14 +346,16 @@ function supportsItemType(tool: ToolInstallation, type: string): boolean {
   if (type === 'skill') return tool.supportsSkills;
   if (type === 'agent') return tool.supportsAgents;
   if (type === 'mcp') return tool.supportsMcps;
-  if (type === 'bundle') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps;
+  if (type === 'command') return tool.supportsCommands;
+  if (type === 'bundle') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps || tool.supportsCommands;
   return false;
 }
 
-/** Return labels for detected target apps that can receive this item type. */
+/** Return labels for detected, not-opted-out target apps that can receive this item type. */
 export function getWritableTargetLabelsForType(type: string): string[] {
+  const disabled = disabledToolIds();
   return detectToolInstallations()
-    .filter(tool => tool.installed && supportsItemType(tool, type))
+    .filter(tool => tool.installed && !disabled.has(tool.id) && supportsItemType(tool, type))
     .map(tool => tool.label);
 }
 
@@ -290,6 +399,15 @@ export function getInstalledTargetLabelsForType(type: string, name: string, item
   if (type === 'mcp') {
     return TOOL_DEFINITIONS
       .filter(tool => tool.mcpConfigTargets.some(configPath => hasMcpInConfig(configPath, name)))
+      .map(tool => tool.label);
+  }
+
+  if (type === 'command') {
+    return TOOL_DEFINITIONS
+      .filter(tool => tool.commandTargets?.some(target => {
+        const filename = target.format === 'vscode-prompt' ? `${name}.prompt.md` : `${name}.md`;
+        return pathExists(path.join(target.dir, filename));
+      }))
       .map(tool => tool.label);
   }
 
