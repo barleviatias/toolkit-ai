@@ -1,6 +1,6 @@
 import path from 'path';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import type { Catalog, CatalogEntry, Source } from '../types.js';
+import type { Catalog, CatalogEntry, LockEntry, Source } from '../types.js';
 import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import {
   isClaudePluginInstalled,
@@ -284,12 +284,12 @@ export function useCatalog() {
     return installedState.installedKeys.has(lockKey);
   }
 
-  // Get installed hash for an item (for update detection)
-  function getInstalledHash(lockKey: string): string | null {
+  // Get installed lock entry for update detection and "last updated" UI.
+  function getInstalledEntry(lockKey: string): LockEntry | null {
     if (installedState.recoveredKeys.has(lockKey)) return null;
-    if (lock.installed[lockKey]) return lock.installed[lockKey].hash;
+    if (lock.installed[lockKey]) return lock.installed[lockKey];
     for (const [k, v] of Object.entries(lock.installed)) {
-      if (k.startsWith('bundle:') && v.items?.[lockKey]) return v.items[lockKey].hash;
+      if ((k.startsWith('bundle:') || k.startsWith('plugin:')) && v.items?.[lockKey]) return v.items[lockKey];
     }
     return null;
   }
@@ -368,7 +368,8 @@ export function useCatalog() {
       const uiKey = makeKey(type, src, entry.name);
       const lockKey = `${type}:${entry.name}`;
       const installed = isInstalled(lockKey);
-      const installedHash = installed ? getInstalledHash(lockKey) : null;
+      const installedEntry = installed ? getInstalledEntry(lockKey) : null;
+      const installedHash = installedEntry?.hash ?? null;
       const hasUpdate = installed && installedHash !== null && installedHash !== entry.hash;
       const { scanStatus, scanSummary } = scanItem(type, entry);
       const installedTargetLabels = installed
@@ -388,6 +389,7 @@ export function useCatalog() {
         scanStatus,
         scanSummary,
         trackedByLock: !installedState.recoveredKeys.has(lockKey),
+        lastUpdatedAt: installedEntry?.installedAt,
         targetLabels: targetLabelsByType[type] || [],
         installedTargetLabels,
       };
@@ -470,12 +472,12 @@ export function useCatalog() {
       return item;
     }
 
+    for (const p of catalog.plugins) items.push(toItem('plugin', p));
+    for (const b of catalog.bundles) items.push(toItem('bundle', b));
     for (const s of catalog.skills) items.push(toItem('skill', s));
     for (const a of catalog.agents) items.push(toItem('agent', a));
     for (const m of catalog.mcps) items.push(toItem('mcp', m));
-    for (const b of catalog.bundles) items.push(toItem('bundle', b));
     for (const c of catalog.commands) items.push(toItem('command', c));
-    for (const p of catalog.plugins) items.push(toItem('plugin', p));
 
     return items;
   }, [catalog, lock, installedState]);

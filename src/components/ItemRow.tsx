@@ -14,6 +14,7 @@ export interface ItemData {
   scanStatus?: 'ok' | 'warn' | 'block';
   scanSummary?: string; // short summary of findings
   trackedByLock?: boolean;
+  lastUpdatedAt?: string;
   targetLabels?: string[];
   installedTargetLabels?: string[];
   /**
@@ -55,11 +56,20 @@ function compactLabels(labels: string[] = []): string {
   return `${labels.slice(0, 3).join(', ')} +${labels.length - 3}`;
 }
 
+function formatDateTime(iso?: string): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) => {
   const cursor = isActive ? '❯ ' : '  ';
   const check = isSelected ? '● ' : '○ ';
   const checkColor = isSelected ? 'green' : 'gray';
   const typeColor = TYPE_COLORS[item.type] || 'white';
+  const lastUpdated = formatDateTime(item.lastUpdatedAt);
 
   return (
     <Box flexDirection="column" marginLeft={0}>
@@ -89,6 +99,9 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         })()}
         {item.installed && (
           <Text color="green">{item.trackedByLock === false ? ' · detected on disk' : ' · installed'}</Text>
+        )}
+        {item.installed && lastUpdated && (
+          <Text dimColor> · updated {lastUpdated}</Text>
         )}
         {item.installed && item.installedTargetLabels && item.installedTargetLabels.length > 0 && (
           <Text dimColor> · in {compactLabels(item.installedTargetLabels)}</Text>
