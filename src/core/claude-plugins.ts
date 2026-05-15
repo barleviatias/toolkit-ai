@@ -373,6 +373,18 @@ function copyPluginTreeScoped(
     ensureDir(path.dirname(dest));
     try { fs.copyFileSync(mcp.absPath, dest); } catch { /* ignore */ }
   }
+
+  // Hooks. The toolkit refuses to write hooks into the user's
+  // ~/.claude/settings.json (no scanner coverage on the command strings yet),
+  // but a Claude/Copilot **plugin** install is different: the hook entries
+  // live inside the plugin's own tree, Claude scopes them to the plugin
+  // lifecycle, and they're trivial to revert by removing the plugin. Copy
+  // the hooks dir verbatim so `hooks/hooks.json` (and any scripts it
+  // references) ride along with the plugin install.
+  const hooksDir = path.join(sourceDir, 'hooks');
+  if (fs.existsSync(hooksDir)) {
+    try { copyDirRecursive(hooksDir, path.join(destDir, 'hooks')); } catch { /* ignore */ }
+  }
 }
 
 export function installCopilotPlugin(
