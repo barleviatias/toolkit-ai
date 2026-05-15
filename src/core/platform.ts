@@ -293,41 +293,74 @@ export function getDisabledToolIds(): Set<ToolId> {
   return disabledToolIds();
 }
 
-/** Detected tools minus the user's per-provider opt-outs. */
-function selectedToolIds(): Set<ToolId> {
-  const detected = detectedToolIds();
-  const disabled = disabledToolIds();
-  if (disabled.size === 0) return detected;
-  return new Set([...detected].filter(id => !disabled.has(id)));
+/** True when this tool is detected on disk AND not opted out via the user's settings. */
+export function isToolSelected(toolId: ToolId): boolean {
+  return selectedToolIds().has(toolId);
 }
 
-/** Return skill install directories for tools detected and not opted out. */
-export function getWritableSkillTargets(): string[] {
-  const selected = selectedToolIds();
+/** Detected tools minus the user's per-provider opt-outs (and any extra exclusions). */
+function selectedToolIds(exclude?: ReadonlySet<ToolId>): Set<ToolId> {
+  const detected = detectedToolIds();
+  const disabled = disabledToolIds();
+  if (disabled.size === 0 && !exclude?.size) return detected;
+  return new Set(
+    [...detected].filter(id => !disabled.has(id) && !exclude?.has(id)),
+  );
+}
+
+/**
+ * Return skill install directories for tools detected and not opted out.
+ * `exclude` skips additional tools — used by the plugin installer to keep
+ * components out of per-user dirs for tools that already get the plugin via
+ * a native registry (Claude Code, GitHub Copilot).
+ */
+export function getWritableSkillTargets(exclude?: ReadonlySet<ToolId>): string[] {
+  const selected = selectedToolIds(exclude);
   return TOOL_DEFINITIONS
     .filter(tool => tool.skillTarget && selected.has(tool.id))
     .map(tool => tool.skillTarget as string);
 }
 
 /** Return agent install directories for tools detected and not opted out. */
-export function getWritableAgentTargets(): string[] {
-  const selected = selectedToolIds();
+export function getWritableAgentTargets(exclude?: ReadonlySet<ToolId>): string[] {
+  const selected = selectedToolIds(exclude);
   return TOOL_DEFINITIONS
     .filter(tool => tool.agentTarget && selected.has(tool.id))
     .map(tool => tool.agentTarget as string);
 }
 
 /** Return command install targets for tools detected and not opted out. */
-export function getWritableCommandTargets(): CommandTarget[] {
-  const selected = selectedToolIds();
+export function getWritableCommandTargets(exclude?: ReadonlySet<ToolId>): CommandTarget[] {
+  const selected = selectedToolIds(exclude);
   return TOOL_DEFINITIONS
     .filter(tool => tool.commandTargets && tool.commandTargets.length > 0 && selected.has(tool.id))
     .flatMap(tool => tool.commandTargets as CommandTarget[]);
 }
 
+/**
+ * Per-tool install targets for a specific tool ID. Used by the plugin
+ * installer to purge stale per-user files left by pre-exclusion installs:
+ * the toolkit used to write plugin components into every detected tool's
+ * user dirs; now Claude/Copilot get the plugin via their native registries
+ * instead, so the old files become duplicates that have to be cleaned up.
+ */
+export function getToolTargets(toolId: ToolId): {
+  skillDir?: string;
+  agentDir?: string;
+  commandTargets: CommandTarget[];
+} {
+  const def = TOOL_DEFINITIONS.find(t => t.id === toolId);
+  if (!def) return { commandTargets: [] };
+  return {
+    skillDir: def.skillTarget,
+    agentDir: def.agentTarget,
+    commandTargets: def.commandTargets ?? [],
+  };
+}
+
 /** Return MCP config files that should be updated, scoped to detected and not-opted-out tools. */
-export function getWritableMcpConfigFiles(): string[] {
-  const selected = selectedToolIds();
+export function getWritableMcpConfigFiles(exclude?: ReadonlySet<ToolId>): string[] {
+  const selected = selectedToolIds(exclude);
   const localExisting = LOCAL_MCP_CONFIGS_ALL
     .filter(target => target.platform.includes(process.platform))
     .filter(target => selected.has(target.tool))
@@ -348,6 +381,7 @@ function supportsItemType(tool: ToolInstallation, type: string): boolean {
   if (type === 'mcp') return tool.supportsMcps;
   if (type === 'command') return tool.supportsCommands;
   if (type === 'bundle') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps || tool.supportsCommands;
+  if (type === 'plugin') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps || tool.supportsCommands;
   return false;
 }
 
@@ -421,6 +455,52 @@ export const LOCK_FILE = path.join(TOOLKIT_HOME, 'lock.json');
 export const SOURCES_FILE = path.join(TOOLKIT_HOME, 'sources.json');
 export const UPDATE_CHECK_FILE = path.join(TOOLKIT_HOME, 'update-check.json');
 export const CACHE_DIR = path.join(TOOLKIT_HOME, 'cache');
+export const LOG_FILE = path.join(TOOLKIT_HOME, 'log.jsonl');
+
+// Claude Code's own plugin cache. Plugins installed via `/plugin install`
+// land here under <marketplace>/<plugin>/<version>/. The toolkit treats
+// this as a synthetic read-only source named `claude` so users can see
+// plugins they already installed via Claude Code and re-install them in
+// decomposed form for every other detected provider.
+export const CLAUDE_PLUGIN_CACHE_DIR = path.join(HOME, '.claude', 'plugins', 'cache');
+export const CLAUDE_PLUGIN_INSTALLED_JSON = path.join(HOME, '.claude', 'plugins', 'installed_plugins.json');
+// Claude only loads plugins whose marketplace appears in this file. Plugins
+// the toolkit installs natively are keyed under the synthetic `toolkit-ai`
+// marketplace; without an entry here Claude shows the install in its registry
+// but skips loading the commands / agents / skills at runtime.
+export const CLAUDE_KNOWN_MARKETPLACES_JSON = path.join(HOME, '.claude', 'plugins', 'known_marketplaces.json');
+export const CLAUDE_MARKETPLACES_DIR = path.join(HOME, '.claude', 'plugins', 'marketplaces');
+// Holds `enabledPlugins[<name>@<marketplace>]: boolean` — Claude treats
+// plugins as disabled-by-default until this key is set to true.
+export const CLAUDE_SETTINGS_JSON = path.join(HOME, '.claude', 'settings.json');
+export const CLAUDE_NATIVE_SOURCE = 'claude';
+
+// GitHub Copilot CLI's plugin install dir. `copilot plugin install <repo>`
+// (and the IDE equivalent) clones each plugin into a subdir here keyed by
+// `<owner>--<repo>`, with the plugin's own `plugin.json` at the root. No
+// central registry file — discovery is by walking the dir. Synthetic source
+// name `copilot`, parallel to `claude`.
+export const COPILOT_PLUGINS_ROOT = path.join(HOME, '.copilot', 'installed-plugins');
+export const COPILOT_PLUGIN_INSTALL_DIR = path.join(COPILOT_PLUGINS_ROOT, '_direct');
+export const COPILOT_CONFIG_JSON = path.join(HOME, '.copilot', 'config.json');
+export const COPILOT_SETTINGS_JSON = path.join(HOME, '.copilot', 'settings.json');
+export const COPILOT_NATIVE_SOURCE = 'copilot';
+
+/**
+ * Resolve the on-disk root that holds the cached files for a given source.
+ * Normal sources cache under ~/.toolkit/cache/<name>; the synthetic `claude`
+ * and `copilot` sources resolve to those tools' own plugin install dirs so
+ * we can read what their native plugin managers already brought down.
+ */
+export function getSourceRoot(sourceName: string): string {
+  if (sourceName === CLAUDE_NATIVE_SOURCE) return CLAUDE_PLUGIN_CACHE_DIR;
+  // Copilot plugins live under either _direct/<id> (for direct installs) or
+  // <marketplace>/<plugin> (for marketplace installs). The catalog entry's
+  // path is computed relative to this shared root so getSourceRoot resolves
+  // both variants without per-install branching.
+  if (sourceName === COPILOT_NATIVE_SOURCE) return COPILOT_PLUGINS_ROOT;
+  return path.join(CACHE_DIR, sourceName);
+}
 
 /** Version baked in at build time by tsup's `define` (see tsup.config.ts).
  *  Falls back to 'dev' when running from the unbuilt source tree. */
