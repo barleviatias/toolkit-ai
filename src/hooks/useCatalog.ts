@@ -3,6 +3,13 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import type { Catalog, CatalogEntry, Source } from '../types.js';
 import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import {
+  isClaudePluginInstalled,
+  isCopilotPluginInstalled,
+  scanClaudeInstalledPlugins,
+  scanCopilotInstalledPlugins,
+} from '../core/claude-plugins.js';
+import { CLAUDE_NATIVE_SOURCE, COPILOT_NATIVE_SOURCE } from '../core/platform.js';
+import {
   extractMcpServers,
   buildCatalog,
   scanCachedSource,
@@ -15,7 +22,7 @@ import {
 import { loadSettings } from '../core/settings.js';
 import { readLock } from '../core/lock.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
-import { CACHE_DIR, getInstalledTargetLabelsForType, getWritableTargetLabelsForType } from '../core/platform.js';
+import { getInstalledTargetLabelsForType, getSourceRoot, getWritableTargetLabelsForType } from '../core/platform.js';
 import { makeKey } from '../core/item-key.js';
 import { getInstalledState } from '../core/installed-state.js';
 import type { ItemData } from '../components/ItemRow.js';
@@ -25,7 +32,7 @@ import type { ItemData } from '../components/ItemRow.js';
 // to persist across renders and avoids expensive filesystem I/O on every state change.
 const scanCache = new Map<string, { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string }>();
 
-const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
+const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
 
 export type SourceFetchStatus = 'idle' | 'fetching' | 'ready' | 'error';
 
@@ -40,7 +47,13 @@ function mergePerSource(
   // Stable order: iterate sources by their config order (matches the Sources tab),
   // then keep the per-source dedupe ordering inside each. Without this, items
   // shift under the user's cursor when sources stream in out-of-order.
-  const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
+  //
+  // Plugins are deduped by name globally — a plugin authored in a configured
+  // source AND already installed via Claude Code shouldn't appear twice. The
+  // synthetic `claude` source is iterated last (see useCatalog.adoptClaudeSource),
+  // so configured-source entries win the dedupe.
+  const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
+  const seenPlugin = new Set<string>();
   for (const name of sourceOrder) {
     const r = perSource.get(name);
     if (!r) continue;
@@ -49,6 +62,11 @@ function mergePerSource(
     merged.mcps.push(...r.mcps);
     merged.bundles.push(...r.bundles);
     merged.commands.push(...r.commands);
+    for (const p of r.plugins) {
+      if (seenPlugin.has(p.name)) continue;
+      seenPlugin.add(p.name);
+      merged.plugins.push(p);
+    }
     merged.warnings.push(...r.warnings);
   }
   return merged;
@@ -88,7 +106,7 @@ export function useCatalog() {
       result = await fetchAndScanSource(source, settings.cacheTTL, forceRefresh);
     } catch (e: unknown) {
       result = {
-        skills: [], agents: [], mcps: [], bundles: [], commands: [],
+        skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [],
         warnings: [{
           name: source.name,
           message: e instanceof Error ? e.message : String(e),
@@ -129,7 +147,27 @@ export function useCatalog() {
           initialStatus.set(s.name, 'fetching');
         }
       }
-      setSourceOrder(order);
+
+      // Synthetic native sources: surface plugins that Claude Code or
+      // GitHub Copilot CLI already installed via their own plugin managers.
+      // Read-only — the toolkit never writes back to either tool's plugin
+      // state. Iterated LAST so configured sources win the per-name dedupe
+      // in mergePerSource.
+      const claudePlugins = scanClaudeInstalledPlugins();
+      const copilotPlugins = scanCopilotInstalledPlugins();
+      const finalOrder = [...order];
+      if (claudePlugins.length > 0) {
+        initialPerSource.set(CLAUDE_NATIVE_SOURCE, { ...EMPTY_EXTERNAL, plugins: claudePlugins });
+        initialStatus.set(CLAUDE_NATIVE_SOURCE, 'ready');
+        finalOrder.push(CLAUDE_NATIVE_SOURCE);
+      }
+      if (copilotPlugins.length > 0) {
+        initialPerSource.set(COPILOT_NATIVE_SOURCE, { ...EMPTY_EXTERNAL, plugins: copilotPlugins });
+        initialStatus.set(COPILOT_NATIVE_SOURCE, 'ready');
+        finalOrder.push(COPILOT_NATIVE_SOURCE);
+      }
+
+      setSourceOrder(finalOrder);
       setPerSource(initialPerSource);
       setSourceStatus(initialStatus);
 
@@ -156,12 +194,23 @@ export function useCatalog() {
     const config = loadSources();
     const settings = loadSettings();
     const enabled = config.sources.filter(isEnabled);
-    setSourceOrder(enabled.map(s => s.name));
+
+    // Re-scan native plugin caches too — `/plugin install` (Claude) or
+    // `copilot plugin install` may have run since last refresh. Cheap
+    // (just a directory walk), so always do it.
+    const claudePlugins = scanClaudeInstalledPlugins();
+    const copilotPlugins = scanCopilotInstalledPlugins();
+    const orderWithNative = enabled.map(s => s.name);
+    if (claudePlugins.length > 0) orderWithNative.push(CLAUDE_NATIVE_SOURCE);
+    if (copilotPlugins.length > 0) orderWithNative.push(COPILOT_NATIVE_SOURCE);
+    setSourceOrder(orderWithNative);
 
     const gen = ++refreshGenRef.current;
     setSourceStatus(prev => {
       const next = new Map(prev);
       for (const s of enabled) next.set(s.name, 'fetching');
+      if (claudePlugins.length > 0) next.set(CLAUDE_NATIVE_SOURCE, 'ready');
+      if (copilotPlugins.length > 0) next.set(COPILOT_NATIVE_SOURCE, 'ready');
       return next;
     });
 
@@ -172,7 +221,17 @@ export function useCatalog() {
       const r = await fetchOneSource(s, forceRefresh, gen);
       results.set(s.name, r);
     });
-    return mergePerSource(results, enabled.map(s => s.name));
+    if (claudePlugins.length > 0) {
+      const claudeResources: ExternalResources = { ...EMPTY_EXTERNAL, plugins: claudePlugins };
+      results.set(CLAUDE_NATIVE_SOURCE, claudeResources);
+      setPerSource(prev => new Map(prev).set(CLAUDE_NATIVE_SOURCE, claudeResources));
+    }
+    if (copilotPlugins.length > 0) {
+      const copilotResources: ExternalResources = { ...EMPTY_EXTERNAL, plugins: copilotPlugins };
+      results.set(COPILOT_NATIVE_SOURCE, copilotResources);
+      setPerSource(prev => new Map(prev).set(COPILOT_NATIVE_SOURCE, copilotResources));
+    }
+    return mergePerSource(results, orderWithNative);
   }, [fetchOneSource]);
 
   // Refresh a single source in the background. Used by add-source (so the add
@@ -244,6 +303,7 @@ export function useCatalog() {
       mcp: getWritableTargetLabelsForType('mcp'),
       bundle: getWritableTargetLabelsForType('bundle'),
       command: getWritableTargetLabelsForType('command'),
+      plugin: getWritableTargetLabelsForType('plugin'),
     };
 
     function scanItem(type: string, entry: CatalogEntry): { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string } {
@@ -257,10 +317,10 @@ export function useCatalog() {
       try {
         let report;
         if (type === 'skill') {
-          const skillDir = path.join(CACHE_DIR, src, entry.path);
+          const skillDir = path.join(getSourceRoot(src), entry.path);
           report = scanSkillDir(skillDir, entry.name, src, { trusted: false });
         } else if (type === 'agent') {
-          const agentPath = path.join(CACHE_DIR, src, entry.path);
+          const agentPath = path.join(getSourceRoot(src), entry.path);
           report = scanAgentFile(agentPath, entry.name, src, { trusted: false });
         } else if (type === 'mcp') {
           try {
@@ -332,6 +392,50 @@ export function useCatalog() {
         installedTargetLabels,
       };
 
+      // Per-target install state — populated for every primitive so the UI
+      // can render a green ✓ / gray ○ row per detected provider in DetailView.
+      // Without this, the catalog can't distinguish "installed in Claude only"
+      // from "installed everywhere" and the detail view says misleading things
+      // like "Will install to: Claude Code" for an item already in Claude.
+      const targets = targetLabelsByType[type] || [];
+      const installedSet = new Set<string>(installedTargetLabels);
+
+      if (type === 'plugin') {
+        // Plugins are special: a plugin from a synthetic native source IS
+        // installed in that tool natively (that's how we discovered it).
+        // Toolkit-decomposed installs land as sub-items under plugin:<name>;
+        // walk those and union per-component installed labels too.
+        if (src === 'claude') installedSet.add('Claude Code');
+        if (src === 'copilot') installedSet.add('GitHub Copilot');
+        const pluginLockEntry = lock.installed[`plugin:${entry.name}`];
+        if (pluginLockEntry?.items) {
+          for (const subKey of Object.keys(pluginLockEntry.items)) {
+            const [subType, subName] = subKey.split(':');
+            for (const label of getInstalledTargetLabelsForType(subType, subName)) {
+              installedSet.add(label);
+            }
+          }
+        }
+        // Native-registry checks. Plugins toolkit-ai installs natively in
+        // Claude / Copilot don't decompose into ~/.claude/agents/, ~/.copilot/skills/,
+        // so the sub-item file-presence loop above won't see them. Read the
+        // native plugin registries directly — they're the source of truth for
+        // "is the plugin installed in this tool".
+        if (isClaudePluginInstalled(entry.name)) installedSet.add('Claude Code');
+        if (isCopilotPluginInstalled(entry.name)) installedSet.add('GitHub Copilot');
+      }
+
+      if (targets.length > 0) {
+        item.targetStatus = targets.map(label => ({
+          label,
+          installed: installedSet.has(label),
+        }));
+        // Refresh installedTargetLabels to match — picks up plugin-only labels
+        // (e.g. "Claude Code" for claude-source plugins) the per-type helper
+        // didn't know about.
+        item.installedTargetLabels = item.targetStatus.filter(s => s.installed).map(s => s.label);
+      }
+
       // Enrich MCP items with server-level config details (type/url/setupNote + command preview for consent dialog)
       if (type === 'mcp') {
         try {
@@ -371,6 +475,7 @@ export function useCatalog() {
     for (const m of catalog.mcps) items.push(toItem('mcp', m));
     for (const b of catalog.bundles) items.push(toItem('bundle', b));
     for (const c of catalog.commands) items.push(toItem('command', c));
+    for (const p of catalog.plugins) items.push(toItem('plugin', p));
 
     return items;
   }, [catalog, lock, installedState]);

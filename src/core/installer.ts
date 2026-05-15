@@ -1,18 +1,24 @@
 import fs from 'fs';
 import path from 'path';
-import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry } from '../types.js';
+import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry, PluginContents } from '../types.js';
 import {
   CODEX_AGENT_TARGET,
-  CACHE_DIR,
+  CLAUDE_NATIVE_SOURCE,
+  COPILOT_NATIVE_SOURCE,
   getConfigFormat,
+  getSourceRoot,
+  getToolTargets,
   getWritableAgentTargets,
   getWritableCommandTargets,
   getWritableMcpConfigFiles,
   getWritableSkillTargets,
+  isToolSelected,
   writeCodexMcpServer,
   assertSafePathSegment,
   type CommandTarget,
+  type ToolId,
 } from './platform.js';
+import { installClaudePlugin, installCopilotPlugin } from './claude-plugins.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import { shouldInstallWithSymlink } from './settings.js';
 import {
@@ -21,10 +27,15 @@ import {
   findMcp,
   findBundle,
   findCommand,
+  findPlugin,
   loadBundleConfig,
   loadMcpConfig,
+  loadPluginManifest,
+  readPluginContents,
   parseFrontmatter,
   stripFrontmatter,
+  hashFile,
+  hashDir,
 } from './catalog.js';
 import { readLock, writeLock, recordInstall } from './lock.js';
 import { fetchExternalResources, extractMcpServers } from './sources.js';
@@ -33,6 +44,13 @@ import { scanSkillDir, scanAgentFile, scanMcpConfig, scanCommandFile, formatRepo
 export interface InstallOptions {
   force?: boolean;
   bundleName?: string;
+  /**
+   * Lock parent key for sub-installs (e.g. `plugin:my-plugin`). When set, the
+   * `recordInstall` call nests the item under this parent in the lock instead
+   * of writing a top-level entry. Used by the plugin installer to track
+   * decomposed components for clean removal.
+   */
+  parentKey?: string;
   verbose?: boolean;
   /**
    * Opt-in hard-fail mode for CI and automation. When true, any scan finding
@@ -45,6 +63,14 @@ export interface InstallOptions {
   strict?: boolean;
   /** Override the saved install mode. True symlinks resources; false copies bytes. */
   link?: boolean;
+  /**
+   * Tool IDs to exclude from per-component decompose targets. Set by the
+   * plugin installer for tools that own a native plugin registry (Claude
+   * Code, GitHub Copilot) so the user-level skill/agent/command dirs aren't
+   * also written — otherwise the same item shows up twice in the host UI
+   * (once as a user-level customization, once under the plugin entry).
+   */
+  excludeTools?: Set<ToolId>;
 }
 
 export type LogFn = (msg: string) => void;
@@ -97,7 +123,7 @@ function writeMcpToConfigs(
   opts: InstallOptions,
   log: LogFn,
 ): { action: InstallResult['action']; targetCount: number } {
-  const configsToWrite = getWritableMcpConfigFiles();
+  const configsToWrite = getWritableMcpConfigFiles(opts.excludeTools);
   if (configsToWrite.length === 0) {
     log(`  [skip] mcp ${mcpName}: no supported target apps detected`);
     return { action: 'skipped', targetCount: 0 };
@@ -239,7 +265,7 @@ export function installExternalSkill(
   log: LogFn = console.log,
 ): InstallResult {
   assertSafePathSegment(skillName, 'skill name');
-  const src = path.join(CACHE_DIR, sourceName, skillPath);
+  const src = path.join(getSourceRoot(sourceName), skillPath);
   if (!fs.existsSync(src)) throw new Error(`External skill not found at: ${src}`);
 
   // Security scan (external sources always scanned)
@@ -258,7 +284,7 @@ export function installExternalSkill(
   const needsUpdate = lockEntry && lockEntry.hash !== hash;
   const shouldForce = opts.force || needsUpdate;
 
-  const targets = getWritableSkillTargets();
+  const targets = getWritableSkillTargets(opts.excludeTools);
   if (targets.length === 0) {
     log(`  [skip] skill ${skillName}: no supported target apps detected`);
     return { type: 'skill', name: skillName, action: 'skipped' };
@@ -280,7 +306,7 @@ export function installExternalSkill(
     }
   }
 
-  recordInstall(lock, itemKey, hash);
+  recordInstall(lock, itemKey, hash, opts.parentKey);
   writeLock(lock);
   return { type: 'skill', name: skillName, action };
 }
@@ -299,7 +325,7 @@ export function installExternalAgent(
   log: LogFn = console.log,
 ): InstallResult {
   assertSafePathSegment(agentName, 'agent name');
-  const src = path.join(CACHE_DIR, sourceName, agentPath);
+  const src = path.join(getSourceRoot(sourceName), agentPath);
   if (!fs.existsSync(src)) throw new Error(`External agent not found at: ${src}`);
 
   const report = scanAgentFile(src, agentName, sourceName);
@@ -319,7 +345,7 @@ export function installExternalAgent(
   const needsUpdate = lockEntry && lockEntry.hash !== hash;
   const shouldForce = opts.force || needsUpdate;
 
-  const agentTargets = getWritableAgentTargets();
+  const agentTargets = getWritableAgentTargets(opts.excludeTools);
   const fileTargets = agentTargets.filter(dir => dir !== CODEX_AGENT_TARGET);
   const shouldWriteCodex = agentTargets.includes(CODEX_AGENT_TARGET);
   if (fileTargets.length === 0 && !shouldWriteCodex) {
@@ -361,7 +387,7 @@ export function installExternalAgent(
     }
   }
 
-  recordInstall(lock, itemKey, hash);
+  recordInstall(lock, itemKey, hash, opts.parentKey);
   writeLock(lock);
   return { type: 'agent', name: agentName, action };
 }
@@ -383,7 +409,7 @@ export function installExternalMcp(
   // even though the catalog path already sanitizes at parse time. An attacker
   // can't reach this code without writing to sources.json, but cheap insurance.
   assertSafePathSegment(mcpName, 'mcp name');
-  const src = path.join(CACHE_DIR, sourceName, mcpPath);
+  const src = path.join(getSourceRoot(sourceName), mcpPath);
   if (!fs.existsSync(src)) throw new Error(`External MCP not found at: ${src}`);
 
   let rawConfig: unknown;
@@ -440,7 +466,7 @@ export function installExternalMcp(
   const { action, targetCount } = writeMcpToConfigs(mcpName, newEntry, opts, log);
   if (targetCount === 0) return { type: 'mcp', name: mcpName, action };
 
-  recordInstall(lock, itemKey, hash);
+  recordInstall(lock, itemKey, hash, opts.parentKey);
   writeLock(lock);
   return { type: 'mcp', name: mcpName, action };
 }
@@ -588,7 +614,7 @@ export function installExternalCommand(
   log: LogFn = console.log,
 ): InstallResult {
   assertSafePathSegment(commandName, 'command name');
-  const src = path.join(CACHE_DIR, sourceName, commandPath);
+  const src = path.join(getSourceRoot(sourceName), commandPath);
   if (!fs.existsSync(src)) throw new Error(`External command not found at: ${src}`);
 
   const report = scanCommandFile(src, commandName, sourceName);
@@ -606,7 +632,7 @@ export function installExternalCommand(
   const needsUpdate = lockEntry && lockEntry.hash !== hash;
   const shouldForce = opts.force || needsUpdate || false;
 
-  const targets = getWritableCommandTargets();
+  const targets = getWritableCommandTargets(opts.excludeTools);
   if (targets.length === 0) {
     log(`  [skip] command ${commandName}: no supported target apps detected`);
     return { type: 'command', name: commandName, action: 'skipped' };
@@ -620,7 +646,7 @@ export function installExternalCommand(
     else if (result === 'updated' && action !== 'installed') action = 'updated';
   }
 
-  recordInstall(lock, itemKey, hash);
+  recordInstall(lock, itemKey, hash, opts.parentKey);
   writeLock(lock);
   return { type: 'command', name: commandName, action };
 }
@@ -671,6 +697,243 @@ export function installExternalBundle(
   }
   for (const commandName of bundle.commands || []) {
     results.push(installBundleEntry(catalog, external, sourceName, 'command', commandName, installOpts, log));
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Install a Claude Code plugin (decompose into native components per tool)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-create a `plugin:<name>` lock entry with empty `items` so sub-installs
+ * can nest under it via `recordInstall(..., parentKey)`. Mirrors `initBundleLock`.
+ */
+/**
+ * Remove any per-user files in excluded tools' dirs that match the plugin's
+ * components. Cleans up duplicates left over from earlier toolkit versions
+ * that decompose-installed into every detected tool — including ones that
+ * now own the plugin via a native registry.
+ *
+ * Best-effort: missing files are normal (most components were never
+ * decomposed there in the first place); only surfaces removals via log.
+ */
+function purgeExcludedToolFiles(
+  pluginName: string,
+  contents: PluginContents,
+  excludeTools: ReadonlySet<ToolId>,
+  log: LogFn,
+): void {
+  if (excludeTools.size === 0) return;
+  for (const toolId of excludeTools) {
+    const targets = getToolTargets(toolId);
+    for (const skill of contents.skills) {
+      if (!targets.skillDir) continue;
+      const dest = path.join(targets.skillDir, skill.name);
+      if (fs.existsSync(dest)) {
+        try {
+          fs.rmSync(dest, { recursive: true, force: true });
+          log(`  [-] plugin ${pluginName}: cleaned stale ${toolId} skill at ${dest}`);
+        } catch { /* best-effort */ }
+      }
+    }
+    for (const agent of contents.agents) {
+      if (!targets.agentDir) continue;
+      // Plugins ship agents either as `<name>.agent.md` or plain `<name>.md`;
+      // older toolkit installs may have written either filename, so try both.
+      for (const filename of [path.basename(agent.absPath), `${agent.name}.agent.md`, `${agent.name}.md`]) {
+        const dest = path.join(targets.agentDir, filename);
+        if (fs.existsSync(dest)) {
+          try {
+            fs.unlinkSync(dest);
+            log(`  [-] plugin ${pluginName}: cleaned stale ${toolId} agent at ${dest}`);
+          } catch { /* best-effort */ }
+        }
+      }
+    }
+    for (const command of contents.commands) {
+      for (const target of targets.commandTargets) {
+        const filename = target.format === 'vscode-prompt' ? `${command.name}.prompt.md` : `${command.name}.md`;
+        const dest = path.join(target.dir, filename);
+        if (fs.existsSync(dest)) {
+          try {
+            fs.unlinkSync(dest);
+            log(`  [-] plugin ${pluginName}: cleaned stale ${toolId} command at ${dest}`);
+          } catch { /* best-effort */ }
+        }
+      }
+    }
+  }
+}
+
+function initPluginLock(pluginName: string, pluginHash: string): void {
+  const lock = readLock();
+  lock.installed[`plugin:${pluginName}`] = {
+    hash: pluginHash,
+    installedAt: new Date().toISOString(),
+    items: {},
+  };
+  writeLock(lock);
+}
+
+/** Install a plugin by name from the catalog (looks up source, decomposes, installs each component). */
+export function installPlugin(
+  catalog: Catalog,
+  name: string,
+  opts: Omit<InstallOptions, 'parentKey'> = {},
+  log: LogFn = console.log,
+): InstallResult[] {
+  const entry = findPlugin(catalog, name);
+  if (!entry) throw new Error(`Plugin not found in catalog: ${name}`);
+  return installExternalPlugin(entry.source, name, entry.path, entry.hash, opts, log);
+}
+
+/**
+ * Install a plugin from an external source cache. The plugin manifest may be
+ * either Claude Code's `.claude-plugin/plugin.json` or a generic top-level
+ * `plugin.json`. Decomposes the plugin into its components (skills, agents,
+ * commands, MCP servers) and installs each into every detected provider's
+ * native on-disk format via the existing per-type installers, recording all
+ * items under a single `plugin:<name>` lock entry so removal is atomic.
+ *
+ * Hooks (`hooks/hooks.json`) are detected and **refused** — they execute
+ * arbitrary commands and have no scanner coverage yet. The plugin still
+ * installs its safe components; the user is told a hooks file was skipped.
+ */
+export function installExternalPlugin(
+  sourceName: string,
+  pluginName: string,
+  pluginPath: string,
+  hash: string,
+  opts: Omit<InstallOptions, 'parentKey'> = {},
+  log: LogFn = console.log,
+): InstallResult[] {
+  assertSafePathSegment(pluginName, 'plugin name');
+  const pluginDir = path.join(getSourceRoot(sourceName), pluginPath);
+  if (!fs.existsSync(pluginDir)) throw new Error(`External plugin not found at: ${pluginDir}`);
+
+  // Read manifest just to fail fast on a malformed plugin.
+  loadPluginManifest(pluginDir);
+  const contents = readPluginContents(pluginDir);
+
+  log(`\nInstalling plugin: ${pluginName}`);
+  initPluginLock(pluginName, hash);
+
+  // Tools that already get this plugin via their own native plugin registry
+  // must not also receive the decomposed components in their per-user
+  // skill/agent/command dirs — otherwise the host UI shows each item twice
+  // (once as a user customization, once under the plugin entry).
+  //
+  // Two trigger conditions:
+  //   - synthetic source: the plugin already lives in that tool's native
+  //     plugin cache (claude / copilot), and is discovered from there.
+  //   - copilot is selected: `installCopilotPlugin` below copies the tree
+  //     into Copilot's installed-plugins dir and registers it in config.
+  const excludeTools = new Set<ToolId>(opts.excludeTools);
+  if (sourceName === CLAUDE_NATIVE_SOURCE || isToolSelected('claude')) excludeTools.add('claude');
+  if (sourceName === COPILOT_NATIVE_SOURCE || isToolSelected('copilot')) excludeTools.add('copilot');
+
+  // Migration cleanup. Earlier toolkit versions decompose-installed plugin
+  // components into every detected tool's user dirs (~/.copilot/agents/,
+  // ~/.claude/agents/, etc.). Now those dirs are excluded for Claude/Copilot,
+  // but stale files from the old behavior remain on disk and surface as
+  // "User" duplicates next to the plugin's own copy in the host UI. Sweep
+  // them up before installing fresh.
+  purgeExcludedToolFiles(pluginName, contents, excludeTools, log);
+
+  const parentKey = `plugin:${pluginName}`;
+  const subOpts: InstallOptions = { ...opts, parentKey, excludeTools };
+  const results: InstallResult[] = [];
+
+  for (const skill of contents.skills) {
+    const skillRel = path.relative(getSourceRoot(sourceName), skill.absPath);
+    const skillHash = hashDir(skill.absPath);
+    results.push(installExternalSkill(sourceName, skill.name, skillRel, skillHash, subOpts, log));
+  }
+
+  for (const agent of contents.agents) {
+    const agentRel = path.relative(getSourceRoot(sourceName), agent.absPath);
+    const agentHash = hashFile(agent.absPath);
+    results.push(installExternalAgent(sourceName, agent.name, agentRel, agentHash, subOpts, log));
+  }
+
+  for (const command of contents.commands) {
+    const commandRel = path.relative(getSourceRoot(sourceName), command.absPath);
+    const commandHash = hashFile(command.absPath);
+    results.push(installExternalCommand(sourceName, command.name, commandRel, commandHash, subOpts, log));
+  }
+
+  for (const mcpFile of contents.mcpConfigs) {
+    const mcpRel = path.relative(getSourceRoot(sourceName), mcpFile.absPath);
+    const mcpHash = hashFile(mcpFile.absPath);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(fs.readFileSync(mcpFile.absPath, 'utf8'));
+    } catch {
+      log(`  [!] plugin ${pluginName}: malformed MCP config at ${mcpRel}, skipping`);
+      continue;
+    }
+    for (const [serverName] of extractMcpServers(raw)) {
+      try {
+        results.push(installExternalMcp(sourceName, serverName, mcpRel, mcpHash, subOpts, log));
+      } catch (e: unknown) {
+        log(`  [!] plugin ${pluginName}: mcp ${serverName} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  if (contents.hasHooks) {
+    // Hooks ride along with the plugin tree (copied by copyPluginTreeScoped
+    // into the native plugin caches). They are scoped to the plugin's
+    // lifecycle and disappear when the plugin is removed, so the security
+    // posture is "remove-the-plugin-to-revert" rather than the more
+    // dangerous "edit the user's settings.json directly."
+    log(`  [+] plugin ${pluginName}: hooks/hooks.json detected — included in plugin tree (active under the plugin's own scope).`);
+  }
+
+  // Native Copilot registration. Decomposed-install lands the components
+  // in ~/.copilot/skills/ and ~/.copilot/agents/ where Copilot picks them
+  // up, but Copilot's own "Plugins" UI reads its plugin registry. Without
+  // this step, the plugin shows up everywhere except Copilot's plugin
+  // panel. Mirror of `uninstallCopilotPlugin` which runs on remove.
+  if (isToolSelected('copilot')) {
+    try {
+      const manifest = loadPluginManifest(pluginDir);
+      const native = installCopilotPlugin(pluginName, pluginDir, manifest, contents);
+      if (native.copiedTo) {
+        log(`  [+] plugin ${pluginName} -> ${native.copiedTo} (Copilot native install)`);
+      }
+      if (native.registeredInConfig) {
+        log(`  [${native.replacedExistingConfig ? '~' : '+'}] plugin ${pluginName} ${native.replacedExistingConfig ? 'updated in' : 'registered in'} Copilot config`);
+      }
+      if (native.enabledInSettings) {
+        log(`  [+] plugin ${pluginName} enabled in Copilot settings`);
+      }
+    } catch (e: unknown) {
+      log(`  [!] plugin ${pluginName}: Copilot native registration failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Native Claude registration. Same motivation as Copilot above: Claude's
+  // own UI surfaces installed plugins through ~/.claude/plugins/installed_plugins.json,
+  // and Copilot's "Agent Customizations" UI reads ~/.claude/agents/ for
+  // cross-tool compat. Going native on both prevents the same agent
+  // appearing twice (once as a "user" customization in Copilot, once
+  // under the plugin entry).
+  if (isToolSelected('claude')) {
+    try {
+      const manifest = loadPluginManifest(pluginDir);
+      const native = installClaudePlugin(pluginName, pluginDir, manifest, contents);
+      if (native.copiedTo) {
+        log(`  [+] plugin ${pluginName} -> ${native.copiedTo} (Claude native install)`);
+      }
+      if (native.registeredInInstalled) {
+        log(`  [${native.replacedExistingInstalled ? '~' : '+'}] plugin ${pluginName} ${native.replacedExistingInstalled ? 'updated in' : 'registered in'} Claude installed_plugins.json`);
+      }
+    } catch (e: unknown) {
+      log(`  [!] plugin ${pluginName}: Claude native registration failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return results;

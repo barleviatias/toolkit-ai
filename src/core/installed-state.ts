@@ -10,7 +10,10 @@ export interface InstalledState {
 
 function addLockEntries(lock: LockFile, installedKeys: Set<string>): void {
   for (const [key, entry] of Object.entries(lock.installed)) {
-    if (key.startsWith('bundle:')) {
+    if (key.startsWith('bundle:') || key.startsWith('plugin:')) {
+      // Parent itself is installed (so the catalog can render it as such), and
+      // its decomposed items are surfaced as installed too.
+      installedKeys.add(key);
       for (const itemKey of Object.keys(entry.items || {})) {
         installedKeys.add(itemKey);
       }

@@ -5,6 +5,7 @@ import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, get
 import { removeLink } from './fs-helpers.js';
 import { findAgent, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
+import { uninstallClaudePlugin, uninstallCopilotPlugin } from './claude-plugins.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -31,11 +32,18 @@ export function removeItemFromFilesystem(
   } else if (type === 'agent') {
     assertSafePathSegment(name, 'agent name');
     const entry = findAgent(catalog, name);
-    const filename = entry ? path.basename(entry.path) : `${name}.agent.md`;
+    // Standalone agents are `*.agent.md`; plugin-shipped agents are plain
+    // `*.md`. When the catalog has no entry (plugin sub-item) we try both so
+    // remove works either way.
+    const filenameCandidates = entry
+      ? [path.basename(entry.path)]
+      : [`${name}.agent.md`, `${name}.md`];
     let removed = false;
     for (const dir of AGENT_TARGETS) {
-      const dest = path.join(dir, filename);
-      if (removeLink(dest)) { log(`  [-] agent ${name} removed from ${dir}`); removed = true; }
+      for (const filename of filenameCandidates) {
+        const dest = path.join(dir, filename);
+        if (removeLink(dest)) { log(`  [-] agent ${name} removed from ${dir}`); removed = true; }
+      }
     }
     const codexDest = path.join(CODEX_AGENT_TARGET, `${name}.toml`);
     if (removeLink(codexDest)) { log(`  [-] agent ${name} removed from ${CODEX_AGENT_TARGET}`); removed = true; }
@@ -155,5 +163,72 @@ export function removeBundle(catalog: Catalog, name: string, log: LogFn = consol
     }
   }
   delete lock.installed[bundleKey];
+  writeLock(lock);
+}
+
+/**
+ * Remove a plugin and all of its decomposed components, unless an item is
+ * still claimed by another plugin/bundle. Mirrors `removeBundle`.
+ *
+ * Also opportunistically uninstalls the plugin from GitHub Copilot CLI's
+ * native plugin state when Copilot's `~/.copilot/config.json` lists it. This
+ * means `toolkit remove plugin <name>` is a one-shot uninstall for plugins
+ * that originated in Copilot — drop the registry entry, drop enabledPlugins,
+ * and remove the cache dir. We don't do the equivalent for Claude yet —
+ * Claude's `/plugin` command owns more state (marketplaces, signatures) and
+ * editing `installed_plugins.json` from outside is riskier.
+ */
+export function removePlugin(catalog: Catalog, name: string, log: LogFn = console.log): void {
+  log(`\nRemoving plugin: ${name}`);
+  const lock = readLock();
+  const pluginKey = `plugin:${name}`;
+  const pluginEntry = lock.installed[pluginKey];
+
+  // Native Copilot uninstall is opportunistic — runs even when the plugin
+  // isn't in the toolkit lock (the user might have installed it via Copilot
+  // and never decompose-installed via the toolkit), so the user's "remove"
+  // intent always lands somewhere visible.
+  const copilotResult = uninstallCopilotPlugin(name);
+  if (copilotResult.removedFromConfig) {
+    log(`  [-] plugin ${name} removed from Copilot config (~/.copilot/config.json)`);
+  }
+  if (copilotResult.removedFromSettings.length > 0) {
+    log(`  [-] plugin ${name} disabled in Copilot settings (${copilotResult.removedFromSettings.join(', ')})`);
+  }
+  if (copilotResult.removedCachePath) {
+    log(`  [-] plugin ${name} cache removed: ${copilotResult.removedCachePath}`);
+  }
+
+  // Native Claude uninstall — symmetrical to Copilot. Only touches entries
+  // under our own marketplace key (`<name>@toolkit-ai`); plugins the user
+  // installed via Claude's `/plugin install` are left alone.
+  const claudeResult = uninstallClaudePlugin(name);
+  if (claudeResult.removedFromInstalled) {
+    log(`  [-] plugin ${name} removed from Claude installed_plugins.json`);
+  }
+  if (claudeResult.removedCachePath) {
+    log(`  [-] plugin ${name} cache removed: ${claudeResult.removedCachePath}`);
+  }
+
+  if (!pluginEntry) {
+    if (
+      !copilotResult.removedFromConfig &&
+      !copilotResult.removedCachePath &&
+      !claudeResult.removedFromInstalled &&
+      !claudeResult.removedCachePath
+    ) {
+      log(`  plugin ${name} was not installed`);
+    }
+    return;
+  }
+  for (const itemKey of Object.keys(pluginEntry.items || {})) {
+    if (isItemProtected(itemKey, pluginKey, lock, catalog, true)) {
+      const [type, itemName] = itemKey.split(':');
+      log(`  [skip] ${type} ${itemName} still referenced elsewhere`);
+    } else {
+      removeItemFromFilesystem(catalog, itemKey, log);
+    }
+  }
+  delete lock.installed[pluginKey];
   writeLock(lock);
 }

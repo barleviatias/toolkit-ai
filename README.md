@@ -257,6 +257,118 @@ Curated collections that reference skills, agents, and MCPs by name. Installing 
 - `toolkit remove bundle fullstack-starter` removes all items from the bundle
 - Items can still be installed/removed individually
 
+### Plugins
+
+Plugins are bundled packages of skills, agents, commands, and MCP servers,
+discovered as a first-class resource type and installed across **every detected
+provider** — Claude Code, Codex, GitHub Copilot, Cursor, VS Code, and Amp.
+
+**Discovery — manifest formats accepted:**
+
+- `.claude-plugin/plugin.json` — Claude Code's official plugin layout
+- `plugin.json` at the plugin root — generic / cross-tool plugin packages
+- **Plugins already installed by Claude Code's `/plugin install`** — read from
+  `~/.claude/plugins/installed_plugins.json` and surfaced under the synthetic
+  `claude` source. No source configuration needed; they appear automatically
+  in `--list` and the TUI catalog. Run `toolkit plugin <name>` on one to
+  decompose-install it across every other detected provider so the same
+  plugin works in Codex/Copilot/Cursor/Amp/VS Code too. Toolkit never writes
+  to Claude's plugin state — `remove plugin` only removes the decomposed copies.
+- **Plugins already installed by GitHub Copilot CLI's `copilot plugin install`** —
+  discovered by walking `~/.copilot/installed-plugins/_direct/` (the per-plugin
+  install root the Copilot CLI populates) and surfaced under the synthetic
+  `copilot` source. Same flow as the Claude case: appear automatically in
+  `--list`, run `toolkit plugin <name>` to decompose-install across every
+  other detected provider. Toolkit never writes back to Copilot's installed-
+  plugins tree — `remove plugin` only removes the decomposed copies.
+
+**Manifest path overrides — for plugins that don't fit Claude's layout:**
+
+Most Claude plugins put skills directly under `skills/<name>/SKILL.md` and
+agents directly under `agents/<name>.md`. Cross-tool plugin packages (AMS,
+Radware bundles, anything with per-tool adapters) often nest these — e.g.
+`skills/universal/foo/SKILL.md`, `skills/stack-specific/backend-java/foo/SKILL.md`,
+`agents/adapters/copilot/reviewer.agent.md`.
+
+The `plugin.json` manifest may declare explicit content roots so the toolkit
+walks the right places:
+
+```json
+{
+  "name": "radware-ams",
+  "skills": [
+    "skills/universal/",
+    "skills/stack-specific/backend-java/",
+    "skills/stack-specific/frontend-react/"
+  ],
+  "agents": "agents/adapters/copilot/",
+  "commands": "commands/",
+  "mcps": "mcps/"
+}
+```
+
+Each field accepts a string or an array of strings, all relative to the
+plugin root. The toolkit walks each declared root recursively for
+`SKILL.md` / `*.agent.md` / `*.md` / `*.prompt.md` / `*.mcp.json`, then
+decompose-installs across every detected provider exactly as it does for
+Claude-shaped plugins. When fields are absent, the conventional dirs
+(`skills/`, `agents/`, `commands/`, root `.mcp.json`) are scanned instead.
+
+**Install — what happens to each component:**
+
+Installing a plugin **decomposes** it and writes each component into the
+native on-disk format every detected provider already reads:
+
+- `skills/<name>/SKILL.md` → `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/` (Codex), `~/.config/amp/skills/`
+- `agents/<name>.md` → `~/.claude/agents/`, `~/.copilot/agents/`, and a generated `~/.codex/agents/<name>.toml` for Codex
+- `commands/<name>.md` → `~/.claude/commands/`, `~/.cursor/commands/` (verbatim), and a transformed `*.prompt.md` for VS Code / Insiders
+- `.mcp.json` → registered as MCP servers in every detected MCP-aware config (`.claude/settings.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.codex/config.toml`, `.config/amp/settings.json`, etc.)
+
+The result is that the same plugin works in every assistant the user has
+installed, in each one's own native shape — no provider-specific plugin
+machinery required on the consumer side.
+
+**Native Copilot plugin registration**: when GitHub Copilot CLI is detected,
+plugin install also writes a real entry to Copilot's plugin manager — copies
+the plugin tree to `~/.copilot/installed-plugins/toolkit-ai/<name>/`, adds
+to `~/.copilot/config.json` `installedPlugins[]`, enables it in
+`~/.copilot/settings.json`. This makes the plugin show up in Copilot's
+"Plugins" UI panel, not just as decomposed skills/agents on disk.
+`toolkit remove plugin` mirrors this — drops the registry entry, disables
+in settings, removes the cache dir.
+
+**Hooks (`hooks/hooks.json`) are detected but never installed.** They execute
+arbitrary commands and are deferred until the security scanner has hook
+coverage. The rest of the plugin still installs and the user is told the hooks
+file was skipped.
+
+### Operation log
+
+Every install / remove / update is appended to `~/.toolkit/log.jsonl` as one
+JSON record per line — captures the action, item, source, result, and the
+full log lines the operation emitted. Tail the last N entries with:
+
+```bash
+toolkit logs            # last 20
+toolkit logs 50         # last 50
+```
+
+Each entry survives across sessions, so you can answer "what did the toolkit
+actually do last week" without keeping the TUI summary toast on screen.
+
+> **Coexistence with Claude Code's `/plugin install`:** the toolkit installs
+> components into each provider's standalone directories (`~/.claude/skills/`,
+> `~/.claude/agents/`, etc.). Claude Code's own `/plugin install` writes to
+> `~/.claude/plugins/cache/<marketplace>/<name>/<version>/` and tracks state
+> in `~/.claude/plugins/installed_plugins.json`. The two paths don't conflict
+> — but if you install the same plugin via both, Claude will see two copies of
+> each skill (the namespaced plugin form and the bare standalone form).
+
+```bash
+toolkit plugin feature-dev          # decompose-install a plugin across all detected providers
+toolkit remove plugin feature-dev   # remove the plugin and every component
+```
+
 ---
 
 ## Interactive TUI
@@ -283,7 +395,7 @@ toolkit
 |-----|--------|
 | `↑` `↓` | Navigate |
 | `/` | Search |
-| `1`-`4` | Filter by type (Skills / Agents / MCPs / Bundles) |
+| `1`-`6` | Filter by type (Skills / Agents / MCPs / Bundles / Commands / Plugins) |
 | `0` | Reset filter to All |
 | `Space` | Toggle selection |
 | `Enter` | Detail view (or submit if items selected) |
@@ -313,6 +425,7 @@ toolkit skill <name>               # Install a skill
 toolkit agent <name>               # Install an agent
 toolkit mcp <name>                 # Register an MCP server
 toolkit bundle <name>              # Install a bundle (all items at once)
+toolkit plugin <name>              # Install a plugin (decomposed across every detected provider)
 
 # Remove
 toolkit remove skill <name>        # Remove a skill

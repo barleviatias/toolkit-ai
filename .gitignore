@@ -167,3 +167,6 @@ bin/ai-toolkit.mjs
 
 # Misc — add project-specific ignores below
 
+
+# Radware AMS phase-cache (Jira is canonical when used)
+.ams/cache/

@@ -28,8 +28,10 @@ try {
   results.directInstallHash = lock1.installed['skill::src::my-skill']?.hash;
 
   // --- recordInstall: bundle install ---
+  // recordInstall now takes a generic parent lock key (e.g. "bundle:foo" or
+  // "plugin:foo") instead of a bare bundle name. Callers prefix the type.
   const lock2 = { installed: {} };
-  recordInstall(lock2, 'skill::src::bundled-skill', 'def456', 'my-bundle');
+  recordInstall(lock2, 'skill::src::bundled-skill', 'def456', 'bundle:my-bundle');
   results.bundleKeyCreated = !!lock2.installed['bundle:my-bundle'];
   results.bundleItemHash = lock2.installed['bundle:my-bundle']?.items?.['skill::src::bundled-skill']?.hash;
 
@@ -43,8 +45,8 @@ try {
   };
 
   const lock3 = { installed: {} };
-  recordInstall(lock3, 'skill::src::shared-skill', 'aaa', 'bundle-a');
-  recordInstall(lock3, 'skill::src::shared-skill', 'bbb', 'bundle-b');
+  recordInstall(lock3, 'skill::src::shared-skill', 'aaa', 'bundle:bundle-a');
+  recordInstall(lock3, 'skill::src::shared-skill', 'bbb', 'bundle:bundle-b');
 
   // Excluding bundle-b, the item is still in bundle-a (which exists in catalog) -> protected
   results.protectedInOtherBundle = isItemProtected(

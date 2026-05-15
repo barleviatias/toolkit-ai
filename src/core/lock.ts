@@ -22,21 +22,27 @@ export function writeLock(lock: LockFile): void {
 }
 
 /**
- * Check if an item is still referenced by another installed bundle
- * or exists as a direct-install entry.
+ * Check if an item is still referenced by another installed bundle/plugin
+ * or exists as a direct-install entry. We treat installed plugins like
+ * bundles for protection purposes — removing one shouldn't yank an item
+ * still claimed by another. We only require a catalog match for bundles
+ * (legacy guard); plugin parents are trusted from lock state.
  */
 export function isItemProtected(
   itemKey: string,
-  excludeBundleKey: string | null,
+  excludeParentKey: string | null,
   lock: LockFile,
   catalog: Catalog,
   checkDirectInstall = false,
 ): boolean {
   for (const [lockKey, lockEntry] of Object.entries(lock.installed)) {
-    if (!lockKey.startsWith('bundle:')) continue;
-    if (lockKey === excludeBundleKey) continue;
+    const isBundle = lockKey.startsWith('bundle:');
+    const isPlugin = lockKey.startsWith('plugin:');
+    if (!isBundle && !isPlugin) continue;
+    if (lockKey === excludeParentKey) continue;
     if (!lockEntry.items?.[itemKey]) continue;
-    if (findBundle(catalog, lockKey.slice(7))) return true;
+    if (isBundle && findBundle(catalog, lockKey.slice(7))) return true;
+    if (isPlugin) return true;
   }
   return checkDirectInstall && !!lock.installed[itemKey];
 }
@@ -44,21 +50,23 @@ export function isItemProtected(
 /**
  * Record an item install in the lock file.
  * Batches by accepting and returning the lock object — caller controls when to write.
+ *
+ * If `parentKey` (e.g. `bundle:foo` or `plugin:foo`) is set, the item is recorded
+ * under that parent's `items` map instead of as a top-level entry.
  */
 export function recordInstall(
   lock: LockFile,
   itemKey: string,
   hash: string,
-  bundleName?: string,
+  parentKey?: string,
 ): void {
   const lockData: LockEntry = { hash, installedAt: new Date().toISOString() };
-  if (bundleName) {
-    const bundleKey = `bundle:${bundleName}`;
-    if (!lock.installed[bundleKey]) {
-      lock.installed[bundleKey] = { hash: '', installedAt: new Date().toISOString(), items: {} };
+  if (parentKey) {
+    if (!lock.installed[parentKey]) {
+      lock.installed[parentKey] = { hash: '', installedAt: new Date().toISOString(), items: {} };
     }
-    if (!lock.installed[bundleKey].items) lock.installed[bundleKey].items = {};
-    lock.installed[bundleKey].items[itemKey] = lockData;
+    if (!lock.installed[parentKey].items) lock.installed[parentKey].items = {};
+    lock.installed[parentKey].items[itemKey] = lockData;
   } else {
     lock.installed[itemKey] = lockData;
   }

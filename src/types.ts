@@ -12,6 +12,40 @@ export interface Catalog {
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
   commands: CatalogEntry[];
+  plugins: CatalogEntry[];
+}
+
+/**
+ * Subset of `.claude-plugin/plugin.json` we use. We only read fields the
+ * decompose installer needs; unknown fields are ignored so we stay forward-
+ * compatible with future Claude Code plugin manifest additions.
+ *
+ * The `skills`/`agents`/`commands`/`mcps` fields are non-Claude extensions:
+ * cross-tool plugin packages (e.g. AMS) declare explicit content roots when
+ * their layout doesn't follow Claude's `skills/<name>/SKILL.md` convention
+ * (e.g. nested under `skills/universal/`, `agents/adapters/copilot/`). When
+ * present, the toolkit walks those roots recursively; when absent, it falls
+ * back to Claude's conventional layout. Each field accepts a single path or
+ * an array of paths, all relative to the plugin root.
+ */
+export interface PluginManifest {
+  name: string;
+  description?: string;
+  version?: string;
+  author?: { name?: string } | string;
+  skills?: string | string[];
+  agents?: string | string[];
+  commands?: string | string[];
+  mcps?: string | string[];
+}
+
+/** Concrete components discovered inside a plugin directory (post-manifest parse). */
+export interface PluginContents {
+  skills: { name: string; absPath: string; relPath: string }[];
+  agents: { name: string; absPath: string; relPath: string }[];
+  commands: { name: string; absPath: string; relPath: string }[];
+  mcpConfigs: { absPath: string; relPath: string }[];
+  hasHooks: boolean;
 }
 
 export interface BundleConfig {
@@ -100,7 +134,7 @@ export interface SourcesConfig {
   cacheTTL: number; // seconds
 }
 
-export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command';
+export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command' | 'plugin';
 
 export interface InstallResult {
   type: ItemType;

@@ -1,13 +1,15 @@
 import path from 'path';
 import type { Catalog, InstallResult } from '../types.js';
 import { loadMcpConfig } from '../core/catalog.js';
-import { installSkill, installAgent, installMcp, installBundle, installCommand } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
+import { scanClaudeInstalledPlugins, scanCopilotInstalledPlugins } from '../core/claude-plugins.js';
+import { withLogging, withMultiLogging, readRecentLog } from '../core/logger.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
-import { CACHE_DIR, CONFIG_FILE, TOOLKIT_VERSION_LABEL, KNOWN_TOOL_IDS, detectToolInstallations, getDisabledToolIds, type ToolId } from '../core/platform.js';
+import { CACHE_DIR, CONFIG_FILE, TOOLKIT_VERSION_LABEL, KNOWN_TOOL_IDS, detectToolInstallations, getDisabledToolIds, getWritableTargetLabelsForType, type ToolId } from '../core/platform.js';
 import { formatDuration, loadSettings, updateSettings } from '../core/settings.js';
 import { RESET, BOLD, DIM, GREEN, RED, YELLOW } from '../core/ansi.js';
 
@@ -107,6 +109,10 @@ function listAll(catalog: Catalog) {
   console.log(`\n${BOLD}=== Commands ===${RESET}`);
   for (const c of catalog.commands)
     console.log(`  ${c.name.padEnd(28)} ${DIM}${c.description}${RESET}`);
+
+  console.log(`\n${BOLD}=== Plugins ===${RESET}`);
+  for (const p of catalog.plugins)
+    console.log(`  ${p.name.padEnd(28)} ${DIM}${p.description}${RESET}`);
 
   console.log();
 }
@@ -271,6 +277,9 @@ ${BOLD}Updates:${RESET}
   update                          Update all installed items
   check                           Check for available updates
 
+${BOLD}Logs:${RESET}
+  logs [N]                        Show the last N (default 20) install/remove operations from ~/.toolkit/log.jsonl
+
 ${BOLD}Install:${RESET}
   list                            List all available items
   targets                         Show detected AI tool install targets
@@ -280,6 +289,7 @@ ${BOLD}Install:${RESET}
   mcp <name>                      Register an MCP server
   bundle <name>                   Install a bundle
   command <name>                  Install a slash command (prompt)
+  plugin <name>                   Install a plugin (decomposes into native components for every detected provider — Claude, Codex, Copilot, Cursor, VS Code, Amp; hooks are skipped)
 
 ${BOLD}Remove:${RESET}
   remove skill <name>             Remove a skill
@@ -287,6 +297,7 @@ ${BOLD}Remove:${RESET}
   remove mcp <name>               Deregister an MCP server
   remove bundle <name>            Remove a bundle
   remove command <name>           Remove a slash command
+  remove plugin <name>            Remove a plugin (and its decomposed components)
 
 ${BOLD}Sources:${RESET}
   source add <repo>               Add an external skill source
@@ -518,6 +529,34 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     return runSettingsCommand(args.slice(1));
   }
 
+  if (args[0] === 'logs' || args[0] === 'log') {
+    const countArg = Number(args[1]);
+    const count = Number.isFinite(countArg) && countArg > 0 ? countArg : 20;
+    const entries = readRecentLog(count);
+    if (entries.length === 0) {
+      console.log(`${DIM}No log entries yet — install or remove something first.${RESET}`);
+      return true;
+    }
+    console.log(`${BOLD}Last ${entries.length} operation${entries.length === 1 ? '' : 's'}${RESET} ${DIM}(~/.toolkit/log.jsonl)${RESET}\n`);
+    for (const e of entries) {
+      const time = e.ts.replace('T', ' ').replace(/\..*$/, '');
+      const result = e.result === 'errored'
+        ? `${RED}${e.result}${RESET}`
+        : e.result.startsWith('install') || e.result.includes('installed')
+          ? `${GREEN}${e.result}${RESET}`
+          : `${YELLOW}${e.result}${RESET}`;
+      const head = e.type ? `${e.action} ${e.type} ${BOLD}${e.name}${RESET}` : `${e.action} ${BOLD}${e.name}${RESET}`;
+      const src = e.source ? ` ${DIM}· ${e.source}${RESET}` : '';
+      const providers = e.providers && e.providers.length > 0
+        ? ` ${DIM}· ${e.providers.join(', ')}${RESET}`
+        : '';
+      console.log(`${DIM}${time}${RESET}  ${head}${src}${providers}  → ${result}`);
+      if (e.error) console.log(`  ${RED}error:${RESET} ${e.error}`);
+    }
+    console.log();
+    return true;
+  }
+
   const isForce = flag(args, '--force');
   // Auto-strict when no human is driving the terminal. `curl ... | bash` and CI
   // runs have stdin piped (not a TTY), so treat them as "I can't ask the user"
@@ -546,13 +585,14 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   const mcpName     = option(subArgs, '--mcp')     || (subArgs[0] === 'mcp'     && subArgs[1] ? subArgs[1] : null);
   const bundleName  = option(subArgs, '--bundle')  || (subArgs[0] === 'bundle'  && subArgs[1] ? subArgs[1] : null);
   const commandName = option(subArgs, '--command') || (subArgs[0] === 'command' && subArgs[1] ? subArgs[1] : null);
+  const pluginName  = option(subArgs, '--plugin')  || (subArgs[0] === 'plugin'  && subArgs[1] ? subArgs[1] : null);
 
   // Source refresh — re-fetch all external sources
   if (isRefresh) {
     const sources = loadSources();
     console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
     const resources = fetchExternalResources(true);
-    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles, ${resources.commands.length} commands`);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles, ${resources.commands.length} commands, ${resources.plugins.length} plugins`);
     for (const warning of resources.warnings) {
       const cacheNote = warning.usedCache ? ' (using cached data)' : '';
       console.log(`  ${YELLOW}[!]${RESET} ${warning.name}${cacheNote}: ${warning.message}`);
@@ -563,11 +603,25 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||
-    skillName || agentName || mcpName || bundleName || commandName;
+    skillName || agentName || mcpName || bundleName || commandName || pluginName;
 
   if (!needsCatalog) return false; // not a headless command
 
-  const catalog = buildCatalog(fetchExternalResources(false));
+  // Build the catalog from configured sources, then merge in plugins that
+  // Claude Code (`/plugin install`) or GitHub Copilot CLI (`copilot plugin
+  // install`) already installed natively, so headless commands see them
+  // too. Configured-source plugins win the dedupe (added first); among
+  // synthetic sources, Claude wins over Copilot for the same plugin name
+  // (arbitrary tie-break — they're identical content).
+  const externalResources = fetchExternalResources(false);
+  const seenPluginNames = new Set(externalResources.plugins.map(p => p.name));
+  for (const p of [...scanClaudeInstalledPlugins(), ...scanCopilotInstalledPlugins()]) {
+    if (!seenPluginNames.has(p.name)) {
+      externalResources.plugins.push(p);
+      seenPluginNames.add(p.name);
+    }
+  }
+  const catalog = buildCatalog(externalResources);
 
   // Scan command: toolkit scan skill <name>
   if (isScan) {
@@ -597,13 +651,22 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     return true;
   }
 
-  // Direct remove
+  // Direct remove. Each remove path captures its log lines into ~/.toolkit/log.jsonl
+  // via withLogging so the user can `toolkit logs` later to see what happened.
   if (isRemove) {
-    if (skillName)        removeSkill(catalog, skillName);
-    else if (agentName)   removeAgent(catalog, agentName);
-    else if (mcpName)     removeMcp(catalog, mcpName);
-    else if (bundleName)  removeBundle(catalog, bundleName);
-    else if (commandName) removeCommand(catalog, commandName);
+    const removed = (type: string, name: string, fn: (log: (msg: string) => void) => void) =>
+      withLogging(
+        { action: 'remove', type, name, providers: getWritableTargetLabelsForType(type) },
+        log => { fn(log); return { action: 'removed' }; },
+        console.log,
+      );
+
+    if (skillName)        removed('skill', skillName,    log => removeSkill(catalog, skillName!, log));
+    else if (agentName)   removed('agent', agentName,    log => removeAgent(catalog, agentName!, log));
+    else if (mcpName)     removed('mcp', mcpName,        log => removeMcp(catalog, mcpName!, log));
+    else if (bundleName)  removed('bundle', bundleName,  log => removeBundle(catalog, bundleName!, log));
+    else if (commandName) removed('command', commandName,log => removeCommand(catalog, commandName!, log));
+    else if (pluginName)  removed('plugin', pluginName,  log => removePlugin(catalog, pluginName!, log));
     else return false; // interactive remove -> TUI
     return true;
   }
@@ -612,11 +675,32 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   const results: InstallResult[] = [];
   const opts: { force: boolean; strict: boolean; link?: boolean } = { force: isForce, strict: isStrict };
   if (isLink) opts.link = true;
-  if (skillName)        results.push(installSkill(catalog, skillName, opts));
-  else if (agentName)   results.push(installAgent(catalog, agentName, opts));
-  else if (mcpName)     results.push(installMcp(catalog, mcpName, opts));
-  else if (bundleName)  results.push(...installBundle(catalog, bundleName, opts));
-  else if (commandName) results.push(installCommand(catalog, commandName, opts));
+
+  if (skillName) {
+    results.push(withLogging(
+      { action: 'install', type: 'skill', name: skillName, providers: getWritableTargetLabelsForType('skill') },
+      log => installSkill(catalog, skillName!, opts, log), console.log));
+  } else if (agentName) {
+    results.push(withLogging(
+      { action: 'install', type: 'agent', name: agentName, providers: getWritableTargetLabelsForType('agent') },
+      log => installAgent(catalog, agentName!, opts, log), console.log));
+  } else if (mcpName) {
+    results.push(withLogging(
+      { action: 'install', type: 'mcp', name: mcpName, providers: getWritableTargetLabelsForType('mcp') },
+      log => installMcp(catalog, mcpName!, opts, log), console.log));
+  } else if (commandName) {
+    results.push(withLogging(
+      { action: 'install', type: 'command', name: commandName, providers: getWritableTargetLabelsForType('command') },
+      log => installCommand(catalog, commandName!, opts, log), console.log));
+  } else if (bundleName) {
+    results.push(...withMultiLogging(
+      { action: 'install-bundle', type: 'bundle', name: bundleName, providers: getWritableTargetLabelsForType('bundle') },
+      log => installBundle(catalog, bundleName!, opts, log), console.log));
+  } else if (pluginName) {
+    results.push(...withMultiLogging(
+      { action: 'install-plugin', type: 'plugin', name: pluginName, providers: getWritableTargetLabelsForType('plugin') },
+      log => installPlugin(catalog, pluginName!, opts, log), console.log));
+  }
 
   if (results.length > 0) {
     printSummary(results);
