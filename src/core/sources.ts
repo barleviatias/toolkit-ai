@@ -5,7 +5,7 @@ import type { Source, SourcesConfig, CatalogEntry } from '../types.js';
 import { SOURCES_FILE, CACHE_DIR, assertSafePathSegment } from './platform.js';
 import { loadSettings } from './settings.js';
 import { ensureDir } from './fs-helpers.js';
-import { parseFrontmatter, hashDir, hashFile } from './catalog.js';
+import { parseFrontmatter, hashDir, hashFile, loadPluginManifest, findPluginManifestPath } from './catalog.js';
 
 function loadDefaultConfig(): SourcesConfig {
   // Load defaults from resources/sources.json (bundled with the package)
@@ -296,6 +296,18 @@ export function refreshSources(sourceName?: string): { name: string; ok: boolean
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage']);
 
+/**
+ * A directory is a plugin root if it contains a recognised plugin manifest
+ * (Claude's `.claude-plugin/plugin.json` OR a top-level generic `plugin.json`).
+ * Standalone scanners (skill/agent/command/mcp) skip past plugin roots so a
+ * plugin's components don't double-list as both `plugin:foo` and a flat
+ * `skill:bar`. Users install via the plugin entry; the decompose installer
+ * handles the components at install time.
+ */
+function isPluginRoot(dir: string): boolean {
+  return findPluginManifestPath(dir) !== null;
+}
+
 function findSkillDirs(dir: string): string[] {
   const results: string[] = [];
 
@@ -311,7 +323,9 @@ function findSkillDirs(dir: string): string[] {
 
     for (const entry of entries) {
       if (!entry.isDirectory() || SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-      walk(path.join(current, entry.name));
+      const child = path.join(current, entry.name);
+      if (isPluginRoot(child)) continue;
+      walk(child);
     }
   }
 
@@ -319,7 +333,7 @@ function findSkillDirs(dir: string): string[] {
   return results;
 }
 
-/** Recursively collect every file in `dir` (skipping SKIP_DIRS and dotfolders) whose name ends with `suffix`. */
+/** Recursively collect every file in `dir` (skipping SKIP_DIRS, dotfolders, and plugin roots) whose name ends with `suffix`. */
 function walkFilesBySuffix(dir: string, suffix: string): string[] {
   const results: string[] = [];
 
@@ -331,7 +345,9 @@ function walkFilesBySuffix(dir: string, suffix: string): string[] {
       if (entry.isFile() && entry.name.endsWith(suffix)) {
         results.push(path.join(current, entry.name));
       } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-        walk(path.join(current, entry.name));
+        const child = path.join(current, entry.name);
+        if (isPluginRoot(child)) continue;
+        walk(child);
       }
     }
   }
@@ -357,7 +373,9 @@ function findMcpFiles(dir: string): string[] {
       } else if (entry.isFile() && entry.name.endsWith('.mcp.json')) {
         results.push(path.join(current, entry.name));
       } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-        walk(path.join(current, entry.name));
+        const child = path.join(current, entry.name);
+        if (isPluginRoot(child)) continue;
+        walk(child);
       }
     }
   }
@@ -445,7 +463,9 @@ function findBundleFiles(dir: string): string[] {
       } else if (entry.isFile() && entry.name.endsWith('.bundle.json')) {
         results.push(path.join(current, entry.name));
       } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-        walk(path.join(current, entry.name));
+        const child = path.join(current, entry.name);
+        if (isPluginRoot(child)) continue;
+        walk(child);
       }
     }
   }
@@ -522,6 +542,55 @@ function scanSourceMcps(source: Source): CatalogEntry[] {
   return dedupeByName(entries);
 }
 
+/**
+ * Find directories that declare a plugin (any of the supported manifest
+ * shapes — see `isPluginRoot`). Doesn't recurse into a found plugin so
+ * marketplace-style repos with one plugin per top-level subdir get one
+ * catalog entry per plugin.
+ */
+function findPluginDirs(root: string): string[] {
+  const results: string[] = [];
+
+  function walk(current: string) {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+
+    if (isPluginRoot(current)) {
+      results.push(current);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      walk(path.join(current, entry.name));
+    }
+  }
+
+  walk(root);
+  return results;
+}
+
+function scanSourcePlugins(source: Source): CatalogEntry[] {
+  const cacheDir = getCacheDir(source);
+  if (!fs.existsSync(cacheDir)) return [];
+
+  const entries: CatalogEntry[] = [];
+  for (const pluginDir of findPluginDirs(cacheDir)) {
+    try {
+      const manifest = loadPluginManifest(pluginDir);
+      if (!manifest.name) continue;
+      entries.push({
+        name: manifest.name,
+        description: manifest.description || '',
+        hash: hashDir(pluginDir),
+        path: path.relative(cacheDir, pluginDir),
+        source: source.name,
+      });
+    } catch { /* malformed manifest; skip */ }
+  }
+  return dedupeByName(entries);
+}
+
 function scanSourceBundles(source: Source): CatalogEntry[] {
   const cacheDir = getCacheDir(source);
   if (!fs.existsSync(cacheDir)) return [];
@@ -552,6 +621,7 @@ export interface ExternalResources {
   mcps: CatalogEntry[];
   bundles: CatalogEntry[];
   commands: CatalogEntry[];
+  plugins: CatalogEntry[];
   warnings: SourceLoadWarning[];
 }
 
@@ -562,13 +632,14 @@ export interface SourceLoadWarning {
 }
 
 /** Build a unified catalog from discovered external resources. */
-export function buildCatalog(resources: ExternalResources): { skills: CatalogEntry[]; agents: CatalogEntry[]; mcps: CatalogEntry[]; bundles: CatalogEntry[]; commands: CatalogEntry[] } {
+export function buildCatalog(resources: ExternalResources): { skills: CatalogEntry[]; agents: CatalogEntry[]; mcps: CatalogEntry[]; bundles: CatalogEntry[]; commands: CatalogEntry[]; plugins: CatalogEntry[] } {
   return {
     skills: resources.skills,
     agents: resources.agents,
     mcps: resources.mcps,
     bundles: resources.bundles,
     commands: resources.commands,
+    plugins: resources.plugins,
   };
 }
 
@@ -576,7 +647,7 @@ export function buildCatalog(resources: ExternalResources): { skills: CatalogEnt
 export function fetchExternalResources(forceRefresh = false): ExternalResources {
   const config = loadSources();
   const settings = loadSettings();
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
 
   for (const source of config.sources) {
     if (source.type !== 'github' && source.type !== 'bitbucket') continue;
@@ -600,6 +671,7 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
       result.mcps.push(...scanSourceMcps(source));
       result.bundles.push(...scanSourceBundles(source));
       result.commands.push(...scanSourceCommands(source));
+    result.plugins.push(...scanSourcePlugins(source));
 
       if (fetchError) {
         result.warnings.push({
@@ -629,13 +701,14 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
  * whether to fetch.
  */
 export function scanCachedSource(source: Source): ExternalResources {
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
   try {
     result.skills.push(...scanSourceSkills(source));
     result.agents.push(...scanSourceAgents(source));
     result.mcps.push(...scanSourceMcps(source));
     result.bundles.push(...scanSourceBundles(source));
     result.commands.push(...scanSourceCommands(source));
+    result.plugins.push(...scanSourcePlugins(source));
   } catch (e: unknown) {
     result.warnings.push({
       name: source.name,
@@ -665,7 +738,7 @@ export async function fetchAndScanSource(source: Source, ttl: number, forceRefre
 }
 
 async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefresh: boolean): Promise<ExternalResources> {
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
   let fetchError: string | null = null;
   let usedCacheAfterFetchFailure = false;
 
@@ -684,6 +757,7 @@ async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefres
     result.mcps.push(...scanSourceMcps(source));
     result.bundles.push(...scanSourceBundles(source));
     result.commands.push(...scanSourceCommands(source));
+    result.plugins.push(...scanSourcePlugins(source));
 
     if (fetchError) {
       result.warnings.push({
@@ -729,7 +803,7 @@ async function mapWithConcurrency<T, R>(
 export async function fetchExternalResourcesAsync(forceRefresh = false): Promise<ExternalResources> {
   const config = loadSources();
   const settings = loadSettings();
-  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], warnings: [] };
+  const result: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
   const targets = config.sources.filter(source =>
     (source.type === 'github' || source.type === 'bitbucket') && isSourceEnabled(source)
   );
@@ -745,6 +819,7 @@ export async function fetchExternalResourcesAsync(forceRefresh = false): Promise
     result.mcps.push(...resources.mcps);
     result.bundles.push(...resources.bundles);
     result.commands.push(...resources.commands);
+    result.plugins.push(...resources.plugins);
     result.warnings.push(...resources.warnings);
   }
 

@@ -16,6 +16,15 @@ export interface ItemData {
   trackedByLock?: boolean;
   targetLabels?: string[];
   installedTargetLabels?: string[];
+  /**
+   * Per-detected-provider install state. When set, takes precedence over
+   * `targetLabels` / `installedTargetLabels` in the DetailView so we render
+   * each provider with a green ✓ (already installed there) or gray ○ (will
+   * install). Currently populated for plugins, where a given item may be
+   * partially installed across providers (e.g. native in Claude Code via
+   * `/plugin install`, but not yet decomposed elsewhere).
+   */
+  targetStatus?: { label: string; installed: boolean }[];
   // Bundle-specific
   bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
   // MCP-specific
@@ -32,6 +41,7 @@ const TYPE_COLORS: Record<string, string> = {
   mcp:     'yellow',
   bundle:  'cyan',
   command: 'green',
+  plugin:  'red',
 };
 
 interface ItemRowProps {
@@ -59,15 +69,31 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         <Text color={typeColor} bold>{item.type.toUpperCase().padEnd(7)} </Text>
         <Text bold={isActive}>{item.name}</Text>
         <Text dimColor> · {item.source}</Text>
+        {item.source === 'claude' && item.type === 'plugin' && (
+          <Text color="cyan"> · via Claude</Text>
+        )}
+        {item.source === 'copilot' && item.type === 'plugin' && (
+          <Text color="cyan"> · via Copilot</Text>
+        )}
         {item.scanStatus === 'block' && <Text color="red"> ⚠ suspicious</Text>}
         {item.scanStatus === 'warn' && <Text color="yellow"> ⚠ notice</Text>}
+        {(() => {
+          // Partial install (e.g. plugin in Claude natively, not decomposed
+          // elsewhere) — surface as "◐ partial" with the missing-provider count.
+          const partial = !item.installed && item.targetStatus?.some(s => s.installed) && item.targetStatus?.some(s => !s.installed);
+          if (partial) {
+            const missing = item.targetStatus!.filter(s => !s.installed).length;
+            return <Text color="cyan"> · ◐ partial ({missing} provider{missing > 1 ? 's' : ''} pending)</Text>;
+          }
+          return null;
+        })()}
         {item.installed && (
           <Text color="green">{item.trackedByLock === false ? ' · detected on disk' : ' · installed'}</Text>
         )}
         {item.installed && item.installedTargetLabels && item.installedTargetLabels.length > 0 && (
           <Text dimColor> · in {compactLabels(item.installedTargetLabels)}</Text>
         )}
-        {!item.installed && item.targetLabels && item.targetLabels.length > 0 && (
+        {!item.installed && !item.targetStatus?.some(s => s.installed) && item.targetLabels && item.targetLabels.length > 0 && (
           <Text dimColor> · targets {compactLabels(item.targetLabels)}</Text>
         )}
         {item.hasUpdate && <Text color="yellow"> · update available</Text>}

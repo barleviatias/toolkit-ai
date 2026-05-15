@@ -10,7 +10,7 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 
@@ -68,6 +68,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (input === '3') toggleType('mcp');
       else if (input === '4') toggleType('bundle');
       else if (input === '5') toggleType('command');
+      else if (input === '6') toggleType('plugin');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U' && updateCount > 0) {
         runBusy(`Updating ${updateCount} item(s)`, () => {
@@ -95,6 +96,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       else if (type === 'mcp')     removeMcp(catalog, name, () => {});
       else if (type === 'bundle')  removeBundle(catalog, name, () => {});
       else if (type === 'command') removeCommand(catalog, name, () => {});
+      else if (type === 'plugin')  removePlugin(catalog, name, () => {});
     } catch (e: unknown) {
       setMessage(`Error removing ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -227,8 +229,8 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
           busy
             ? 'Working…'
             : updateCount > 0
-              ? '/ search · 1-4 filter · 0 all · Space select · Enter details · u update · U all · r remove · Tab switch'
-              : '/ search · 1-4 filter · 0 all · Space select · Enter details · r remove · Tab switch'
+              ? '/ search · 1-6 filter · 0 all · Space select · Enter details · u update · U all · r remove · Tab switch'
+              : '/ search · 1-6 filter · 0 all · Space select · Enter details · r remove · Tab switch'
         }
         selectedCount={selected.size}
       />

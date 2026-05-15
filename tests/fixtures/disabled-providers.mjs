@@ -6,6 +6,7 @@ import { pathToFileURL } from 'url';
 const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-disabled-'));
 process.env.HOME = tempHome;
 process.env.USERPROFILE = tempHome;
+process.env.PATH = '';
 
 const buildDir = process.env.TEST_BUILD_DIR;
 

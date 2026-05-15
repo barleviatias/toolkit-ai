@@ -34,9 +34,16 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   const { rows: termRows } = useTerminalSize();
   const esc = useEscCoordinator();
   const updateInfo = useUpdateCheck();
+  // Bumped whenever provider opt-outs change in SettingsTab. Used as a memo
+  // dep for anything that reads `disabledToolIds()` so the change cascades
+  // through the catalog (per-target labels, header chips) without needing
+  // a full source refetch.
+  const [providersVersion, setProvidersVersion] = useState(0);
   const detectedTargets = useMemo(
     () => detectToolInstallations().filter(target => target.installed),
-    [],
+    // Re-derive on each provider toggle so the header chip set updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [providersVersion],
   );
   const targetLabels = detectedTargets.map(target => target.label);
 
@@ -190,7 +197,17 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             onAdoptSource={adoptSource}
           />
         )}
-        {activeTab === 'settings' && <SettingsTab />}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            onProvidersChanged={() => {
+              // Bump version → header re-derives detectedTargets.
+              setProvidersVersion(v => v + 1);
+              // Refresh the lock so the catalog allItems memo reruns and
+              // picks up the new disabledToolIds (targetLabels per item).
+              refreshLock();
+            }}
+          />
+        )}
       </Box>
     </Box>
     </EscContext.Provider>

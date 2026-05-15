@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-const TYPE_ORDER = ['skill', 'agent', 'mcp', 'bundle', 'command'] as const;
+const TYPE_ORDER = ['skill', 'agent', 'mcp', 'bundle', 'command', 'plugin'] as const;
 
 const TYPE_LABELS: Record<string, string> = {
   skill: 'Skills',
@@ -9,6 +9,7 @@ const TYPE_LABELS: Record<string, string> = {
   mcp: 'MCPs',
   bundle: 'Bundles',
   command: 'Commands',
+  plugin: 'Plugins',
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -17,6 +18,7 @@ const TYPE_COLORS: Record<string, string> = {
   mcp: 'yellow',
   bundle: 'cyan',
   command: 'green',
+  plugin: 'red',
 };
 
 interface TypeFilterProps {

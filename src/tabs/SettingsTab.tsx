@@ -63,7 +63,19 @@ function capabilities(tool: ToolInstallation): string {
   ].filter((value): value is string => value !== null).join(', ');
 }
 
-export const SettingsTab: React.FC = () => {
+interface SettingsTabProps {
+  /**
+   * Notify the parent that provider opt-outs (or any setting that affects
+   * which targets a primitive can install to) just changed. The parent uses
+   * this to invalidate downstream memos: the catalog's per-item targetLabels
+   * read disabledToolIds, and the header's detected-targets chip set has its
+   * own memo. Without this signal both stay stale and the user sees a still-
+   * disabled provider listed under "will install".
+   */
+  onProvidersChanged?: () => void;
+}
+
+export const SettingsTab: React.FC<SettingsTabProps> = ({ onProvidersChanged }) => {
   const [settings, setSettings] = useState<ToolkitSettings>(() => loadSettings());
   const [targets, setTargets] = useState<ToolInstallation[]>(() => detectToolInstallations());
   const [cursor, setCursor] = useState(0);
@@ -106,7 +118,8 @@ export const SettingsTab: React.FC = () => {
     setSettings(next);
     const state = next.disabledTools.includes(tool.id) ? 'disabled' : 'enabled';
     setMessage(`${tool.label} is now ${state}`);
-  }, [settings.disabledTools]);
+    onProvidersChanged?.();
+  }, [settings.disabledTools, onProvidersChanged]);
 
   const persist = useCallback((patch: Partial<ToolkitSettings>, nextMessage: string) => {
     const next = updateSettings(patch);

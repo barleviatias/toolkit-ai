@@ -6,17 +6,35 @@ export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-/** Recursively copy a directory tree from `src` to `dest`. */
+// Dirs that are dev-state, never part of published content. We skip them
+// when recursively copying so a plugin author's `.claude/worktrees/` (git
+// worktrees full of broken symlinks) or `node_modules/` can't blow up an
+// otherwise-clean copy mid-tree.
+const COPY_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage', 'worktrees']);
+
+/**
+ * Recursively copy a directory tree from `src` to `dest`. Skips known
+ * dev-state dirs (see `COPY_SKIP_DIRS`) and irregular file types (symlinks,
+ * sockets, FIFOs) — those can't be cleanly copied and represent local
+ * state, not plugin content. Per-entry errors are swallowed so a single
+ * unreadable file doesn't abort the whole copy.
+ */
 export function copyDirRecursive(src: string, dest: string): void {
   ensureDir(dest);
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(src, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (COPY_SKIP_DIRS.has(entry.name)) continue;
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(s, d);
-    } else {
-      fs.copyFileSync(s, d);
-    }
+    try {
+      if (entry.isDirectory()) {
+        copyDirRecursive(s, d);
+      } else if (entry.isFile()) {
+        fs.copyFileSync(s, d);
+      }
+      // Skip symlinks and other irregular types silently.
+    } catch { /* best-effort copy */ }
   }
 }
 

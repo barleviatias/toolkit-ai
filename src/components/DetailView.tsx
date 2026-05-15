@@ -22,11 +22,18 @@ export const DetailView: React.FC<DetailViewProps> = ({
   const installTargets = item.targetLabels || [];
   const installedTargets = item.installedTargetLabels || [];
 
+  // Any primitive may be partially installed across detected providers
+  // (e.g. a skill that exists in Claude but not Codex, or a plugin in
+  // Claude natively but not decomposed). `i` should still trigger install
+  // in that state so the user can fill the gaps.
+  const hasMissingTarget = !!item.targetStatus?.some(s => !s.installed);
+  const canInstall = !item.installed || hasMissingTarget;
+
   useInput((input, key) => {
     if (key.escape) {
       markEscConsumed();
       onBack();
-    } else if (input === 'i' && !item.installed) {
+    } else if (input === 'i' && canInstall) {
       onInstall(item.key);
     } else if (input === 'r' && item.installed) {
       onRemove(item.key);
@@ -48,7 +55,21 @@ export const DetailView: React.FC<DetailViewProps> = ({
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        {item.type === 'bundle' && installTargets.length > 0 ? (
+        {item.targetStatus && item.targetStatus.length > 0 ? (
+          <>
+            <Text dimColor>Targets:</Text>
+            {item.targetStatus.map(({ label, installed }) => (
+              <Text key={label}>
+                {installed
+                  ? <Text color="green">  ✓ {label}</Text>
+                  : <Text color="gray">  ○ {label}</Text>}
+                {installed
+                  ? <Text dimColor>  installed</Text>
+                  : <Text dimColor>  will install</Text>}
+              </Text>
+            ))}
+          </>
+        ) : item.type === 'bundle' && installTargets.length > 0 ? (
           <Text dimColor>Bundle target providers: {installTargets.join(', ')}</Text>
         ) : item.installed && installedTargets.length > 0 ? (
           <Text dimColor>Installed in: {installedTargets.join(', ')}</Text>
@@ -101,21 +122,55 @@ export const DetailView: React.FC<DetailViewProps> = ({
       )}
 
       <Box marginTop={1} gap={2}>
-        {item.installed ? (
-          <>
-            <Text color="green">{item.trackedByLock === false ? '● Detected on disk' : '● Installed'}</Text>
-            <Text dimColor>  Press </Text>
-            <Text color="red" bold>r</Text>
-            <Text dimColor> to remove</Text>
-          </>
-        ) : (
-          <>
-            <Text dimColor>○ Not installed</Text>
-            <Text dimColor>  Press </Text>
-            <Text color="green" bold>i</Text>
-            <Text dimColor> to install</Text>
-          </>
-        )}
+        {(() => {
+          const someInstalled = !!item.targetStatus?.some(s => s.installed);
+          const someMissing = !!item.targetStatus?.some(s => !s.installed);
+          const partial = !item.installed && someInstalled && someMissing;
+          const fullyInstalled = item.installed && !someMissing;
+
+          if (fullyInstalled || (item.installed && !item.targetStatus)) {
+            return (
+              <>
+                <Text color="green">{item.trackedByLock === false ? '● Detected on disk' : '● Installed'}</Text>
+                <Text dimColor>  Press </Text>
+                <Text color="red" bold>r</Text>
+                <Text dimColor> to remove</Text>
+              </>
+            );
+          }
+          if (item.installed && someMissing) {
+            // Tracked by lock but some providers still don't have it (e.g.
+            // a provider was re-enabled after install). Allow re-install.
+            return (
+              <>
+                <Text color="cyan">◐ Installed in some providers</Text>
+                <Text dimColor>  Press </Text>
+                <Text color="green" bold>i</Text>
+                <Text dimColor> to fill remaining · </Text>
+                <Text color="red" bold>r</Text>
+                <Text dimColor> to remove</Text>
+              </>
+            );
+          }
+          if (partial) {
+            return (
+              <>
+                <Text color="cyan">◐ Partially installed</Text>
+                <Text dimColor>  Press </Text>
+                <Text color="green" bold>i</Text>
+                <Text dimColor> to install across the remaining providers</Text>
+              </>
+            );
+          }
+          return (
+            <>
+              <Text dimColor>○ Not installed</Text>
+              <Text dimColor>  Press </Text>
+              <Text color="green" bold>i</Text>
+              <Text dimColor> to install</Text>
+            </>
+          );
+        })()}
       </Box>
 
       {item.installed && item.trackedByLock === false && (

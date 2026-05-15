@@ -1,23 +1,27 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
+import { SearchInput } from '../components/SearchInput.js';
 import { ItemList } from '../components/ItemList.js';
 import { DetailView } from '../components/DetailView.js';
+import { TypeFilter } from '../components/TypeFilter.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 import { StatusBar } from '../components/StatusBar.js';
 import { parseKey } from '../core/item-key.js';
+import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources } from '../core/sources.js';
 import type { Source } from '../types.js';
-import { installSkill, installAgent, installMcp, installBundle, installCommand } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeCommand } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 import type { SourceFetchStatus } from '../hooks/useCatalog.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
+import { withLogging, withMultiLogging } from '../core/logger.js';
 
-import { IS_DEV_BUILD, TOOLKIT_VERSION, CACHE_DIR } from '../core/platform.js';
+import { IS_DEV_BUILD, TOOLKIT_VERSION, CACHE_DIR, getWritableTargetLabelsForType } from '../core/platform.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -33,7 +37,7 @@ interface SourcesTabProps {
 }
 
 function countResources(resources: ExternalResources): number {
-  return resources.skills.length + resources.agents.length + resources.mcps.length + resources.bundles.length;
+  return resources.skills.length + resources.agents.length + resources.mcps.length + resources.bundles.length + resources.commands.length + resources.plugins.length;
 }
 
 function formatRefreshMessage(resources: ExternalResources, label: string): string {
@@ -64,6 +68,9 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   const [activeSource, setActiveSource] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
+  const [query, setQuery] = useState('');
+  const [focus, setFocus] = useState<'list' | 'search'>('list');
+  const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; items: string[]; onConfirm: () => void } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const markEscConsumed = useMarkEscConsumed();
@@ -79,6 +86,16 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     if (!activeSource) return [];
     return allItems.filter(i => i.source === activeSource);
   }, [allItems, activeSource]);
+  const { filtered: filteredSourceItems, typeCounts, searchTotal: searchFilteredTotal } = useFilteredItems(sourceItems, query, typeFilter);
+
+  const toggleType = useCallback((type: string) => {
+    setTypeFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }, []);
 
   useInput((ch, key) => {
     if (detailItem || confirmAction) return;
@@ -150,6 +167,9 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           setActiveSource(source.name);
           setMode('browse');
           setSelected(new Set());
+          setQuery('');
+          setTypeFilter(new Set());
+          setFocus('list');
         }
       }
     } else if (mode === 'add') {
@@ -171,11 +191,32 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         });
       }
     } else if (mode === 'browse') {
-      if (key.escape) {
+      if (focus === 'search') {
+        if (key.escape || key.downArrow) {
+          if (key.escape) markEscConsumed();
+          setFocus('list');
+        }
+      } else if (key.escape) {
         markEscConsumed();
         setMode('list');
         setActiveSource(null);
         setSelected(new Set());
+      } else if (ch === '/') {
+        setFocus('search');
+      } else if (ch === '1') {
+        toggleType('skill');
+      } else if (ch === '2') {
+        toggleType('agent');
+      } else if (ch === '3') {
+        toggleType('mcp');
+      } else if (ch === '4') {
+        toggleType('bundle');
+      } else if (ch === '5') {
+        toggleType('command');
+      } else if (ch === '6') {
+        toggleType('plugin');
+      } else if (ch === '0') {
+        setTypeFilter(new Set());
       }
     }
   });
@@ -190,13 +231,16 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   }, []);
 
   const runInstall = useCallback((item: ItemData) => {
-    const { type, name } = item;
+    const { type, name, source } = item;
     try {
-      if (type === 'skill') installSkill(catalog, name, { force: false }, () => {});
-      else if (type === 'agent') installAgent(catalog, name, { force: false }, () => {});
-      else if (type === 'mcp') installMcp(catalog, name, { force: false }, () => {});
-      else if (type === 'bundle') installBundle(catalog, name, { force: false }, () => {});
-      else if (type === 'command') installCommand(catalog, name, { force: false }, () => {});
+      const opts = { force: false };
+      const providers = getWritableTargetLabelsForType(type);
+      if (type === 'skill') withLogging({ action: 'install', type, name, source, providers }, log => installSkill(catalog, name, opts, log));
+      else if (type === 'agent') withLogging({ action: 'install', type, name, source, providers }, log => installAgent(catalog, name, opts, log));
+      else if (type === 'mcp') withLogging({ action: 'install', type, name, source, providers }, log => installMcp(catalog, name, opts, log));
+      else if (type === 'bundle') withMultiLogging({ action: 'install-bundle', type, name, source, providers }, log => installBundle(catalog, name, opts, log));
+      else if (type === 'command') withLogging({ action: 'install', type, name, source, providers }, log => installCommand(catalog, name, opts, log));
+      else if (type === 'plugin') withMultiLogging({ action: 'install-plugin', type, name, source, providers }, log => installPlugin(catalog, name, opts, log));
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -208,7 +252,19 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     }
   }, [catalog, onRefresh]);
 
+  const installWithBusy = useCallback((item: ItemData) => {
+    runBusy(`Installing ${item.type} ${item.name}`, () => runInstall(item));
+  }, [runBusy, runInstall]);
+
   const doInstall = useCallback((item: ItemData) => {
+    const fullyInstalled = item.installed && (
+      !item.targetStatus || item.targetStatus.every(s => s.installed)
+    );
+    if (fullyInstalled && !item.hasUpdate) {
+      setMessage(`Already installed everywhere — press r to remove`);
+      return;
+    }
+
     // Route through the same consent dialog as CatalogTab so a user browsing
     // a source can't accidentally install an stdio MCP without seeing the
     // command that will run on every agent session.
@@ -220,13 +276,13 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         items: prompt.lines,
         onConfirm: () => {
           setConfirmAction(null);
-          runInstall(item);
+          installWithBusy(item);
         },
       });
       return;
     }
-    runInstall(item);
-  }, [allItems, runInstall]);
+    installWithBusy(item);
+  }, [allItems, installWithBusy]);
 
   const doRemove = useCallback((item: ItemData) => {
     const { type, name } = parseKey(item.key);
@@ -239,6 +295,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           else if (type === 'agent')   removeAgent(catalog, name, () => {});
           else if (type === 'mcp')     removeMcp(catalog, name, () => {});
           else if (type === 'command') removeCommand(catalog, name, () => {});
+          else if (type === 'plugin')  removePlugin(catalog, name, () => {});
           setMessage(`Removed ${type} ${name}`);
           onRefresh();
         } catch (e: unknown) {
@@ -321,20 +378,31 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           Source: <Text color="cyan">{activeSource}</Text>
           <Text dimColor> · {sourceItems.length} item{sourceItems.length !== 1 ? 's' : ''} · {installedCount} installed</Text>
         </Text>
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          isFocused={focus === 'search'}
+          total={sourceItems.length}
+          filtered={filteredSourceItems.length}
+        />
+        <TypeFilter counts={typeCounts} active={typeFilter} total={searchFilteredTotal} />
         <ItemList
-          items={sourceItems}
+          items={filteredSourceItems}
           selected={selected}
           onToggle={handleToggle}
           onSubmit={handleSubmit}
           onDetail={setDetailItem}
           onInstall={(item) => doInstall(item)}
           onRemove={(item) => doRemove(item)}
-          isFocused={true}
+          isFocused={focus === 'list'}
         />
-        {message && <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>}
+        {busy && (
+          <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (please wait)</Text></Text>
+        )}
+        {!busy && message && <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>}
         <StatusBar
           selectedCount={selected.size}
-          hints="Esc back · Space select · Enter details · i install · r remove · Tab switch"
+          hints={busy ? 'Working…' : 'Esc back · / search · 1-6 filter · 0 all · Space select · Enter details · i install · r remove · Tab switch'}
         />
       </Box>
     );

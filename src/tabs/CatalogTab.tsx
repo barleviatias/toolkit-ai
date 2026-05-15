@@ -16,8 +16,11 @@ import {
   installMcp,
   installBundle,
   installCommand,
+  installPlugin,
 } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
+import { withLogging, withMultiLogging } from '../core/logger.js';
+import { getWritableTargetLabelsForType } from '../core/platform.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
@@ -68,6 +71,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (input === '3') toggleType('mcp');
       else if (input === '4') toggleType('bundle');
       else if (input === '5') toggleType('command');
+      else if (input === '6') toggleType('plugin');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U') {
         if (updateCount === 0) {
@@ -101,15 +105,27 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   }, []);
 
   const runInstall = useCallback((item: ItemData) => {
-    const { type, name } = item;
+    const { type, name, source } = item;
     try {
       const opts = { force: false };
-      if (type === 'skill')        installSkill(catalog, name, opts, () => {});
-      else if (type === 'agent')   installAgent(catalog, name, opts, () => {});
-      else if (type === 'mcp')     installMcp(catalog, name, opts, () => {});
-      else if (type === 'bundle')  installBundle(catalog, name, opts, () => {});
-      else if (type === 'command') installCommand(catalog, name, opts, () => {});
-      else {
+      // Each branch wraps the underlying install in withLogging so the
+      // operation is recorded in ~/.toolkit/log.jsonl. The log captures
+      // every line the installer would otherwise emit, so `toolkit logs`
+      // can replay TUI installs as if they were headless.
+      const providers = getWritableTargetLabelsForType(type);
+      if (type === 'skill') {
+        withLogging({ action: 'install', type, name, source, providers }, log => installSkill(catalog, name, opts, log));
+      } else if (type === 'agent') {
+        withLogging({ action: 'install', type, name, source, providers }, log => installAgent(catalog, name, opts, log));
+      } else if (type === 'mcp') {
+        withLogging({ action: 'install', type, name, source, providers }, log => installMcp(catalog, name, opts, log));
+      } else if (type === 'command') {
+        withLogging({ action: 'install', type, name, source, providers }, log => installCommand(catalog, name, opts, log));
+      } else if (type === 'bundle') {
+        withMultiLogging({ action: 'install-bundle', type, name, source, providers }, log => installBundle(catalog, name, opts, log));
+      } else if (type === 'plugin') {
+        withMultiLogging({ action: 'install-plugin', type, name, source, providers }, log => installPlugin(catalog, name, opts, log));
+      } else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
       }
@@ -128,8 +144,17 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
     const item = filtered.find(i => i.key === key) || items.find(i => i.key === key);
     if (!item) { setMessage('Error: item not found'); return; }
 
-    if (item.installed && !item.hasUpdate) {
-      setMessage(`Already installed — press r to remove or u to update`);
+    // Block install only when fully installed (all detected providers have
+    // it) and there's no pending update. A partial install — e.g. a skill in
+    // Claude but not in Codex/Copilot, or a plugin in Claude via /plugin
+    // install but not yet decomposed — should be re-installable to fill the
+    // gaps. The underlying per-component installers are idempotent on
+    // byte-equal targets so this is safe.
+    const fullyInstalled = item.installed && (
+      !item.targetStatus || item.targetStatus.every(s => s.installed)
+    );
+    if (fullyInstalled && !item.hasUpdate) {
+      setMessage(`Already installed everywhere — press r to remove or u to update`);
       return;
     }
 
@@ -157,11 +182,17 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   const doRemove = useCallback((key: string) => {
     const { type, name } = parseKey(key);
     try {
-      if (type === 'skill')        removeSkill(catalog, name, () => {});
-      else if (type === 'agent')   removeAgent(catalog, name, () => {});
-      else if (type === 'mcp')     removeMcp(catalog, name, () => {});
-      else if (type === 'bundle')  removeBundle(catalog, name, () => {});
-      else if (type === 'command') removeCommand(catalog, name, () => {});
+      const removed = (fn: (log: (msg: string) => void) => void) =>
+        withLogging(
+          { action: 'remove', type, name, providers: getWritableTargetLabelsForType(type) },
+          log => { fn(log); return { action: 'removed' }; },
+        );
+      if (type === 'skill')        removed(log => removeSkill(catalog, name, log));
+      else if (type === 'agent')   removed(log => removeAgent(catalog, name, log));
+      else if (type === 'mcp')     removed(log => removeMcp(catalog, name, log));
+      else if (type === 'bundle')  removed(log => removeBundle(catalog, name, log));
+      else if (type === 'command') removed(log => removeCommand(catalog, name, log));
+      else if (type === 'plugin')  removed(log => removePlugin(catalog, name, log));
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
@@ -309,7 +340,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         hints={
           busy
             ? 'Working...'
-            : '/ search · 1-4 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch'
+            : '/ search · 1-6 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch'
         }
       />
     </Box>
