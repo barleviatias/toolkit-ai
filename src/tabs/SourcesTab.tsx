@@ -204,17 +204,17 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       } else if (ch === '/') {
         setFocus('search');
       } else if (ch === '1') {
-        toggleType('skill');
-      } else if (ch === '2') {
-        toggleType('agent');
-      } else if (ch === '3') {
-        toggleType('mcp');
-      } else if (ch === '4') {
-        toggleType('bundle');
-      } else if (ch === '5') {
-        toggleType('command');
-      } else if (ch === '6') {
         toggleType('plugin');
+      } else if (ch === '2') {
+        toggleType('bundle');
+      } else if (ch === '3') {
+        toggleType('skill');
+      } else if (ch === '4') {
+        toggleType('agent');
+      } else if (ch === '5') {
+        toggleType('mcp');
+      } else if (ch === '6') {
+        toggleType('command');
       } else if (ch === '0') {
         setTypeFilter(new Set());
       }

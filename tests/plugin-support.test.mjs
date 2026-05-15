@@ -163,6 +163,20 @@ test('Plugin install (generic top-level plugin.json manifest) is discovered, ins
   assertPluginRoundTrip(data);
 });
 
+test('Plugin updateAll refreshes stale plugin parent lock hash', () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-update-'));
+  const data = runFixture('plugin-update.mjs', [tempHome], {
+    HOME: tempHome,
+    USERPROFILE: tempHome,
+  });
+
+  assert.equal(data.beforeHash, 'plugin-hash-1');
+  assert.equal(data.afterHash, 'plugin-hash-2');
+  assert.ok(data.installedAt, 'updated plugin lock entry should retain a last-write timestamp');
+  assert.ok(data.resultActions.some(r => r.type === 'skill' && r.name === 'hello'));
+  assert.ok(data.itemHashes?.['skill:hello']?.hash, 'plugin sub-item hash should be recorded after update');
+});
+
 test('Manifest path overrides drive recursive discovery for cross-tool plugins (AMS-shaped layout)', async () => {
   const { default: fs } = await import('fs');
   const { default: path } = await import('path');

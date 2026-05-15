@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-const TYPE_ORDER = ['skill', 'agent', 'mcp', 'bundle', 'command', 'plugin'] as const;
+const TYPE_ORDER = ['plugin', 'bundle', 'skill', 'agent', 'mcp', 'command'] as const;
 
 const TYPE_LABELS: Record<string, string> = {
   skill: 'Skills',

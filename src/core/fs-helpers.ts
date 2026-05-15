@@ -6,6 +6,42 @@ export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * Write a JSON file atomically. Writes to a sibling `.<name>.tmp.<pid>.<rand>`
+ * file first, then renames over the target -- rename is a single inode swap
+ * on POSIX filesystems, so a crash mid-write leaves either the old file
+ * intact or the new file fully written. Never a torn / zero-byte target.
+ *
+ * Use this for every write to a config file under the user's home (Claude's
+ * `installed_plugins.json`, `known_marketplaces.json`, `settings.json`;
+ * Copilot's `config.json`, `settings.json`; toolkit's own `lock.json`).
+ * A torn write to any of these blocks the parser on next read.
+ */
+export function writeJsonAtomic(filePath: string, data: unknown): void {
+  ensureDir(path.dirname(filePath));
+  const tmp = `${filePath}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 8)}`;
+  const body = JSON.stringify(data, null, 2);
+  try {
+    fs.writeFileSync(tmp, body);
+    fs.renameSync(tmp, filePath);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw e;
+  }
+}
+
+/**
+ * Read+parse a JSON file. Returns `null` when the file is **absent**, throws
+ * when the file is **present but malformed**. Use the throw distinction to
+ * refuse to overwrite a transiently-corrupt file (the alternative -- silent
+ * default-to-empty -- destroys whatever the parser would have recovered on
+ * a successful read).
+ */
+export function readJsonOrNull<T = unknown>(filePath: string): T | null {
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+}
+
 // Dirs that are dev-state, never part of published content. We skip them
 // when recursively copying so a plugin author's `.claude/worktrees/` (git
 // worktrees full of broken symlinks) or `node_modules/` can't blow up an
