@@ -63,12 +63,12 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
       }
     } else {
       if (input === '/') setFocus('search');
-      else if (input === '1') toggleType('skill');
-      else if (input === '2') toggleType('agent');
-      else if (input === '3') toggleType('mcp');
-      else if (input === '4') toggleType('bundle');
-      else if (input === '5') toggleType('command');
-      else if (input === '6') toggleType('plugin');
+      else if (input === '1') toggleType('plugin');
+      else if (input === '2') toggleType('bundle');
+      else if (input === '3') toggleType('skill');
+      else if (input === '4') toggleType('agent');
+      else if (input === '5') toggleType('mcp');
+      else if (input === '6') toggleType('command');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U' && updateCount > 0) {
         runBusy(`Updating ${updateCount} item(s)`, () => {

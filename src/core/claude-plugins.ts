@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { CatalogEntry, PluginContents, PluginManifest } from '../types.js';
-import { ensureDir, copyDirRecursive } from './fs-helpers.js';
+import { ensureDir, copyDirRecursive, writeJsonAtomic, readJsonOrNull } from './fs-helpers.js';
 import {
   CLAUDE_KNOWN_MARKETPLACES_JSON,
   CLAUDE_MARKETPLACES_DIR,
@@ -329,17 +329,10 @@ function copyPluginTreeScoped(
   const claudeManifestPath = path.join(sourceDir, '.claude-plugin', 'plugin.json');
   const rootManifestPath = path.join(sourceDir, 'plugin.json');
   if (fs.existsSync(claudeManifestPath)) {
-    ensureDir(path.join(destDir, '.claude-plugin'));
-    fs.writeFileSync(
-      path.join(destDir, '.claude-plugin', 'plugin.json'),
-      JSON.stringify(canonicalManifest, null, 2),
-    );
+    writeJsonAtomic(path.join(destDir, '.claude-plugin', 'plugin.json'), canonicalManifest);
   }
   if (fs.existsSync(rootManifestPath)) {
-    fs.writeFileSync(
-      path.join(destDir, 'plugin.json'),
-      JSON.stringify(canonicalManifest, null, 2),
-    );
+    writeJsonAtomic(path.join(destDir, 'plugin.json'), canonicalManifest);
   }
 
   // Best-effort copy of common plugin metadata files at the root.
@@ -405,11 +398,19 @@ export function installCopilotPlugin(
   // CLI installed at a specific path).
   let existing: CopilotInstalledPlugin | null = null;
   let configRaw: Record<string, unknown> = {};
+  let configWritable = true;
   try {
-    configRaw = JSON.parse(fs.readFileSync(COPILOT_CONFIG_JSON, 'utf8')) as Record<string, unknown>;
-    const list = Array.isArray(configRaw.installedPlugins) ? configRaw.installedPlugins as CopilotInstalledPlugin[] : [];
-    existing = list.find(p => p.name === name) || null;
-  } catch { /* config absent — we'll create it */ }
+    const parsed = readJsonOrNull<Record<string, unknown>>(COPILOT_CONFIG_JSON);
+    if (parsed !== null) {
+      configRaw = parsed;
+      const list = Array.isArray(configRaw.installedPlugins) ? configRaw.installedPlugins as CopilotInstalledPlugin[] : [];
+      existing = list.find(p => p.name === name) || null;
+    }
+  } catch {
+    // File exists but is malformed -- refuse to overwrite. Default-to-empty
+    // here would clobber whatever the user / Copilot is mid-write on.
+    configWritable = false;
+  }
 
   const marketplace = existing?.marketplace || TOOLKIT_MARKETPLACE;
   const destDir = existing?.cache_path || path.join(COPILOT_PLUGINS_ROOT, marketplace, name);
@@ -439,41 +440,51 @@ export function installCopilotPlugin(
   } catch { /* best-effort copy */ }
 
   // Update config.json — replace existing entry in place, or append.
-  try {
-    const installedAt = new Date().toISOString();
-    const newEntry: CopilotInstalledPlugin = {
-      name,
-      marketplace,
-      version: manifest.version || existing?.version || '0.0.0',
-      installed_at: existing?.installed_at || installedAt,
-      enabled: true,
-      cache_path: destDir,
-    };
-    const list = Array.isArray(configRaw.installedPlugins) ? configRaw.installedPlugins as CopilotInstalledPlugin[] : [];
-    const idx = list.findIndex(p => p.name === name);
-    if (idx >= 0) {
-      list[idx] = newEntry;
-      result.replacedExistingConfig = true;
-    } else {
-      list.push(newEntry);
-    }
-    configRaw.installedPlugins = list;
-    ensureDir(path.dirname(COPILOT_CONFIG_JSON));
-    fs.writeFileSync(COPILOT_CONFIG_JSON, JSON.stringify(configRaw, null, 2));
-    result.registeredInConfig = true;
-  } catch { /* best-effort registry update */ }
+  // Skip entirely when the read failed because the file was malformed:
+  // writing an empty configRaw would erase every other Copilot setting.
+  if (configWritable) {
+    try {
+      const installedAt = new Date().toISOString();
+      const newEntry: CopilotInstalledPlugin = {
+        name,
+        marketplace,
+        version: manifest.version || existing?.version || '0.0.0',
+        installed_at: existing?.installed_at || installedAt,
+        enabled: true,
+        cache_path: destDir,
+      };
+      const list = Array.isArray(configRaw.installedPlugins) ? configRaw.installedPlugins as CopilotInstalledPlugin[] : [];
+      const idx = list.findIndex(p => p.name === name);
+      if (idx >= 0) {
+        list[idx] = newEntry;
+        result.replacedExistingConfig = true;
+      } else {
+        list.push(newEntry);
+      }
+      configRaw.installedPlugins = list;
+      writeJsonAtomic(COPILOT_CONFIG_JSON, configRaw);
+      result.registeredInConfig = true;
+    } catch { /* best-effort registry update */ }
+  }
 
   // Update settings.json — add to enabledPlugins under `<name>@<marketplace>`.
+  // As with config.json above: if the existing file is malformed, refuse to
+  // overwrite. Default-to-empty would wipe every other setting the user has.
   try {
-    let settings: { enabledPlugins?: Record<string, boolean> } & Record<string, unknown> = {};
-    try { settings = JSON.parse(fs.readFileSync(COPILOT_SETTINGS_JSON, 'utf8')) as typeof settings; } catch { /* defaults */ }
-    if (!settings.enabledPlugins) settings.enabledPlugins = {};
-    const key = `${name}@${marketplace}`;
-    if (!settings.enabledPlugins[key]) {
-      settings.enabledPlugins[key] = true;
-      ensureDir(path.dirname(COPILOT_SETTINGS_JSON));
-      fs.writeFileSync(COPILOT_SETTINGS_JSON, JSON.stringify(settings, null, 2));
-      result.enabledInSettings = true;
+    let settings: ({ enabledPlugins?: Record<string, boolean> } & Record<string, unknown>) = {};
+    let writable = true;
+    try {
+      const parsed = readJsonOrNull<typeof settings>(COPILOT_SETTINGS_JSON);
+      if (parsed !== null) settings = parsed;
+    } catch { writable = false; }
+    if (writable) {
+      if (!settings.enabledPlugins) settings.enabledPlugins = {};
+      const key = `${name}@${marketplace}`;
+      if (!settings.enabledPlugins[key]) {
+        settings.enabledPlugins[key] = true;
+        writeJsonAtomic(COPILOT_SETTINGS_JSON, settings);
+        result.enabledInSettings = true;
+      }
     }
   } catch { /* best-effort settings update */ }
 
@@ -502,7 +513,7 @@ export function uninstallCopilotPlugin(name: string): CopilotUninstallResult {
     });
     if (survivors.length !== plugins.length) {
       config.installedPlugins = survivors;
-      fs.writeFileSync(COPILOT_CONFIG_JSON, JSON.stringify(config, null, 2));
+      writeJsonAtomic(COPILOT_CONFIG_JSON, config);
       result.removedFromConfig = true;
     }
   } catch { /* config absent or unreadable — nothing to do */ }
@@ -515,7 +526,7 @@ export function uninstallCopilotPlugin(name: string): CopilotUninstallResult {
       const toRemove = Object.keys(settings.enabledPlugins).filter(k => k === name || k.startsWith(`${name}@`));
       for (const k of toRemove) delete settings.enabledPlugins[k];
       if (toRemove.length > 0) {
-        fs.writeFileSync(COPILOT_SETTINGS_JSON, JSON.stringify(settings, null, 2));
+        writeJsonAtomic(COPILOT_SETTINGS_JSON, settings);
         result.removedFromSettings = toRemove;
       }
     }
@@ -608,25 +619,33 @@ export function installClaudePlugin(
     }
   } catch { /* best-effort copy */ }
 
+  // Update installed_plugins.json. Refuse to overwrite if the existing file
+  // is malformed -- default-to-empty would wipe every other plugin Claude
+  // installed natively.
   try {
     let raw: ClaudeInstalledPluginsFile = { version: 2, plugins: {} };
-    try { raw = JSON.parse(fs.readFileSync(CLAUDE_PLUGIN_INSTALLED_JSON, 'utf8')) as ClaudeInstalledPluginsFile; } catch { /* defaults */ }
-    if (!raw.plugins) raw.plugins = {};
-    const now = new Date().toISOString();
-    const existing = raw.plugins[key]?.[0];
-    const entry: ClaudeInstallEntry = {
-      scope: existing?.scope || 'user',
-      installPath: destDir,
-      version,
-      installedAt: existing?.installedAt || now,
-      lastUpdated: now,
-    };
-    if (existing?.gitCommitSha) entry.gitCommitSha = existing.gitCommitSha;
-    if (raw.plugins[key]) result.replacedExistingInstalled = true;
-    raw.plugins[key] = [entry];
-    ensureDir(path.dirname(CLAUDE_PLUGIN_INSTALLED_JSON));
-    fs.writeFileSync(CLAUDE_PLUGIN_INSTALLED_JSON, JSON.stringify(raw, null, 2));
-    result.registeredInInstalled = true;
+    let writable = true;
+    try {
+      const parsed = readJsonOrNull<ClaudeInstalledPluginsFile>(CLAUDE_PLUGIN_INSTALLED_JSON);
+      if (parsed !== null) raw = parsed;
+    } catch { writable = false; }
+    if (writable) {
+      if (!raw.plugins) raw.plugins = {};
+      const now = new Date().toISOString();
+      const existing = raw.plugins[key]?.[0];
+      const entry: ClaudeInstallEntry = {
+        scope: existing?.scope || 'user',
+        installPath: destDir,
+        version,
+        installedAt: existing?.installedAt || now,
+        lastUpdated: now,
+      };
+      if (existing?.gitCommitSha) entry.gitCommitSha = existing.gitCommitSha;
+      if (raw.plugins[key]) result.replacedExistingInstalled = true;
+      raw.plugins[key] = [entry];
+      writeJsonAtomic(CLAUDE_PLUGIN_INSTALLED_JSON, raw);
+      result.registeredInInstalled = true;
+    }
   } catch { /* best-effort registry update */ }
 
   // Claude only loads plugins whose marketplace is registered in
@@ -644,14 +663,22 @@ export function installClaudePlugin(
   // `claude plugin list` shows the plugin as `✘ disabled` and none of
   // its commands / agents / skills load. Mirror what `claude plugin
   // enable <name>@<marketplace>` writes.
+  // settings.json::enabledPlugins. Same refuse-on-malformed pattern -- this
+  // file holds every user setting Claude has, and a corrupt-then-clobber
+  // would silently wipe them all.
   try {
     let settings: { enabledPlugins?: Record<string, boolean> } & Record<string, unknown> = {};
-    try { settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_JSON, 'utf8')) as typeof settings; } catch { /* fresh */ }
-    if (!settings.enabledPlugins || typeof settings.enabledPlugins !== 'object') settings.enabledPlugins = {};
-    if (settings.enabledPlugins[key] !== true) {
-      settings.enabledPlugins[key] = true;
-      ensureDir(path.dirname(CLAUDE_SETTINGS_JSON));
-      fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2));
+    let writable = true;
+    try {
+      const parsed = readJsonOrNull<typeof settings>(CLAUDE_SETTINGS_JSON);
+      if (parsed !== null) settings = parsed;
+    } catch { writable = false; }
+    if (writable) {
+      if (!settings.enabledPlugins || typeof settings.enabledPlugins !== 'object') settings.enabledPlugins = {};
+      if (settings.enabledPlugins[key] !== true) {
+        settings.enabledPlugins[key] = true;
+        writeJsonAtomic(CLAUDE_SETTINGS_JSON, settings);
+      }
     }
   } catch { /* best-effort settings update */ }
 
@@ -673,48 +700,74 @@ function registerToolkitMarketplaceForPlugin(
   const marketplaceManifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json');
   ensureDir(path.dirname(marketplaceManifestPath));
 
-  // Symlink the cache dir under the marketplace dir so the relative
-  // `source: "./<plugin>"` resolves to the actual plugin contents.
+  // Point `<marketplace>/<plugin>` at the plugin cache so the relative
+  // `source: "./<plugin>"` in marketplace.json resolves. Symlink is the
+  // happy path. Windows without Developer Mode (or admin) refuses
+  // symlinkSync, so fall back to a real recursive copy. If a stale real
+  // directory occupies the path, rm it before retrying.
   const pluginLink = path.join(marketplaceDir, pluginName);
+  const replaceWithSymlink = (): boolean => {
+    try { fs.symlinkSync(cacheDir, pluginLink, 'dir'); return true; } catch { return false; }
+  };
   try {
-    if (fs.existsSync(pluginLink) || fs.lstatSync(pluginLink, { throwIfNoEntry: false })) {
-      fs.unlinkSync(pluginLink);
+    const stat = fs.lstatSync(pluginLink, { throwIfNoEntry: false });
+    if (stat) {
+      if (stat.isSymbolicLink() || stat.isFile()) fs.unlinkSync(pluginLink);
+      else if (stat.isDirectory()) fs.rmSync(pluginLink, { recursive: true, force: true });
     }
-  } catch { /* link may not exist or may be a real dir; ignore */ }
-  try { fs.symlinkSync(cacheDir, pluginLink, 'dir'); } catch { /* fall back to copy below */ }
+  } catch { /* nothing to clear */ }
+  if (!replaceWithSymlink()) {
+    // Windows non-dev-mode path: copy the cache tree under the marketplace
+    // dir so Claude's relative-`source` lookup still finds the plugin.
+    try { copyDirRecursive(cacheDir, pluginLink); } catch { /* best-effort */ }
+  }
 
   // Read existing marketplace manifest (if any) and merge our plugin entry.
+  // Refuse to overwrite a malformed existing manifest -- another plugin's
+  // entry in there would be lost.
   type MarketplacePlugin = { name: string; source?: string; description?: string; version?: string };
   type MarketplaceManifest = { name?: string; description?: string; owner?: { name?: string }; plugins?: MarketplacePlugin[] };
   let manifest: MarketplaceManifest = {};
-  try { manifest = JSON.parse(fs.readFileSync(marketplaceManifestPath, 'utf8')) as MarketplaceManifest; } catch { /* fresh manifest */ }
-  manifest.name = TOOLKIT_MARKETPLACE;
-  manifest.description = manifest.description || 'Synthetic marketplace for plugins installed via the toolkit-ai CLI.';
-  manifest.owner = manifest.owner || { name: 'toolkit-ai' };
-  const plugins: MarketplacePlugin[] = Array.isArray(manifest.plugins) ? manifest.plugins : [];
-  const idx = plugins.findIndex(p => p?.name === pluginName);
-  const pluginEntry: MarketplacePlugin = {
-    name: pluginName,
-    source: `./${pluginName}`,
-    description,
-    version,
-  };
-  if (idx >= 0) plugins[idx] = pluginEntry;
-  else plugins.push(pluginEntry);
-  manifest.plugins = plugins;
-  fs.writeFileSync(marketplaceManifestPath, JSON.stringify(manifest, null, 2));
+  let manifestWritable = true;
+  try {
+    const parsed = readJsonOrNull<MarketplaceManifest>(marketplaceManifestPath);
+    if (parsed !== null) manifest = parsed;
+  } catch { manifestWritable = false; }
+  if (manifestWritable) {
+    manifest.name = TOOLKIT_MARKETPLACE;
+    manifest.description = manifest.description || 'Synthetic marketplace for plugins installed via the toolkit-ai CLI.';
+    manifest.owner = manifest.owner || { name: 'toolkit-ai' };
+    const plugins: MarketplacePlugin[] = Array.isArray(manifest.plugins) ? manifest.plugins : [];
+    const idx = plugins.findIndex(p => p?.name === pluginName);
+    const pluginEntry: MarketplacePlugin = {
+      name: pluginName,
+      source: `./${pluginName}`,
+      description,
+      version,
+    };
+    if (idx >= 0) plugins[idx] = pluginEntry;
+    else plugins.push(pluginEntry);
+    manifest.plugins = plugins;
+    writeJsonAtomic(marketplaceManifestPath, manifest);
+  }
 
-  // Register the marketplace in known_marketplaces.json.
+  // Register the marketplace in known_marketplaces.json. Same refuse-on-
+  // malformed pattern -- losing other marketplace entries would render
+  // every other toolkit-installed plugin unloadable.
   type KnownMarketplaces = Record<string, { source?: unknown; installLocation?: string; lastUpdated?: string }>;
   let known: KnownMarketplaces = {};
-  try { known = JSON.parse(fs.readFileSync(CLAUDE_KNOWN_MARKETPLACES_JSON, 'utf8')) as KnownMarketplaces; } catch { /* fresh registry */ }
+  let knownWritable = true;
+  try {
+    const parsed = readJsonOrNull<KnownMarketplaces>(CLAUDE_KNOWN_MARKETPLACES_JSON);
+    if (parsed !== null) known = parsed;
+  } catch { knownWritable = false; }
+  if (!knownWritable) return;
   known[TOOLKIT_MARKETPLACE] = {
     source: { source: 'directory', path: marketplaceDir },
     installLocation: marketplaceDir,
     lastUpdated: new Date().toISOString(),
   };
-  ensureDir(path.dirname(CLAUDE_KNOWN_MARKETPLACES_JSON));
-  fs.writeFileSync(CLAUDE_KNOWN_MARKETPLACES_JSON, JSON.stringify(known, null, 2));
+  writeJsonAtomic(CLAUDE_KNOWN_MARKETPLACES_JSON, known);
 }
 
 /**
@@ -727,29 +780,45 @@ function unregisterToolkitMarketplaceForPlugin(pluginName: string): void {
   const marketplaceDir = path.join(CLAUDE_MARKETPLACES_DIR, TOOLKIT_MARKETPLACE);
   const marketplaceManifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json');
   const pluginLink = path.join(marketplaceDir, pluginName);
-  try { fs.unlinkSync(pluginLink); } catch { /* ignore */ }
+
+  // Remove the `<marketplace>/<plugin>` entry. If install fell back to a
+  // recursive copy (Windows non-dev-mode), this is a real directory; if
+  // the happy path took, it's a symlink. Handle both.
+  try {
+    const stat = fs.lstatSync(pluginLink, { throwIfNoEntry: false });
+    if (stat?.isSymbolicLink() || stat?.isFile()) fs.unlinkSync(pluginLink);
+    else if (stat?.isDirectory()) fs.rmSync(pluginLink, { recursive: true, force: true });
+  } catch { /* nothing to clear */ }
 
   type MarketplacePlugin = { name: string };
   type MarketplaceManifest = { plugins?: MarketplacePlugin[] };
   let manifest: MarketplaceManifest = {};
-  try { manifest = JSON.parse(fs.readFileSync(marketplaceManifestPath, 'utf8')) as MarketplaceManifest; } catch { return; }
+  try {
+    const parsed = readJsonOrNull<MarketplaceManifest>(marketplaceManifestPath);
+    if (parsed === null) return;
+    manifest = parsed;
+  } catch {
+    // Refuse to touch a corrupt marketplace.json on uninstall too -- the
+    // user can hand-repair; we won't overwrite.
+    return;
+  }
   const remaining = (manifest.plugins || []).filter(p => p?.name !== pluginName);
 
   if (remaining.length === 0) {
     try { fs.rmSync(marketplaceDir, { recursive: true, force: true }); } catch { /* ignore */ }
     try {
       type KnownMarketplaces = Record<string, unknown>;
-      const known = JSON.parse(fs.readFileSync(CLAUDE_KNOWN_MARKETPLACES_JSON, 'utf8')) as KnownMarketplaces;
-      if (TOOLKIT_MARKETPLACE in known) {
+      const known = readJsonOrNull<KnownMarketplaces>(CLAUDE_KNOWN_MARKETPLACES_JSON);
+      if (known && TOOLKIT_MARKETPLACE in known) {
         delete known[TOOLKIT_MARKETPLACE];
-        fs.writeFileSync(CLAUDE_KNOWN_MARKETPLACES_JSON, JSON.stringify(known, null, 2));
+        writeJsonAtomic(CLAUDE_KNOWN_MARKETPLACES_JSON, known);
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore -- malformed; leave the entry rather than wipe */ }
     return;
   }
 
   manifest.plugins = remaining;
-  try { fs.writeFileSync(marketplaceManifestPath, JSON.stringify(manifest, null, 2)); } catch { /* ignore */ }
+  try { writeJsonAtomic(marketplaceManifestPath, manifest); } catch { /* ignore */ }
 }
 
 /**
@@ -802,7 +871,7 @@ export function uninstallClaudePlugin(name: string): ClaudeUninstallResult {
     delete raw.plugins[k];
   }
   try {
-    fs.writeFileSync(CLAUDE_PLUGIN_INSTALLED_JSON, JSON.stringify(raw, null, 2));
+    writeJsonAtomic(CLAUDE_PLUGIN_INSTALLED_JSON, raw);
     result.removedFromInstalled = true;
   } catch { /* ignore */ }
 
@@ -813,14 +882,16 @@ export function uninstallClaudePlugin(name: string): ClaudeUninstallResult {
 
   // Remove the enabledPlugins entry so a future re-install starts from a
   // clean state and `claude plugin list` no longer references a dangling key.
+  // Refuse to touch a malformed settings.json -- we'd rather leave a stale
+  // key than wipe every other Claude setting.
   try {
-    const settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_JSON, 'utf8')) as { enabledPlugins?: Record<string, boolean> } & Record<string, unknown>;
-    if (settings.enabledPlugins && typeof settings.enabledPlugins === 'object') {
+    const settings = readJsonOrNull<{ enabledPlugins?: Record<string, boolean> } & Record<string, unknown>>(CLAUDE_SETTINGS_JSON);
+    if (settings && settings.enabledPlugins && typeof settings.enabledPlugins === 'object') {
       const toRemove = Object.keys(settings.enabledPlugins).filter(k => k === name || k.startsWith(`${name}@`));
       for (const k of toRemove) delete settings.enabledPlugins[k];
-      if (toRemove.length > 0) fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2));
+      if (toRemove.length > 0) writeJsonAtomic(CLAUDE_SETTINGS_JSON, settings);
     }
-  } catch { /* best-effort cleanup */ }
+  } catch { /* malformed -- leave intact */ }
 
   return result;
 }
