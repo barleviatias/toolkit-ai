@@ -4,11 +4,13 @@ import type { Catalog, CatalogEntry, LockEntry, Source } from '../types.js';
 import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
 import {
   isClaudePluginInstalled,
+  isCodexPluginInstalled,
   isCopilotPluginInstalled,
   scanClaudeInstalledPlugins,
+  scanCodexInstalledPlugins,
   scanCopilotInstalledPlugins,
 } from '../core/claude-plugins.js';
-import { CLAUDE_NATIVE_SOURCE, COPILOT_NATIVE_SOURCE } from '../core/platform.js';
+import { CLAUDE_NATIVE_SOURCE, CODEX_NATIVE_SOURCE, COPILOT_NATIVE_SOURCE } from '../core/platform.js';
 import {
   extractMcpServers,
   buildCatalog,
@@ -148,18 +150,24 @@ export function useCatalog() {
         }
       }
 
-      // Synthetic native sources: surface plugins that Claude Code or
+      // Synthetic native sources: surface plugins that Claude Code, Codex, or
       // GitHub Copilot CLI already installed via their own plugin managers.
-      // Read-only — the toolkit never writes back to either tool's plugin
+      // Read-only — the toolkit never mutates native source state during scan
       // state. Iterated LAST so configured sources win the per-name dedupe
       // in mergePerSource.
       const claudePlugins = scanClaudeInstalledPlugins();
+      const codexPlugins = scanCodexInstalledPlugins();
       const copilotPlugins = scanCopilotInstalledPlugins();
       const finalOrder = [...order];
       if (claudePlugins.length > 0) {
         initialPerSource.set(CLAUDE_NATIVE_SOURCE, { ...EMPTY_EXTERNAL, plugins: claudePlugins });
         initialStatus.set(CLAUDE_NATIVE_SOURCE, 'ready');
         finalOrder.push(CLAUDE_NATIVE_SOURCE);
+      }
+      if (codexPlugins.length > 0) {
+        initialPerSource.set(CODEX_NATIVE_SOURCE, { ...EMPTY_EXTERNAL, plugins: codexPlugins });
+        initialStatus.set(CODEX_NATIVE_SOURCE, 'ready');
+        finalOrder.push(CODEX_NATIVE_SOURCE);
       }
       if (copilotPlugins.length > 0) {
         initialPerSource.set(COPILOT_NATIVE_SOURCE, { ...EMPTY_EXTERNAL, plugins: copilotPlugins });
@@ -195,13 +203,15 @@ export function useCatalog() {
     const settings = loadSettings();
     const enabled = config.sources.filter(isEnabled);
 
-    // Re-scan native plugin caches too — `/plugin install` (Claude) or
+    // Re-scan native plugin caches too — `/plugin install` (Claude/Codex) or
     // `copilot plugin install` may have run since last refresh. Cheap
     // (just a directory walk), so always do it.
     const claudePlugins = scanClaudeInstalledPlugins();
+    const codexPlugins = scanCodexInstalledPlugins();
     const copilotPlugins = scanCopilotInstalledPlugins();
     const orderWithNative = enabled.map(s => s.name);
     if (claudePlugins.length > 0) orderWithNative.push(CLAUDE_NATIVE_SOURCE);
+    if (codexPlugins.length > 0) orderWithNative.push(CODEX_NATIVE_SOURCE);
     if (copilotPlugins.length > 0) orderWithNative.push(COPILOT_NATIVE_SOURCE);
     setSourceOrder(orderWithNative);
 
@@ -210,6 +220,7 @@ export function useCatalog() {
       const next = new Map(prev);
       for (const s of enabled) next.set(s.name, 'fetching');
       if (claudePlugins.length > 0) next.set(CLAUDE_NATIVE_SOURCE, 'ready');
+      if (codexPlugins.length > 0) next.set(CODEX_NATIVE_SOURCE, 'ready');
       if (copilotPlugins.length > 0) next.set(COPILOT_NATIVE_SOURCE, 'ready');
       return next;
     });
@@ -225,6 +236,11 @@ export function useCatalog() {
       const claudeResources: ExternalResources = { ...EMPTY_EXTERNAL, plugins: claudePlugins };
       results.set(CLAUDE_NATIVE_SOURCE, claudeResources);
       setPerSource(prev => new Map(prev).set(CLAUDE_NATIVE_SOURCE, claudeResources));
+    }
+    if (codexPlugins.length > 0) {
+      const codexResources: ExternalResources = { ...EMPTY_EXTERNAL, plugins: codexPlugins };
+      results.set(CODEX_NATIVE_SOURCE, codexResources);
+      setPerSource(prev => new Map(prev).set(CODEX_NATIVE_SOURCE, codexResources));
     }
     if (copilotPlugins.length > 0) {
       const copilotResources: ExternalResources = { ...EMPTY_EXTERNAL, plugins: copilotPlugins };
@@ -408,6 +424,7 @@ export function useCatalog() {
         // Toolkit-decomposed installs land as sub-items under plugin:<name>;
         // walk those and union per-component installed labels too.
         if (src === 'claude') installedSet.add('Claude Code');
+        if (src === 'codex') installedSet.add('Codex');
         if (src === 'copilot') installedSet.add('GitHub Copilot');
         const pluginLockEntry = lock.installed[`plugin:${entry.name}`];
         if (pluginLockEntry?.items) {
@@ -419,11 +436,12 @@ export function useCatalog() {
           }
         }
         // Native-registry checks. Plugins toolkit-ai installs natively in
-        // Claude / Copilot don't decompose into ~/.claude/agents/, ~/.copilot/skills/,
+        // Claude / Codex / Copilot don't decompose into ~/.claude/agents/, ~/.agents/skills/,
         // so the sub-item file-presence loop above won't see them. Read the
         // native plugin registries directly — they're the source of truth for
         // "is the plugin installed in this tool".
         if (isClaudePluginInstalled(entry.name)) installedSet.add('Claude Code');
+        if (isCodexPluginInstalled(entry.name)) installedSet.add('Codex');
         if (isCopilotPluginInstalled(entry.name)) installedSet.add('GitHub Copilot');
       }
 

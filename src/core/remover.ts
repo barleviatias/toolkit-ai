@@ -5,7 +5,7 @@ import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, get
 import { removeLink } from './fs-helpers.js';
 import { findAgent, findBundle } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
-import { uninstallClaudePlugin, uninstallCopilotPlugin } from './claude-plugins.js';
+import { uninstallClaudePlugin, uninstallCodexPlugin, uninstallCopilotPlugin } from './claude-plugins.js';
 
 export type LogFn = (msg: string) => void;
 
@@ -199,6 +199,16 @@ export function removePlugin(catalog: Catalog, name: string, log: LogFn = consol
     log(`  [-] plugin ${name} cache removed: ${copilotResult.removedCachePath}`);
   }
 
+  // Native Codex uninstall — remove the toolkit-managed config table and
+  // cache tree. Other Codex plugin marketplaces are left untouched.
+  const codexResult = uninstallCodexPlugin(name);
+  if (codexResult.removedFromConfig) {
+    log(`  [-] plugin ${name} removed from Codex config (~/.codex/config.toml)`);
+  }
+  if (codexResult.removedCachePath) {
+    log(`  [-] plugin ${name} cache removed: ${codexResult.removedCachePath}`);
+  }
+
   // Native Claude uninstall — symmetrical to Copilot. Only touches entries
   // under our own marketplace key (`<name>@toolkit-ai`); plugins the user
   // installed via Claude's `/plugin install` are left alone.
@@ -214,6 +224,8 @@ export function removePlugin(catalog: Catalog, name: string, log: LogFn = consol
     if (
       !copilotResult.removedFromConfig &&
       !copilotResult.removedCachePath &&
+      !codexResult.removedFromConfig &&
+      !codexResult.removedCachePath &&
       !claudeResult.removedFromInstalled &&
       !claudeResult.removedCachePath
     ) {

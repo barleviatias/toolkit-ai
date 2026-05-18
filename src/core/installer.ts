@@ -4,6 +4,7 @@ import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntr
 import {
   CODEX_AGENT_TARGET,
   CLAUDE_NATIVE_SOURCE,
+  CODEX_NATIVE_SOURCE,
   COPILOT_NATIVE_SOURCE,
   getConfigFormat,
   getSourceRoot,
@@ -18,7 +19,7 @@ import {
   type CommandTarget,
   type ToolId,
 } from './platform.js';
-import { installClaudePlugin, installCopilotPlugin } from './claude-plugins.js';
+import { installClaudePlugin, installCodexPlugin, installCopilotPlugin } from './claude-plugins.js';
 import { ensureDir, linkOrCopyDir, linkOrCopyFile } from './fs-helpers.js';
 import { shouldInstallWithSymlink } from './settings.js';
 import {
@@ -832,6 +833,7 @@ export function installExternalPlugin(
   //     into Copilot's installed-plugins dir and registers it in config.
   const excludeTools = new Set<ToolId>(opts.excludeTools);
   if (sourceName === CLAUDE_NATIVE_SOURCE || isToolSelected('claude')) excludeTools.add('claude');
+  if (sourceName === CODEX_NATIVE_SOURCE || isToolSelected('codex')) excludeTools.add('codex');
   if (sourceName === COPILOT_NATIVE_SOURCE || isToolSelected('copilot')) excludeTools.add('copilot');
 
   // Migration cleanup. Earlier toolkit versions decompose-installed plugin
@@ -912,6 +914,28 @@ export function installExternalPlugin(
       }
     } catch (e: unknown) {
       log(`  [!] plugin ${pluginName}: Copilot native registration failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Native Codex registration. Codex loads plugins from
+  // ~/.codex/plugins/cache/<marketplace>/<name>/<version>/ and enables them
+  // through ~/.codex/config.toml. Going native keeps plugin-scoped resources
+  // out of the standalone ~/.agents and ~/.codex/agents dirs.
+  if (isToolSelected('codex')) {
+    try {
+      const manifest = loadPluginManifest(pluginDir);
+      const native = installCodexPlugin(pluginName, pluginDir, manifest, contents);
+      if (native.copiedTo) {
+        log(`  [+] plugin ${pluginName} -> ${native.copiedTo} (Codex native install)`);
+      }
+      if (native.registeredMarketplace) {
+        log(`  [+] plugin ${pluginName} registered Codex toolkit-ai marketplace`);
+      }
+      if (native.enabledInConfig) {
+        log(`  [+] plugin ${pluginName} enabled in Codex config`);
+      }
+    } catch (e: unknown) {
+      log(`  [!] plugin ${pluginName}: Codex native registration failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

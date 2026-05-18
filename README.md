@@ -266,6 +266,7 @@ provider** — Claude Code, Codex, GitHub Copilot, Cursor, VS Code, and Amp.
 **Discovery — manifest formats accepted:**
 
 - `.claude-plugin/plugin.json` — Claude Code's official plugin layout
+- `.codex-plugin/plugin.json` — Codex's native plugin layout
 - `plugin.json` at the plugin root — generic / cross-tool plugin packages
 - **Plugins already installed by Claude Code's `/plugin install`** — read from
   `~/.claude/plugins/installed_plugins.json` and surfaced under the synthetic
@@ -274,6 +275,11 @@ provider** — Claude Code, Codex, GitHub Copilot, Cursor, VS Code, and Amp.
   decompose-install it across every other detected provider so the same
   plugin works in Codex/Copilot/Cursor/Amp/VS Code too. Toolkit never writes
   to Claude's plugin state — `remove plugin` only removes the decomposed copies.
+- **Plugins already installed by Codex** — read from `~/.codex/config.toml`
+  `[plugins."<name>@<marketplace>"]` entries plus
+  `~/.codex/plugins/cache/<marketplace>/<name>/<version>/`, then surfaced
+  under the synthetic `codex` source. Run `toolkit plugin <name>` to mirror
+  it across the other detected providers.
 - **Plugins already installed by GitHub Copilot CLI's `copilot plugin install`** —
   discovered by walking `~/.copilot/installed-plugins/_direct/` (the per-plugin
   install root the Copilot CLI populates) and surfaced under the synthetic
@@ -337,10 +343,48 @@ to `~/.copilot/config.json` `installedPlugins[]`, enables it in
 `toolkit remove plugin` mirrors this — drops the registry entry, disables
 in settings, removes the cache dir.
 
-**Hooks (`hooks/hooks.json`) are detected but never installed.** They execute
-arbitrary commands and are deferred until the security scanner has hook
-coverage. The rest of the plugin still installs and the user is told the hooks
-file was skipped.
+**Native Codex plugin registration**: when Codex is detected, plugin install
+also writes a real Codex plugin install — copies the scoped plugin tree to
+`~/.codex/plugins/cache/toolkit-ai/<name>/<version>/`, registers a local
+`toolkit-ai` marketplace in `~/.codex/config.toml`, and enables
+`[plugins."<name>@toolkit-ai"]`. Codex then loads the plugin from its own
+plugin system instead of only seeing decomposed standalone skills/agents.
+`toolkit remove plugin` removes the config entry and cache tree.
+
+**Hooks (`hooks/hooks.json`).** Toolkit refuses to merge a plugin's hooks
+into the user's `~/.claude/settings.json` (those commands run on every tool
+call across every repo and the security scanner doesn't cover them yet),
+but a plugin-tree hooks file is a different story: each tool's plugin
+manager loads `hooks/hooks.json` from inside the plugin's own install dir
+and scopes the hooks to that plugin's lifecycle. The toolkit copies the
+`hooks/` directory verbatim along with the rest of the plugin tree, so any
+`hooks/hooks.json` the plugin ships rides along to Claude / Copilot / Codex
+plugin installs.
+
+**Per-tool hooks.json swap.** Claude, Copilot, and Codex disagree on hook
+schema — Claude uses PascalCase events and `${CLAUDE_PLUGIN_ROOT}`, Copilot
+uses camelCase events with no documented plugin-root env var, Codex's hook
+spec is not public. A plugin can ship multiple hook configs and let the
+installer pick the right one per tool. The canonical
+`hooks/hooks.json` is treated as the Claude flavor; if the plugin also
+ships `hooks/configs/copilot.hooks.json` or `hooks/configs/codex.hooks.json`,
+the installer for that tool reads the matching template, substitutes the
+literal string `__AMS_PLUGIN_ROOT__` with the install destination directory,
+and writes the result over `hooks/hooks.json` inside that tool's install.
+Claude's install is never swapped — it keeps the canonical file.
+
+```
+plugin/
+├─ hooks/
+│  ├─ hooks.json                    ← canonical (Claude flavor)
+│  └─ configs/
+│     ├─ copilot.hooks.json         ← swapped in for Copilot install
+│     └─ codex.hooks.json           ← swapped in for Codex install
+```
+
+This sidesteps the missing plugin-root env var problem on Copilot and Codex:
+since the templates carry absolute paths after substitution, the hook
+commands resolve correctly without any runtime variable expansion.
 
 ### Operation log
 

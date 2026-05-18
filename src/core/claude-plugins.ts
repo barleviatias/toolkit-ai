@@ -9,6 +9,9 @@ import {
   CLAUDE_PLUGIN_CACHE_DIR,
   CLAUDE_PLUGIN_INSTALLED_JSON,
   CLAUDE_SETTINGS_JSON,
+  CODEX_CONFIG_TOML,
+  CODEX_NATIVE_SOURCE,
+  CODEX_PLUGIN_CACHE_DIR,
   COPILOT_CONFIG_JSON,
   COPILOT_NATIVE_SOURCE,
   COPILOT_PLUGINS_ROOT,
@@ -55,6 +58,15 @@ export function isCopilotPluginInstalled(name: string): boolean {
   for (const entry of readCopilotInstalledPlugins()) {
     if (entry.name !== name) continue;
     if (entry.cache_path && fs.existsSync(entry.cache_path)) return true;
+  }
+  return false;
+}
+
+/** True when ~/.codex/config.toml enables `<name>@*` and its cache tree exists. */
+export function isCodexPluginInstalled(name: string): boolean {
+  for (const entry of readCodexInstalledPlugins()) {
+    if (entry.name !== name || entry.enabled !== true) continue;
+    if (entry.cachePath && fs.existsSync(entry.cachePath)) return true;
   }
   return false;
 }
@@ -245,6 +257,109 @@ export function scanCopilotInstalledPlugins(): CatalogEntry[] {
   return results;
 }
 
+interface CodexInstalledPlugin {
+  name: string;
+  marketplace: string;
+  enabled: boolean;
+  cachePath: string | null;
+}
+
+function readTomlTableBlocks(raw: string): Map<string, string> {
+  const blocks = new Map<string, string>();
+  const lines = raw.split(/\r?\n/);
+  let current: string | null = null;
+  let body: string[] = [];
+
+  const flush = (): void => {
+    if (current) blocks.set(current, body.join('\n'));
+    current = null;
+    body = [];
+  };
+
+  for (const line of lines) {
+    const match = line.match(/^\[([^\]]+)\]\s*$/);
+    if (match) {
+      flush();
+      current = match[1];
+      body = [];
+    } else if (current) {
+      body.push(line);
+    }
+  }
+  flush();
+  return blocks;
+}
+
+function codexPluginCachePath(name: string, marketplace: string): string | null {
+  const pluginRoot = path.join(CODEX_PLUGIN_CACHE_DIR, marketplace, name);
+  if (!fs.existsSync(pluginRoot)) return null;
+  try {
+    const versions = fs.readdirSync(pluginRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(entry => entry.name)
+      .sort();
+    if (versions.length === 0) return null;
+    return path.join(pluginRoot, versions[versions.length - 1]);
+  } catch {
+    return null;
+  }
+}
+
+function readCodexInstalledPlugins(): CodexInstalledPlugin[] {
+  if (!fs.existsSync(CODEX_CONFIG_TOML)) return [];
+  let raw: string;
+  try { raw = fs.readFileSync(CODEX_CONFIG_TOML, 'utf8'); } catch { return []; }
+
+  const blocks = readTomlTableBlocks(raw);
+  const results: CodexInstalledPlugin[] = [];
+  for (const [header, body] of blocks) {
+    const match = header.match(/^plugins\."([^"@]+)@([^"]+)"$/);
+    if (!match) continue;
+    const [, name, marketplace] = match;
+    const enabled = /^\s*enabled\s*=\s*true\s*$/m.test(body);
+    results.push({
+      name,
+      marketplace,
+      enabled,
+      cachePath: codexPluginCachePath(name, marketplace),
+    });
+  }
+  return results;
+}
+
+/**
+ * Surface plugins installed through Codex's native plugin config so toolkit
+ * can discover them and, if requested, mirror/decompose them for other tools.
+ */
+export function scanCodexInstalledPlugins(): CatalogEntry[] {
+  const results: CatalogEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of readCodexInstalledPlugins()) {
+    if (!entry.enabled || !entry.cachePath || !fs.existsSync(entry.cachePath)) continue;
+    let manifest;
+    try { manifest = loadPluginManifest(entry.cachePath); } catch { continue; }
+    const name = manifest.name || entry.name;
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+
+    const realRoot = realpath(CODEX_PLUGIN_CACHE_DIR);
+    const realCachePath = realpath(entry.cachePath);
+    const relPath = path.relative(realRoot, realCachePath);
+    if (relPath.startsWith('..') || path.isAbsolute(relPath)) continue;
+
+    results.push({
+      name,
+      description: manifest.description || '',
+      hash: manifest.version || hashDir(entry.cachePath),
+      path: relPath,
+      source: CODEX_NATIVE_SOURCE,
+    });
+  }
+
+  return results;
+}
+
 /**
  * Uninstall a plugin from Copilot CLI's native plugin state — drop the
  * registry entry from `config.json`, remove enabledPlugins keys from
@@ -331,7 +446,15 @@ function copyPluginTreeScoped(
   if (fs.existsSync(claudeManifestPath)) {
     writeJsonAtomic(path.join(destDir, '.claude-plugin', 'plugin.json'), canonicalManifest);
   }
+  // Codex's native loader expects a .codex-plugin manifest. Always emit one
+  // for scoped plugin copies so Claude-shaped and generic plugins can be
+  // registered natively with Codex without preserving source-only path
+  // overrides that no longer exist in the canonical destination layout.
+  writeJsonAtomic(path.join(destDir, '.codex-plugin', 'plugin.json'), canonicalManifest);
   if (fs.existsSync(rootManifestPath)) {
+    writeJsonAtomic(path.join(destDir, 'plugin.json'), canonicalManifest);
+  }
+  if (!fs.existsSync(rootManifestPath) && !fs.existsSync(claudeManifestPath)) {
     writeJsonAtomic(path.join(destDir, 'plugin.json'), canonicalManifest);
   }
 
@@ -377,6 +500,34 @@ function copyPluginTreeScoped(
   const hooksDir = path.join(sourceDir, 'hooks');
   if (fs.existsSync(hooksDir)) {
     try { copyDirRecursive(hooksDir, path.join(destDir, 'hooks')); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Tool-flavor hooks.json swap. A plugin can ship multiple hook configs
+ * and let the installer pick the right one per tool, since Claude /
+ * Copilot / Codex disagree on event names, env vars, and matcher shape.
+ *
+ * Convention: if `<destDir>/hooks/configs/<tool>.hooks.json` exists, its
+ * contents (with `__AMS_PLUGIN_ROOT__` replaced by `destDir`) overwrite
+ * `<destDir>/hooks/hooks.json` for that tool's install. The Claude flavor
+ * stays as the default `hooks/hooks.json` shipped by the plugin and is
+ * what Claude itself picks up — no swap needed there.
+ *
+ * Best-effort: returns silently on any I/O error so a malformed template
+ * never blocks an otherwise valid plugin install.
+ */
+export function applyToolFlavoredHooks(destDir: string, tool: 'copilot' | 'codex'): boolean {
+  try {
+    const template = path.join(destDir, 'hooks', 'configs', `${tool}.hooks.json`);
+    if (!fs.existsSync(template)) return false;
+    const raw = fs.readFileSync(template, 'utf8');
+    const rendered = raw.split('__AMS_PLUGIN_ROOT__').join(destDir);
+    const target = path.join(destDir, 'hooks', 'hooks.json');
+    fs.writeFileSync(target, rendered, 'utf8');
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -438,6 +589,11 @@ export function installCopilotPlugin(
       result.copiedTo = destDir;
     }
   } catch { /* best-effort copy */ }
+
+  // Swap in the Copilot-flavor hooks.json if the plugin ships one.
+  // Copilot's event names and command schema differ from Claude's, so
+  // the canonical `hooks/hooks.json` (Claude flavor) doesn't run as-is.
+  applyToolFlavoredHooks(destDir, 'copilot');
 
   // Update config.json — replace existing entry in place, or append.
   // Skip entirely when the read failed because the file was malformed:
@@ -549,6 +705,169 @@ export function uninstallCopilotPlugin(name: string): CopilotUninstallResult {
         } catch { /* parent not empty or already gone */ }
       }
     } catch { /* ignore — best-effort cleanup */ }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Native Codex plugin install / uninstall
+// ---------------------------------------------------------------------------
+
+export interface CodexInstallResult {
+  /** Plugin tree copied to this absolute dir, or null if it was already there. */
+  copiedTo: string | null;
+  /** [marketplaces.toolkit-ai] was written or refreshed in ~/.codex/config.toml. */
+  registeredMarketplace: boolean;
+  /** [plugins."<name>@toolkit-ai"] enabled=true was written in ~/.codex/config.toml. */
+  enabledInConfig: boolean;
+}
+
+export interface CodexUninstallResult {
+  removedFromConfig: boolean;
+  removedCachePath: string | null;
+  removedMarketplaceDir: string | null;
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function removeTomlTable(raw: string, tableName: string): { text: string; removed: boolean } {
+  const lines = raw.split(/\r?\n/);
+  const next: string[] = [];
+  let removed = false;
+  let skipping = false;
+  const header = `[${tableName}]`;
+
+  for (const line of lines) {
+    if (line.trim() === header) {
+      removed = true;
+      skipping = true;
+      continue;
+    }
+    if (skipping && /^\[[^\]]+\]\s*$/.test(line)) {
+      skipping = false;
+    }
+    if (!skipping) next.push(line);
+  }
+
+  return { text: next.join('\n').replace(/\n{3,}$/g, '\n\n'), removed };
+}
+
+function upsertTomlTable(raw: string, tableName: string, body: string[]): { text: string; replaced: boolean } {
+  const without = removeTomlTable(raw, tableName);
+  const prefix = without.text.trimEnd();
+  const block = [`[${tableName}]`, ...body].join('\n');
+  return {
+    text: `${prefix ? `${prefix}\n\n` : ''}${block}\n`,
+    replaced: without.removed,
+  };
+}
+
+function updateCodexConfigForPlugin(name: string, version: string): { marketplace: boolean; plugin: boolean } {
+  let raw = '';
+  try {
+    if (fs.existsSync(CODEX_CONFIG_TOML)) raw = fs.readFileSync(CODEX_CONFIG_TOML, 'utf8');
+  } catch {
+    return { marketplace: false, plugin: false };
+  }
+
+  const marketplaceDir = path.join(CODEX_PLUGIN_CACHE_DIR, TOOLKIT_MARKETPLACE);
+  const marketplace = upsertTomlTable(raw, `marketplaces.${TOOLKIT_MARKETPLACE}`, [
+    'source_type = "local"',
+    `source = ${tomlString(marketplaceDir)}`,
+    `last_updated = ${tomlString(new Date().toISOString())}`,
+  ]);
+  const plugin = upsertTomlTable(marketplace.text, `plugins."${name}@${TOOLKIT_MARKETPLACE}"`, [
+    'enabled = true',
+    `version = ${tomlString(version)}`,
+  ]);
+
+  try {
+    ensureDir(path.dirname(CODEX_CONFIG_TOML));
+    fs.writeFileSync(CODEX_CONFIG_TOML, plugin.text, 'utf8');
+    return { marketplace: true, plugin: true };
+  } catch {
+    return { marketplace: false, plugin: false };
+  }
+}
+
+export function installCodexPlugin(
+  name: string,
+  sourcePluginDir: string,
+  manifest: PluginManifest,
+  contents?: PluginContents,
+): CodexInstallResult {
+  const result: CodexInstallResult = {
+    copiedTo: null,
+    registeredMarketplace: false,
+    enabledInConfig: false,
+  };
+
+  const version = manifest.version || '0.0.0';
+  const destDir = path.join(CODEX_PLUGIN_CACHE_DIR, TOOLKIT_MARKETPLACE, name, version);
+
+  try {
+    if (path.resolve(sourcePluginDir) !== path.resolve(destDir)) {
+      ensureDir(path.dirname(destDir));
+      if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true });
+      if (contents) {
+        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents);
+      } else {
+        copyDirRecursive(sourcePluginDir, destDir);
+      }
+      result.copiedTo = destDir;
+    }
+  } catch { /* best-effort copy */ }
+
+  // Swap in the Codex-flavor hooks.json if the plugin ships one. No
+  // public spec yet for Codex hook events, so plugins that need a Codex
+  // variant ship hooks/configs/codex.hooks.json explicitly; without one,
+  // Codex falls back to the canonical Claude-flavor hooks.json.
+  applyToolFlavoredHooks(destDir, 'codex');
+
+  const config = updateCodexConfigForPlugin(name, version);
+  result.registeredMarketplace = config.marketplace;
+  result.enabledInConfig = config.plugin;
+
+  return result;
+}
+
+export function uninstallCodexPlugin(name: string): CodexUninstallResult {
+  const result: CodexUninstallResult = {
+    removedFromConfig: false,
+    removedCachePath: null,
+    removedMarketplaceDir: null,
+  };
+
+  try {
+    if (fs.existsSync(CODEX_CONFIG_TOML)) {
+      const raw = fs.readFileSync(CODEX_CONFIG_TOML, 'utf8');
+      const plugin = removeTomlTable(raw, `plugins."${name}@${TOOLKIT_MARKETPLACE}"`);
+      if (plugin.removed) {
+        const next = plugin.text.includes(`@${TOOLKIT_MARKETPLACE}"]`)
+          ? plugin.text
+          : removeTomlTable(plugin.text, `marketplaces.${TOOLKIT_MARKETPLACE}`).text;
+        fs.writeFileSync(CODEX_CONFIG_TOML, next, 'utf8');
+        result.removedFromConfig = true;
+      }
+    }
+  } catch { /* leave config untouched on malformed/unwritable files */ }
+
+  const pluginRoot = path.join(CODEX_PLUGIN_CACHE_DIR, TOOLKIT_MARKETPLACE, name);
+  if (fs.existsSync(pluginRoot)) {
+    try {
+      fs.rmSync(pluginRoot, { recursive: true, force: true });
+      result.removedCachePath = pluginRoot;
+      const marketplaceRoot = path.dirname(pluginRoot);
+      try {
+        if (fs.readdirSync(marketplaceRoot).length === 0) {
+          fs.rmdirSync(marketplaceRoot);
+          result.removedMarketplaceDir = marketplaceRoot;
+        }
+      } catch { /* not empty */ }
+    } catch { /* best-effort cleanup */ }
   }
 
   return result;

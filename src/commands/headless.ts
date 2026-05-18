@@ -4,7 +4,7 @@ import { loadMcpConfig } from '../core/catalog.js';
 import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
-import { scanClaudeInstalledPlugins, scanCopilotInstalledPlugins } from '../core/claude-plugins.js';
+import { scanClaudeInstalledPlugins, scanCodexInstalledPlugins, scanCopilotInstalledPlugins } from '../core/claude-plugins.js';
 import { withLogging, withMultiLogging, readRecentLog } from '../core/logger.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
@@ -608,14 +608,14 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   if (!needsCatalog) return false; // not a headless command
 
   // Build the catalog from configured sources, then merge in plugins that
-  // Claude Code (`/plugin install`) or GitHub Copilot CLI (`copilot plugin
-  // install`) already installed natively, so headless commands see them
+  // Claude Code (`/plugin install`), Codex, or GitHub Copilot CLI
+  // (`copilot plugin install`) already installed natively, so headless commands see them
   // too. Configured-source plugins win the dedupe (added first); among
-  // synthetic sources, Claude wins over Copilot for the same plugin name
+  // synthetic sources, Claude wins over Codex/Copilot for the same plugin name
   // (arbitrary tie-break — they're identical content).
   const externalResources = fetchExternalResources(false);
   const seenPluginNames = new Set(externalResources.plugins.map(p => p.name));
-  for (const p of [...scanClaudeInstalledPlugins(), ...scanCopilotInstalledPlugins()]) {
+  for (const p of [...scanClaudeInstalledPlugins(), ...scanCodexInstalledPlugins(), ...scanCopilotInstalledPlugins()]) {
     if (!seenPluginNames.has(p.name)) {
       externalResources.plugins.push(p);
       seenPluginNames.add(p.name);
