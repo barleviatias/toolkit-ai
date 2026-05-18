@@ -475,6 +475,13 @@ export const CLAUDE_MARKETPLACES_DIR = path.join(HOME, '.claude', 'plugins', 'ma
 export const CLAUDE_SETTINGS_JSON = path.join(HOME, '.claude', 'settings.json');
 export const CLAUDE_NATIVE_SOURCE = 'claude';
 
+// Codex native plugin cache/config. Codex loads enabled plugins from
+// ~/.codex/config.toml [plugins."<name>@<marketplace>"] entries and reads
+// plugin trees from ~/.codex/plugins/cache/<marketplace>/<name>/<version>/.
+export const CODEX_CONFIG_TOML = path.join(CODEX_HOME, 'config.toml');
+export const CODEX_PLUGIN_CACHE_DIR = path.join(CODEX_HOME, 'plugins', 'cache');
+export const CODEX_NATIVE_SOURCE = 'codex';
+
 // GitHub Copilot CLI's plugin install dir. `copilot plugin install <repo>`
 // (and the IDE equivalent) clones each plugin into a subdir here keyed by
 // `<owner>--<repo>`, with the plugin's own `plugin.json` at the root. No
@@ -494,6 +501,7 @@ export const COPILOT_NATIVE_SOURCE = 'copilot';
  */
 export function getSourceRoot(sourceName: string): string {
   if (sourceName === CLAUDE_NATIVE_SOURCE) return CLAUDE_PLUGIN_CACHE_DIR;
+  if (sourceName === CODEX_NATIVE_SOURCE) return CODEX_PLUGIN_CACHE_DIR;
   // Copilot plugins live under either _direct/<id> (for direct installs) or
   // <marketplace>/<plugin> (for marketplace installs). The catalog entry's
   // path is computed relative to this shared root so getSourceRoot resolves

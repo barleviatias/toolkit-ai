@@ -23,10 +23,12 @@ function runFixture(name, args = [], extraEnv = {}) {
 }
 
 function assertPluginRoundTrip(data) {
-  // Each component installs successfully. Action == 'installed' for first run.
+  // Components that still target standalone dirs install normally. The agent
+  // is native-only in this fixture (Claude/Codex/Copilot all own it via
+  // plugin trees), so the decomposed installer correctly reports skipped.
   const actions = Object.fromEntries(data.installResultActions.map(r => [`${r.type}:${r.name}`, r.action]));
   assert.equal(actions['skill:hello'], 'installed');
-  assert.equal(actions['agent:reviewer'], 'installed');
+  assert.equal(actions['agent:reviewer'], 'skipped');
   assert.equal(actions['command:deploy'], 'installed');
 
   // Hooks were detected but never installed — no hooks-related result entry.
@@ -35,28 +37,29 @@ function assertPluginRoundTrip(data) {
   // Lock recorded the plugin and nested its sub-items.
   assert.equal(data.pluginLockHash, 'plugin-hash-1');
   assert.deepEqual(data.pluginLockedItems, [
-    'agent:reviewer',
     'command:deploy',
     'skill:hello',
   ]);
 
   // Cross-provider routing. Each tool with a native plugin manager (Claude,
-  // Copilot) gets the plugin via that manager — plugin tree under
+  // Codex, Copilot) gets the plugin via that manager — plugin tree under
   // ~/.<tool>/plugins/cache/ or ~/.<tool>/installed-plugins/. The matching
-  // user dirs (~/.claude/agents/, ~/.copilot/skills/, etc.) MUST stay empty,
+  // user dirs (~/.claude/agents/, ~/.agents/skills/, ~/.copilot/skills/, etc.) MUST stay empty,
   // otherwise Copilot's "Agent Customizations" UI (which scans both ~/.copilot/
   // AND ~/.claude/ for cross-tool compat) surfaces every item twice.
   assert.equal(data.filesAfterInstall.skillClaudeUser,  false, 'skill must NOT land in ~/.claude/skills/ (Claude plugin tree owns it)');
   assert.equal(data.filesAfterInstall.skillClaudePlugin, true, 'skill should be inside Claude plugin tree');
   assert.equal(data.filesAfterInstall.skillCopilotUser, false, 'skill must NOT land in ~/.copilot/skills/ (Copilot plugin tree owns it)');
   assert.equal(data.filesAfterInstall.skillCopilotPlugin, true, 'skill should be inside Copilot plugin tree');
-  assert.equal(data.filesAfterInstall.skillCodex,   true, 'skill should install for Codex (~/.agents/skills)');
+  assert.equal(data.filesAfterInstall.skillCodexUser, false, 'skill must NOT land in ~/.agents/skills/ (Codex plugin tree owns it)');
+  assert.equal(data.filesAfterInstall.skillCodexPlugin, true, 'skill should be inside Codex plugin tree');
   assert.equal(data.filesAfterInstall.skillAmp,     true, 'skill should install for Amp');
   assert.equal(data.filesAfterInstall.agentClaudeUser,  false, 'agent must NOT land in ~/.claude/agents/ (Claude plugin tree owns it)');
   assert.equal(data.filesAfterInstall.agentClaudePlugin, true, 'agent should be inside Claude plugin tree');
   assert.equal(data.filesAfterInstall.agentCopilotUser, false, 'agent must NOT land in ~/.copilot/agents/ (Copilot plugin tree owns it)');
   assert.equal(data.filesAfterInstall.agentCopilotPlugin, true, 'agent should be inside Copilot plugin tree');
-  assert.equal(data.filesAfterInstall.agentCodex,   true, 'agent should install for Codex (.toml generated)');
+  assert.equal(data.filesAfterInstall.agentCodexUser, false, 'agent must NOT land in ~/.codex/agents/ (Codex plugin tree owns it)');
+  assert.equal(data.filesAfterInstall.agentCodexPlugin, true, 'agent should be inside Codex plugin tree');
   assert.equal(data.filesAfterInstall.commandClaudeUser, false, 'command must NOT land in ~/.claude/commands/ (Claude plugin tree owns it)');
   assert.equal(data.filesAfterInstall.commandClaudePlugin, true, 'command should be inside Claude plugin tree');
   assert.equal(data.filesAfterInstall.commandCursor, true, 'command should install for Cursor');
@@ -65,6 +68,7 @@ function assertPluginRoundTrip(data) {
   assert.equal(data.filesAfterRemove.anySkillSurvives, false);
   assert.equal(data.filesAfterRemove.anyAgentSurvives, false);
   assert.equal(data.filesAfterRemove.anyCommandSurvives, false);
+  assert.equal(data.filesAfterRemove.codexConfigHasPlugin, false);
   assert.equal(data.pluginEntryAfterRemove, null);
 
   // Native Copilot registration: after re-install, Copilot's own state
@@ -83,6 +87,18 @@ function assertPluginRoundTrip(data) {
     'plugin must be registered in ~/.claude/plugins/installed_plugins.json');
   assert.equal(data.claudeNative.pluginTreeManifestExists, true,
     'plugin tree must be copied to ~/.claude/plugins/cache/toolkit-ai/<name>/<version>/');
+  assert.equal(data.codexNative.configHasPlugin, true,
+    'plugin must be enabled in ~/.codex/config.toml');
+  assert.equal(data.codexNative.configHasMarketplace, true,
+    'toolkit-ai marketplace must be registered in ~/.codex/config.toml');
+  assert.equal(data.codexNative.cacheTreeExists, true,
+    'plugin tree must be copied to ~/.codex/plugins/cache/toolkit-ai/<name>/<version>/');
+  assert.equal(data.codexNative.selectedAgentPresent, true,
+    'manifest-selected agent must be in the Codex plugin tree at canonical path');
+  assert.equal(data.codexNative.unselectedAgentVariantAbsent, true,
+    'unselected agent variant must NOT be copied into Codex plugin tree');
+  assert.equal(data.codexNative.adapterSubdirAbsent, true,
+    'adapter subdir layout must not survive the scoped Codex copy');
   assert.equal(data.copilotNative.selectedAgentPresent, true,
     'manifest-selected agent must be in the Copilot plugin tree at canonical path');
   assert.equal(data.copilotNative.unselectedAgentVariantAbsent, true,
@@ -99,6 +115,28 @@ function assertPluginRoundTrip(data) {
     'reinstall must purge ~/.copilot/agents/<name>.md left by pre-exclusion installs');
   assert.equal(data.stalePurgedAfterReinstall.staleSkillGone, true,
     'reinstall must purge ~/.copilot/skills/<name>/ left by pre-exclusion installs');
+
+  // Per-tool hooks.json swap. A plugin can ship hooks/configs/<tool>.hooks.json
+  // alongside the canonical hooks/hooks.json (Claude flavor). The installer
+  // overwrites the canonical file with the tool-flavored template at
+  // install time and substitutes `__AMS_PLUGIN_ROOT__` with the install destDir.
+  // Claude's install must NOT be swapped — it keeps the canonical file.
+  assert.equal(data.hooksSwap.claudeUntouched, true,
+    'Claude install must keep the canonical hooks/hooks.json (no swap)');
+  assert.equal(data.hooksSwap.claudeNoPlaceholder, true,
+    '__AMS_PLUGIN_ROOT__ must not leak into the Claude install');
+  assert.equal(data.hooksSwap.copilotFlavor, true,
+    'Copilot install must use hooks/configs/copilot.hooks.json content');
+  assert.equal(data.hooksSwap.copilotRootResolved, true,
+    'Copilot install must substitute __AMS_PLUGIN_ROOT__ with its destDir');
+  assert.equal(data.hooksSwap.copilotNoPlaceholder, true,
+    'no __AMS_PLUGIN_ROOT__ placeholders should remain in Copilot hooks.json');
+  assert.equal(data.hooksSwap.codexFlavor, true,
+    'Codex install must use hooks/configs/codex.hooks.json content');
+  assert.equal(data.hooksSwap.codexRootResolved, true,
+    'Codex install must substitute __AMS_PLUGIN_ROOT__ with its destDir');
+  assert.equal(data.hooksSwap.codexNoPlaceholder, true,
+    'no __AMS_PLUGIN_ROOT__ placeholders should remain in Codex hooks.json');
 }
 
 test('Operation log captures install/multi-install/error in JSONL with full line capture', () => {
@@ -163,6 +201,16 @@ test('Plugin install (generic top-level plugin.json manifest) is discovered, ins
   assertPluginRoundTrip(data);
 });
 
+test('Plugin install (Codex .codex-plugin manifest) is discovered, installed, and removed identically', () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-codex-'));
+  const data = runFixture('install-remove-plugin.mjs', [tempHome], {
+    HOME: tempHome,
+    USERPROFILE: tempHome,
+    PLUGIN_MANIFEST_KIND: 'codex',
+  });
+  assertPluginRoundTrip(data);
+});
+
 test('Plugin updateAll refreshes stale plugin parent lock hash', () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-update-'));
   const data = runFixture('plugin-update.mjs', [tempHome], {
@@ -174,7 +222,7 @@ test('Plugin updateAll refreshes stale plugin parent lock hash', () => {
   assert.equal(data.afterHash, 'plugin-hash-2');
   assert.ok(data.installedAt, 'updated plugin lock entry should retain a last-write timestamp');
   assert.ok(data.resultActions.some(r => r.type === 'skill' && r.name === 'hello'));
-  assert.ok(data.itemHashes?.['skill:hello']?.hash, 'plugin sub-item hash should be recorded after update');
+  assert.deepEqual(data.itemHashes, {}, 'native-only Codex plugin update should not create decomposed sub-item lock entries');
 });
 
 test('Manifest path overrides drive recursive discovery for cross-tool plugins (AMS-shaped layout)', async () => {
@@ -253,8 +301,8 @@ test('Plugins already installed by GitHub Copilot CLI: discover via config.json,
   // Install: decompose-install lands components in every detected provider.
   const actions = Object.fromEntries(data.installResultActions.map(r => [`${r.type}:${r.name}`, r.action]));
   assert.equal(actions['skill:greet'], 'installed');
-  assert.equal(actions['agent:helper'], 'installed');
-  assert.deepEqual(data.pluginLockedItems, ['agent:helper', 'skill:greet']);
+  assert.equal(actions['agent:helper'], 'skipped');
+  assert.deepEqual(data.pluginLockedItems, ['skill:greet']);
   // Claude detected → registers natively, so ~/.claude/skills/ stays empty
   // and the plugin tree under ~/.claude/plugins/cache/ is the canonical
   // surface. Same logic that excludes Copilot from per-user decompose now
@@ -264,11 +312,11 @@ test('Plugins already installed by GitHub Copilot CLI: discover via config.json,
   // would create a duplicate of the agent already exposed by Copilot's plugin
   // system. Must be skipped.
   assert.equal(data.filesAfterInstall.skillCopilotUser, false);
-  assert.equal(data.filesAfterInstall.skillCodex,   true);
+  assert.equal(data.filesAfterInstall.skillCodex,   false);
   assert.equal(data.filesAfterInstall.skillAmp,     true);
   assert.equal(data.filesAfterInstall.agentClaude,  false);
   assert.equal(data.filesAfterInstall.agentCopilotUser, false);
-  assert.equal(data.filesAfterInstall.agentCodex,   true);
+  assert.equal(data.filesAfterInstall.agentCodex,   false);
 
   // Native uninstall: removePlugin also cleans Copilot's own state so the
   // plugin disappears from Copilot's UI in one shot.
@@ -285,6 +333,44 @@ test('Plugins already installed by GitHub Copilot CLI: discover via config.json,
   // Don't auto-remove the installed-plugins root itself — Copilot owns it.
   assert.equal(data.copilotInstalledPluginsRootPreserved, true,
     '~/.copilot/installed-plugins/ root must be preserved');
+});
+
+test('Plugins already installed by Codex surface in the catalog and mirror-install across providers', () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-codex-installed-'));
+  const data = runFixture('codex-installed-plugins.mjs', [tempHome], {
+    HOME: tempHome,
+    USERPROFILE: tempHome,
+  });
+
+  assert.equal(data.discovered.length, 1);
+  assert.equal(data.discovered[0].name, 'codex-installed-demo');
+  assert.equal(data.discovered[0].source, 'codex');
+  assert.equal(data.discovered[0].description, 'A plugin Codex already installed');
+  assert.equal(data.discovered[0].path, path.join('demo-marketplace', 'codex-installed-demo', '1.2.0'));
+
+  const actions = Object.fromEntries(data.installResultActions.map(r => [`${r.type}:${r.name}`, r.action]));
+  assert.equal(actions['skill:greet'], 'installed');
+  assert.equal(actions['agent:helper'], 'skipped');
+  assert.deepEqual(data.pluginLockedItems, ['skill:greet']);
+
+  assert.equal(data.filesAfterInstall.skillClaudeUser, false);
+  assert.equal(data.filesAfterInstall.skillCodexUser, false);
+  assert.equal(data.filesAfterInstall.skillCodexSourceCache, true);
+  assert.equal(data.filesAfterInstall.skillCodexToolkitCache, true);
+  assert.equal(data.filesAfterInstall.skillCopilotUser, false);
+  assert.equal(data.filesAfterInstall.skillAmp, true);
+  assert.equal(data.filesAfterInstall.agentClaudeUser, false);
+  assert.equal(data.filesAfterInstall.agentCodexUser, false);
+  assert.equal(data.filesAfterInstall.agentCopilotUser, false);
+
+  assert.equal(data.sourceCachePreservedAfterRemove, true,
+    'removePlugin must not delete the original Codex marketplace cache');
+  assert.equal(data.sourceConfigPreservedAfterRemove, true,
+    'removePlugin must not delete the original Codex marketplace config entry');
+  assert.equal(data.toolkitConfigRemovedAfterRemove, true,
+    'removePlugin must remove the toolkit-ai Codex plugin config entry');
+  assert.equal(data.toolkitCacheRemovedAfterRemove, true,
+    'removePlugin must remove the toolkit-ai Codex cache copy');
 });
 
 test('Plugins already installed by Claude Code surface in the catalog and decompose-install across providers', () => {
@@ -305,20 +391,20 @@ test('Plugins already installed by Claude Code surface in the catalog and decomp
 
   // Install: each component lands in every detected provider EXCEPT the ones
   // that already have it via a native plugin registry. Source is Claude's own
-  // plugin cache → Claude excluded. Copilot detected → also excluded (the
-  // toolkit registers the plugin natively with Copilot too). Codex / Amp have
+  // plugin cache → Claude excluded. Codex/Copilot detected → also excluded
+  // because the toolkit registers the plugin natively with them too. Amp has
   // no plugin system, so the components decompose normally.
   const actions = Object.fromEntries(data.installResultActions.map(r => [`${r.type}:${r.name}`, r.action]));
   assert.equal(actions['skill:greet'], 'installed');
-  assert.equal(actions['agent:helper'], 'installed');
-  assert.deepEqual(data.pluginLockedItems, ['agent:helper', 'skill:greet']);
+  assert.equal(actions['agent:helper'], 'skipped');
+  assert.deepEqual(data.pluginLockedItems, ['skill:greet']);
   assert.equal(data.filesAfterInstall.skillClaudeUser,  false, 'skill must NOT land in ~/.claude/skills/ — Claude already exposes it via its plugin cache');
   assert.equal(data.filesAfterInstall.skillCopilotUser, false);
-  assert.equal(data.filesAfterInstall.skillCodex,   true);
+  assert.equal(data.filesAfterInstall.skillCodex,   false);
   assert.equal(data.filesAfterInstall.skillAmp,     true);
   assert.equal(data.filesAfterInstall.agentClaudeUser,  false, 'agent must NOT land in ~/.claude/agents/ — Claude already exposes it via its plugin cache');
   assert.equal(data.filesAfterInstall.agentCopilotUser, false);
-  assert.equal(data.filesAfterInstall.agentCodex,   true);
+  assert.equal(data.filesAfterInstall.agentCodex,   false);
 
   // Critical safety check: removePlugin must NEVER delete files from
   // Claude Code's own plugin cache or its installed_plugins.json registry.

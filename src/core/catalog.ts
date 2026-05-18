@@ -132,14 +132,17 @@ export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undef
  * widely-adopted shapes:
  *
  *   1. `.claude-plugin/plugin.json` — Claude Code's official plugin format
- *   2. `plugin.json` at the plugin root — generic shape used by ad-hoc and
- *      cross-tool plugin packages (some Codex/Copilot/community formats)
+ *   2. `.codex-plugin/plugin.json` — Codex's native plugin format
+ *   3. `plugin.json` at the plugin root — generic shape used by ad-hoc and
+ *      cross-tool plugin packages (some Copilot/community formats)
  *
  * Returns the absolute manifest path if either exists, else null.
  */
 export function findPluginManifestPath(pluginDir: string): string | null {
   const claudePath = path.join(pluginDir, '.claude-plugin', 'plugin.json');
   if (fs.existsSync(claudePath)) return claudePath;
+  const codexPath = path.join(pluginDir, '.codex-plugin', 'plugin.json');
+  if (fs.existsSync(codexPath)) return codexPath;
   const rootPath = path.join(pluginDir, 'plugin.json');
   if (fs.existsSync(rootPath)) return rootPath;
   return null;
