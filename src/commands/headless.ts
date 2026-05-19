@@ -343,7 +343,11 @@ ${BOLD}Updates:${RESET}
   check                           Check for available updates
 
 ${BOLD}Logs:${RESET}
-  logs [N] [-v]                   Show the last N (default 20) install/remove/refresh operations from ~/.toolkit/log.jsonl. Pass -v / --verbose to dump captured per-line output.
+  logs [N] [-v] [--name <s>] [--action <a>]
+                                  Show recent operations from ~/.toolkit/log.jsonl. N (default 20) caps the output;
+                                  -v / --verbose dumps captured per-line output. --name filters by substring of the
+                                  item name; --action filters by action (install, remove, update, install-plugin,
+                                  remove-plugin, install-bundle, refresh-source).
 
 ${BOLD}Install:${RESET}
   list                            List all available items
@@ -596,14 +600,35 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   if (args[0] === 'logs' || args[0] === 'log') {
     const verbose = flag(args, '--verbose') || flag(args, '-v');
+    const nameFilter = option(args, '--name');
+    const actionFilter = option(args, '--action');
     const countArg = Number(args.find(a => /^\d+$/.test(a)));
     const count = Number.isFinite(countArg) && countArg > 0 ? countArg : 20;
-    const entries = readRecentLog(count);
-    if (entries.length === 0) {
+    // When a filter narrows the result, pull a larger window first so we
+    // still surface up to `count` matching entries (otherwise --name foo
+    // with foo missing from the last 20 entries returns nothing).
+    const fetchCount = (nameFilter || actionFilter) ? Math.max(count * 10, 200) : count;
+    const allEntries = readRecentLog(fetchCount);
+    const filtered = allEntries.filter(e => {
+      if (nameFilter && !e.name.toLowerCase().includes(nameFilter.toLowerCase())) return false;
+      if (actionFilter && e.action !== actionFilter) return false;
+      return true;
+    });
+    const entries = filtered.slice(-count);
+    if (allEntries.length === 0) {
       console.log(`${DIM}No log entries yet — install or remove something first.${RESET}`);
       return true;
     }
-    console.log(`${BOLD}Last ${entries.length} operation${entries.length === 1 ? '' : 's'}${RESET} ${DIM}(~/.toolkit/log.jsonl${verbose ? '' : '; pass -v for captured output'})${RESET}\n`);
+    if (entries.length === 0) {
+      const criteria = [
+        nameFilter ? `name~"${nameFilter}"` : null,
+        actionFilter ? `action="${actionFilter}"` : null,
+      ].filter(Boolean).join(', ');
+      console.log(`${DIM}No log entries match ${criteria}. Scanned ${allEntries.length} recent operation(s).${RESET}`);
+      return true;
+    }
+    const filterNote = (nameFilter || actionFilter) ? ` filtered ${filtered.length}/${allEntries.length}` : '';
+    console.log(`${BOLD}Last ${entries.length} operation${entries.length === 1 ? '' : 's'}${RESET} ${DIM}(~/.toolkit/log.jsonl${filterNote}${verbose ? '' : '; pass -v for captured output'})${RESET}\n`);
     for (const e of entries) {
       // Render the entry's ISO/UTC timestamp in the user's local timezone.
       // Previously we stripped the `T` and the `Z` from the raw ISO string,
