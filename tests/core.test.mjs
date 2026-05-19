@@ -128,6 +128,17 @@ test('source refresh falls back to cached resources when fetch fails', () => {
   assert.equal(data.warnings[0].name, 'cached-src');
   assert.equal(data.warnings[0].usedCache, true);
   assert.equal(data.warnings[0].hasOfflineMessage, true);
+
+  // Refresh failures must also persist to ~/.toolkit/log.jsonl so the user
+  // can see the actual git/HTTP error after the TUI is dismissed. Without
+  // this, the ! warning badge is the only surface for the underlying error
+  // and it vanishes on the next refresh.
+  assert.ok(data.refreshLog, 'refresh failure must be appended to log.jsonl');
+  assert.equal(data.refreshLog.action, 'refresh-source');
+  assert.equal(data.refreshLog.name, 'cached-src');
+  assert.equal(data.refreshLog.result, 'failed-used-cache');
+  assert.equal(data.refreshLog.hasOfflineMessage, true);
+  assert.equal(data.refreshLog.lineHasOfflineMessage, true);
 });
 
 test('disabled providers are excluded from skill, command, and MCP write targets', () => {

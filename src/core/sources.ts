@@ -6,6 +6,7 @@ import { SOURCES_FILE, CACHE_DIR, assertSafePathSegment } from './platform.js';
 import { loadSettings } from './settings.js';
 import { ensureDir } from './fs-helpers.js';
 import { parseFrontmatter, hashDir, hashFile, loadPluginManifest, findPluginManifestPath } from './catalog.js';
+import { logSourceRefresh } from './logger.js';
 
 function loadDefaultConfig(): SourcesConfig {
   // Load defaults from resources/sources.json (bundled with the package)
@@ -688,6 +689,19 @@ export function fetchExternalResources(forceRefresh = false): ExternalResources 
         usedCache: false,
       });
     }
+
+    // Mirror loadSourceResourcesAsync: persist this source's refresh failure
+    // to ~/.toolkit/log.jsonl. fetchExternalResources is the sync path
+    // (CLI / tests), the async one above is the TUI path — both must log.
+    const sourceWarning = result.warnings.find(w => w.name === source.name);
+    if (sourceWarning) {
+      logSourceRefresh({
+        name: source.name,
+        ok: false,
+        usedCache: sourceWarning.usedCache,
+        errorMsg: sourceWarning.message,
+      });
+    }
   }
 
   return result;
@@ -772,6 +786,20 @@ async function loadSourceResourcesAsync(source: Source, ttl: number, forceRefres
       name: source.name,
       message: fetchError ? `${fetchError}; cached scan failed: ${scanError}` : `Cached scan failed: ${scanError}`,
       usedCache: false,
+    });
+  }
+
+  // Persist failures to ~/.toolkit/log.jsonl so the user can see the actual
+  // git/HTTP error after the TUI is dismissed. Success refreshes aren't
+  // logged — the operation log is for outcomes worth investigating, and a
+  // green refresh isn't one.
+  const sourceWarning = result.warnings.find(w => w.name === source.name);
+  if (sourceWarning) {
+    logSourceRefresh({
+      name: source.name,
+      ok: false,
+      usedCache: sourceWarning.usedCache,
+      errorMsg: sourceWarning.message,
     });
   }
 

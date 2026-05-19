@@ -43,6 +43,15 @@ description: Cached skill
 
 const resources = fetchExternalResources(true);
 
+// Refresh failure must also land in ~/.toolkit/log.jsonl. Without that, the
+// TUI badge "! warning" is the only surface for the underlying git/HTTP
+// error, which vanishes on the next refresh.
+const logFile = path.join(tempHome, '.toolkit', 'log.jsonl');
+const logLines = fs.existsSync(logFile)
+  ? fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
+  : [];
+const refreshLog = logLines.find(entry => entry.action === 'refresh-source' && entry.name === 'cached-src');
+
 process.stdout.write(JSON.stringify({
   skillNames: resources.skills.map(skill => skill.name),
   warnings: resources.warnings.map(warning => ({
@@ -50,6 +59,15 @@ process.stdout.write(JSON.stringify({
     usedCache: warning.usedCache,
     hasOfflineMessage: warning.message.includes('simulated offline'),
   })),
+  refreshLog: refreshLog
+    ? {
+      action: refreshLog.action,
+      name: refreshLog.name,
+      result: refreshLog.result,
+      hasOfflineMessage: (refreshLog.error || '').includes('simulated offline'),
+      lineHasOfflineMessage: (refreshLog.lines || []).some(line => line.includes('simulated offline')),
+    }
+    : null,
 }));
 
 fs.rmSync(tempHome, { recursive: true, force: true });

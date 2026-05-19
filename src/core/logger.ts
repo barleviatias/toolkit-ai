@@ -14,7 +14,7 @@ import { ensureDir } from './fs-helpers.js';
  * automatically yet — the user can `truncate` it themselves.
  */
 
-export type LogAction = 'install' | 'remove' | 'update' | 'install-plugin' | 'remove-plugin' | 'install-bundle';
+export type LogAction = 'install' | 'remove' | 'update' | 'install-plugin' | 'remove-plugin' | 'install-bundle' | 'refresh-source';
 
 export interface LogEntry {
   /** ISO 8601 timestamp. */
@@ -152,6 +152,34 @@ export function withMultiLogging<R extends { type: string; name: string; action:
     });
     throw e;
   }
+}
+
+/**
+ * One-shot record for a background source refresh — captures the fetch/scan
+ * outcome so `toolkit logs` reveals why a source shows the `! warning` badge.
+ * `withLogging` doesn't fit here: refresh has no LogFn callback and the
+ * caller (useCatalog) doesn't own a captured-lines stream.
+ *
+ * - `ok=true, errorMsg undefined` → refresh succeeded (rare to log, but cheap
+ *   to keep on by default for audit; callers can skip on success if noise).
+ * - `ok=false, usedCache=true` → fetch failed, fell back to cached scan
+ *   (the "cached data kept where available" case).
+ * - `ok=false, usedCache=false` → fetch failed AND no cache to fall back to.
+ */
+export function logSourceRefresh(args: {
+  name: string;
+  ok: boolean;
+  usedCache: boolean;
+  errorMsg?: string;
+}): void {
+  appendLine({
+    ts: new Date().toISOString(),
+    action: 'refresh-source',
+    name: args.name,
+    result: args.ok ? 'ok' : (args.usedCache ? 'failed-used-cache' : 'failed'),
+    lines: args.errorMsg ? [args.errorMsg] : [],
+    error: args.ok ? undefined : args.errorMsg,
+  });
 }
 
 /** Read the last `count` log records from disk, oldest-first. */

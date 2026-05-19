@@ -11,7 +11,7 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources } from '../core/sources.js';
+import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources, type SourceLoadWarning } from '../core/sources.js';
 import type { Source } from '../types.js';
 import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin } from '../core/remover.js';
@@ -29,6 +29,7 @@ interface SourcesTabProps {
   allItems: ItemData[];
   catalog: Catalog;
   sourceStatus: Map<string, SourceFetchStatus>;
+  sourceWarnings: SourceLoadWarning[];
   onRefresh: () => void;
   onRefreshSources: (forceRefresh?: boolean) => Promise<ExternalResources>;
   onRefreshSingleSource: (source: Source, forceRefresh: boolean) => Promise<void>;
@@ -54,12 +55,18 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   allItems,
   catalog,
   sourceStatus,
+  sourceWarnings,
   onRefresh,
   onRefreshSources,
   onRefreshSingleSource,
   onForgetSource,
   onAdoptSource,
 }) => {
+  const warningByName = useMemo(() => {
+    const m = new Map<string, SourceLoadWarning>();
+    for (const w of sourceWarnings) m.set(w.name, w);
+    return m;
+  }, [sourceWarnings]);
   const [config, setConfig] = useState<SourcesConfig>(() => loadSources());
   const [mode, setMode] = useState<'list' | 'add' | 'browse'>('list');
   const [input, setInput] = useState('');
@@ -430,16 +437,29 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           const itemCount = allItems.filter(item => item.source === source.name).length;
           const disabled = source.enabled === false;
           const status = sourceStatus.get(source.name);
+          const warning = !disabled ? warningByName.get(source.name) : undefined;
           return (
-            <Box key={source.name} marginLeft={1}>
-              <Text color={i === cursor ? 'cyan' : undefined}>
-                {i === cursor ? '❯ ' : '  '}
-              </Text>
-              <Text color={TYPE_COLORS[source.type] || 'white'} bold dimColor={disabled}>{source.type.padEnd(10)}</Text>
-              <Text bold={i === cursor} dimColor={disabled}>{source.name}</Text>
-              <Text dimColor> · {source.repo || source.path} · {disabled ? 'disabled' : `${itemCount} items`}</Text>
-              {!disabled && status === 'fetching' && <Text color="yellow"> · ⟳ fetching</Text>}
-              {!disabled && status === 'error' && <Text color="red"> · ! warning</Text>}
+            <Box key={source.name} flexDirection="column">
+              <Box marginLeft={1}>
+                <Text color={i === cursor ? 'cyan' : undefined}>
+                  {i === cursor ? '❯ ' : '  '}
+                </Text>
+                <Text color={TYPE_COLORS[source.type] || 'white'} bold dimColor={disabled}>{source.type.padEnd(10)}</Text>
+                <Text bold={i === cursor} dimColor={disabled}>{source.name}</Text>
+                <Text dimColor> · {source.repo || source.path} · {disabled ? 'disabled' : `${itemCount} items`}</Text>
+                {!disabled && status === 'fetching' && <Text color="yellow"> · ⟳ fetching</Text>}
+                {!disabled && status === 'error' && <Text color="red"> · ! warning</Text>}
+              </Box>
+              {warning && (
+                <Box marginLeft={5} flexDirection="column">
+                  <Text color="red">! {warning.message}</Text>
+                  <Text dimColor>
+                    {warning.usedCache
+                      ? '  (showing cached data; press f to retry)'
+                      : '  (no cached data available; press f to retry)'}
+                  </Text>
+                </Box>
+              )}
             </Box>
           );
         })}
