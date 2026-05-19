@@ -448,6 +448,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       <Box flexDirection="column" marginY={1}>
         {config.sources.map((source, i) => {
           const itemCount = allItems.filter(item => item.source === source.name).length;
+          const installedCount = allItems.filter(item => item.source === source.name && item.installed).length;
+          const updateCount = allItems.filter(item => item.source === source.name && item.hasUpdate).length;
           const disabled = source.enabled === false;
           const status = sourceStatus.get(source.name);
           const warning = !disabled ? warningByName.get(source.name) : undefined;
@@ -460,6 +462,12 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
                 <Text color={TYPE_COLORS[source.type] || 'white'} bold dimColor={disabled}>{source.type.padEnd(10)}</Text>
                 <Text bold={i === cursor} dimColor={disabled}>{source.name}</Text>
                 <Text dimColor> · {source.repo || source.path} · {disabled ? 'disabled' : `${itemCount} items`}</Text>
+                {!disabled && installedCount > 0 && (
+                  <Text dimColor> · {installedCount} installed</Text>
+                )}
+                {!disabled && updateCount > 0 && (
+                  <Text color="yellow"> · {updateCount} update{updateCount > 1 ? 's' : ''}</Text>
+                )}
                 {!disabled && status === 'fetching' && <Text color="yellow"> · ⟳ fetching</Text>}
                 {!disabled && status === 'error' && <Text color="red"> · ! warning</Text>}
               </Box>
