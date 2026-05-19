@@ -589,7 +589,15 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     }
     console.log(`${BOLD}Last ${entries.length} operation${entries.length === 1 ? '' : 's'}${RESET} ${DIM}(~/.toolkit/log.jsonl${verbose ? '' : '; pass -v for captured output'})${RESET}\n`);
     for (const e of entries) {
-      const time = e.ts.replace('T', ' ').replace(/\..*$/, '');
+      // Render the entry's ISO/UTC timestamp in the user's local timezone.
+      // Previously we stripped the `T` and the `Z` from the raw ISO string,
+      // which made UTC look like local time and silently lied by the user's
+      // UTC offset (e.g. UTC+3 turned 12:48 local into 09:48 in the log).
+      const dt = new Date(e.ts);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const time = Number.isNaN(dt.getTime())
+        ? e.ts.replace('T', ' ').replace(/\..*$/, '')
+        : `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
       const summary = summarizeLogEntry(e);
       const colored = colorizeResult(e.result, summary.hasFailure);
       const head = e.type ? `${e.action} ${e.type} ${BOLD}${e.name}${RESET}` : `${e.action} ${BOLD}${e.name}${RESET}`;
