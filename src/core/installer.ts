@@ -14,6 +14,7 @@ import {
   getWritableMcpConfigFiles,
   getWritableSkillTargets,
   isToolSelected,
+  labelForTool,
   writeCodexMcpServer,
   assertSafePathSegment,
   type CommandTarget,
@@ -76,6 +77,21 @@ export interface InstallOptions {
 
 export type LogFn = (msg: string) => void;
 
+/**
+ * Build the "why" suffix for a no-target skip. If the install is running under
+ * a plugin decompose (excludeTools is non-empty), the user-level dirs for
+ * those tools are intentionally suppressed because the plugin tree already
+ * exposes the item — so a bare "no supported target apps detected" misleads
+ * the user into thinking nothing happened. Spell it out instead.
+ */
+function explainNoTargets(excludeTools?: Set<ToolId>): string {
+  if (excludeTools && excludeTools.size > 0) {
+    const labels = [...excludeTools].map(labelForTool).sort();
+    return `plugin tree owns it in ${labels.join(', ')} (decomposed copy suppressed to avoid duplicate)`;
+  }
+  return 'no supported target apps detected';
+}
+
 interface ExternalResourcesLike {
   skills: CatalogEntry[];
   agents: CatalogEntry[];
@@ -126,7 +142,7 @@ function writeMcpToConfigs(
 ): { action: InstallResult['action']; targetCount: number } {
   const configsToWrite = getWritableMcpConfigFiles(opts.excludeTools);
   if (configsToWrite.length === 0) {
-    log(`  [skip] mcp ${mcpName}: no supported target apps detected`);
+    log(`  [skip] mcp ${mcpName}: ${explainNoTargets(opts.excludeTools)}`);
     return { action: 'skipped', targetCount: 0 };
   }
 
@@ -287,7 +303,7 @@ export function installExternalSkill(
 
   const targets = getWritableSkillTargets(opts.excludeTools);
   if (targets.length === 0) {
-    log(`  [skip] skill ${skillName}: no supported target apps detected`);
+    log(`  [skip] skill ${skillName}: ${explainNoTargets(opts.excludeTools)}`);
     return { type: 'skill', name: skillName, action: 'skipped' };
   }
 
@@ -350,7 +366,7 @@ export function installExternalAgent(
   const fileTargets = agentTargets.filter(dir => dir !== CODEX_AGENT_TARGET);
   const shouldWriteCodex = agentTargets.includes(CODEX_AGENT_TARGET);
   if (fileTargets.length === 0 && !shouldWriteCodex) {
-    log(`  [skip] agent ${agentName}: no supported target apps detected`);
+    log(`  [skip] agent ${agentName}: ${explainNoTargets(opts.excludeTools)}`);
     return { type: 'agent', name: agentName, action: 'skipped' };
   }
 
@@ -635,7 +651,7 @@ export function installExternalCommand(
 
   const targets = getWritableCommandTargets(opts.excludeTools);
   if (targets.length === 0) {
-    log(`  [skip] command ${commandName}: no supported target apps detected`);
+    log(`  [skip] command ${commandName}: ${explainNoTargets(opts.excludeTools)}`);
     return { type: 'command', name: commandName, action: 'skipped' };
   }
 
