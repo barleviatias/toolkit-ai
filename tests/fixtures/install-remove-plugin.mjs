@@ -54,6 +54,12 @@ description: Greet the user
 Hello!
 `);
 
+// Root-level file inside skills/ (e.g. AMS's `.ams-stack-index`). Not a
+// skill folder; must still be copied verbatim into each plugin install tree
+// so the plugin can read it at runtime.
+const stackIndexContent = 'backend-java\tapi-consts-paths\nuniversal\tcode-review-radware\n';
+fs.writeFileSync(path.join(pluginDir, 'skills', '.ams-stack-index'), stackIndexContent);
+
 // Claude-flavor variant at the canonical root. Manifest's `agents` field
 // scopes installs to the copilot adapter, so this MUST NOT end up in the
 // install OR in the Copilot plugin tree — otherwise Copilot's recursive
@@ -307,6 +313,20 @@ const readJson = (p) => {
 const claudeHooksFile  = readJson(path.join(claudePluginTree, 'hooks', 'hooks.json'));
 const copilotHooksFile = readJson(path.join(copilotPluginRoot, 'hooks', 'hooks.json'));
 const codexHooksFile   = readJson(path.join(codexPluginTree, 'hooks', 'hooks.json'));
+// Root-level skills file (e.g. .ams-stack-index): must land in every plugin
+// install tree with byte-equal contents. Regression target — pre-fix the
+// copyPluginTreeScoped helper iterated only skill folders and dropped any
+// file at `skills/<file>`.
+const readStackIndex = (root) => {
+  try { return fs.readFileSync(path.join(root, 'skills', '.ams-stack-index'), 'utf8'); }
+  catch { return null; }
+};
+const skillsRoot = {
+  claudeHasIndex:  readStackIndex(claudePluginTree)  === stackIndexContent,
+  copilotHasIndex: readStackIndex(copilotPluginRoot) === stackIndexContent,
+  codexHasIndex:   readStackIndex(codexPluginTree)   === stackIndexContent,
+};
+
 const hooksSwap = {
   claudeUntouched: !!claudeHooksFile?.hooks?.PostToolUse,
   claudeNoPlaceholder: !JSON.stringify(claudeHooksFile ?? {}).includes('__AMS_PLUGIN_ROOT__'),
@@ -324,6 +344,7 @@ process.stdout.write(JSON.stringify({
   pluginLockHash: pluginEntry?.hash ?? null,
   filesAfterInstall,
   filesAfterRemove,
+  skillsRoot,
   hooksSwap,
   stalePresentBeforeReinstall,
   stalePurgedAfterReinstall,

@@ -472,6 +472,20 @@ function copyPluginTreeScoped(
     copyDirRecursive(skill.absPath, dest);
   }
 
+  // Root-level files inside skills/ (e.g. .ams-stack-index) aren't enumerated
+  // as skills but the plugin may rely on them at runtime. Copy them verbatim.
+  const srcSkillsDir = path.join(sourceDir, 'skills');
+  if (fs.existsSync(srcSkillsDir)) {
+    for (const entry of fs.readdirSync(srcSkillsDir, { withFileTypes: true })) {
+      if (entry.isFile()) {
+        const src = path.join(srcSkillsDir, entry.name);
+        const dst = path.join(destDir, 'skills', entry.name);
+        ensureDir(path.dirname(dst));
+        try { fs.copyFileSync(src, dst); } catch { /* ignore */ }
+      }
+    }
+  }
+
   for (const agent of contents.agents) {
     const dest = path.join(destDir, 'agents', path.basename(agent.absPath));
     ensureDir(path.dirname(dest));
