@@ -5,7 +5,7 @@ import { installSkill, installAgent, installMcp, installBundle, installCommand, 
 import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { scanClaudeInstalledPlugins, scanCodexInstalledPlugins, scanCopilotInstalledPlugins } from '../core/claude-plugins.js';
-import { withLogging, withMultiLogging, readRecentLog } from '../core/logger.js';
+import { withLogging, withMultiLogging, readRecentLog, type LogEntry } from '../core/logger.js';
 import { checkForUpdates, updateAll } from '../core/updater.js';
 import { scanSkillDir, scanAgentFile, scanMcpConfig, formatReport } from '../core/scanner.js';
 import { parseSourceInput, addSource, removeSource, loadSources, refreshSources, setSourceEnabled } from '../core/sources.js';
@@ -46,6 +46,55 @@ function option(args: string[], name: string): string | null {
   const idx = args.indexOf(name);
   if (idx === -1 || idx + 1 >= args.length) return null;
   return args[idx + 1];
+}
+
+// ---------------------------------------------------------------------------
+// Logs renderer helpers
+// ---------------------------------------------------------------------------
+
+interface LogSummary {
+  nativeInstalls: string[];        // e.g. ["plugin radware-ams → Claude (native)", ...]
+  skipReasons: [string, number][]; // counted by reason, descending
+  hasFailure: boolean;             // any captured line looks like an error
+}
+
+const SKIP_LINE = /^\s*\[skip\]\s+(?:\w+)\s+[\w@.\-/]+:\s*(.+?)\s*$/;
+const NATIVE_LINE = /^\s*\[\+\]\s+plugin\s+(\S+)\s+(?:->|→)\s+\S+\s+\((Claude|Codex|Copilot)\s+native\s+install\)/i;
+const ERROR_LIKE = /\b(error|failed|fatal|cannot|denied|refused)\b/i;
+
+function summarizeLogEntry(e: LogEntry): LogSummary {
+  const nativeInstalls: string[] = [];
+  const reasonCounts = new Map<string, number>();
+  let hasFailure = false;
+
+  for (const line of e.lines ?? []) {
+    const native = line.match(NATIVE_LINE);
+    if (native) {
+      nativeInstalls.push(`plugin ${native[1]} → ${native[2]} (native)`);
+      continue;
+    }
+    const skip = line.match(SKIP_LINE);
+    if (skip) {
+      reasonCounts.set(skip[1], (reasonCounts.get(skip[1]) ?? 0) + 1);
+      continue;
+    }
+    if (ERROR_LIKE.test(line) && !line.includes('[skip]')) hasFailure = true;
+  }
+
+  if (e.result === 'errored' || e.result.startsWith('failed')) hasFailure = true;
+
+  const skipReasons = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1]);
+  return { nativeInstalls, skipReasons, hasFailure };
+}
+
+function colorizeResult(result: string, hasFailure: boolean): string {
+  if (hasFailure || result === 'errored' || result.startsWith('failed')) {
+    return `${RED}${result}${RESET}`;
+  }
+  if (result.startsWith('install') || result.includes('installed') || result === 'ok' || result === 'removed' || result === 'updated') {
+    return `${GREEN}${result}${RESET}`;
+  }
+  return `${YELLOW}${result}${RESET}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +327,7 @@ ${BOLD}Updates:${RESET}
   check                           Check for available updates
 
 ${BOLD}Logs:${RESET}
-  logs [N]                        Show the last N (default 20) install/remove operations from ~/.toolkit/log.jsonl
+  logs [N] [-v]                   Show the last N (default 20) install/remove/refresh operations from ~/.toolkit/log.jsonl. Pass -v / --verbose to dump captured per-line output.
 
 ${BOLD}Install:${RESET}
   list                            List all available items
@@ -530,28 +579,58 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   if (args[0] === 'logs' || args[0] === 'log') {
-    const countArg = Number(args[1]);
+    const verbose = flag(args, '--verbose') || flag(args, '-v');
+    const countArg = Number(args.find(a => /^\d+$/.test(a)));
     const count = Number.isFinite(countArg) && countArg > 0 ? countArg : 20;
     const entries = readRecentLog(count);
     if (entries.length === 0) {
       console.log(`${DIM}No log entries yet — install or remove something first.${RESET}`);
       return true;
     }
-    console.log(`${BOLD}Last ${entries.length} operation${entries.length === 1 ? '' : 's'}${RESET} ${DIM}(~/.toolkit/log.jsonl)${RESET}\n`);
+    console.log(`${BOLD}Last ${entries.length} operation${entries.length === 1 ? '' : 's'}${RESET} ${DIM}(~/.toolkit/log.jsonl${verbose ? '' : '; pass -v for captured output'})${RESET}\n`);
     for (const e of entries) {
       const time = e.ts.replace('T', ' ').replace(/\..*$/, '');
-      const result = e.result === 'errored'
-        ? `${RED}${e.result}${RESET}`
-        : e.result.startsWith('install') || e.result.includes('installed')
-          ? `${GREEN}${e.result}${RESET}`
-          : `${YELLOW}${e.result}${RESET}`;
+      const summary = summarizeLogEntry(e);
+      const colored = colorizeResult(e.result, summary.hasFailure);
       const head = e.type ? `${e.action} ${e.type} ${BOLD}${e.name}${RESET}` : `${e.action} ${BOLD}${e.name}${RESET}`;
       const src = e.source ? ` ${DIM}· ${e.source}${RESET}` : '';
       const providers = e.providers && e.providers.length > 0
         ? ` ${DIM}· ${e.providers.join(', ')}${RESET}`
         : '';
-      console.log(`${DIM}${time}${RESET}  ${head}${src}${providers}  → ${result}`);
-      if (e.error) console.log(`  ${RED}error:${RESET} ${e.error}`);
+      console.log(`${DIM}${time}${RESET}  ${head}${src}${providers}  → ${colored}`);
+
+      // Native install lines (e.g. plugin installed in Claude/Codex/Copilot)
+      // surface alongside the summary so the user doesn't think a plugin with
+      // a "skipped:25" result count did nothing — the tree itself landed.
+      for (const native of summary.nativeInstalls) {
+        console.log(`  ${GREEN}↳${RESET} ${native}`);
+      }
+
+      // Per-reason skip breakdown — the most common "why" the user wonders about.
+      // Counts collapse duplicate reasons across many sub-items into one line.
+      for (const [reason, count] of summary.skipReasons) {
+        console.log(`  ${DIM}skipped ${count}${RESET} ${YELLOW}${reason}${RESET}`);
+      }
+
+      // Source-refresh failures: print the captured git/HTTP message and
+      // skip the redundant `error:` line below (same text).
+      const isRefresh = e.action === 'refresh-source';
+      if (isRefresh && e.lines && e.lines.length > 0) {
+        for (const raw of e.lines) {
+          for (const line of raw.split(/\r?\n/)) {
+            if (line.trim()) console.log(`  ${RED}${line.trim()}${RESET}`);
+          }
+        }
+      } else if (e.error) {
+        console.log(`  ${RED}error:${RESET} ${e.error}`);
+      }
+
+      // Verbose: dump every captured line. For refresh entries the lines are
+      // already shown above in red, so skip — otherwise this is the place to
+      // see install/remove step-by-step output.
+      if (verbose && !isRefresh && e.lines && e.lines.length > 0) {
+        for (const line of e.lines) console.log(`    ${DIM}${line}${RESET}`);
+      }
     }
     console.log();
     return true;
