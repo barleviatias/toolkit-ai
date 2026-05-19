@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { CatalogEntry, PluginContents, PluginManifest } from '../types.js';
-import { ensureDir, copyDirRecursive, writeJsonAtomic, readJsonOrNull } from './fs-helpers.js';
+import { ensureDir, copyDirRecursive, writeJsonAtomic, readJsonOrNull, readJsoncOrNull } from './fs-helpers.js';
 import {
   CLAUDE_KNOWN_MARKETPLACES_JSON,
   CLAUDE_MARKETPLACES_DIR,
@@ -181,9 +181,13 @@ interface CopilotConfigFile {
  * or malformed.
  */
 function readCopilotInstalledPlugins(): CopilotInstalledPlugin[] {
-  if (!fs.existsSync(COPILOT_CONFIG_JSON)) return [];
   try {
-    const raw = JSON.parse(fs.readFileSync(COPILOT_CONFIG_JSON, 'utf8')) as CopilotConfigFile;
+    // Copilot CLI ships `~/.copilot/config.json` with `//` header comments,
+    // so strict JSON.parse would throw and silently hide every install. Use
+    // the JSONC-tolerant reader so the comment header doesn't blank the
+    // registry view.
+    const raw = readJsoncOrNull<CopilotConfigFile>(COPILOT_CONFIG_JSON);
+    if (!raw) return [];
     return Array.isArray(raw.installedPlugins) ? raw.installedPlugins : [];
   } catch {
     return [];
@@ -565,7 +569,7 @@ export function installCopilotPlugin(
   let configRaw: Record<string, unknown> = {};
   let configWritable = true;
   try {
-    const parsed = readJsonOrNull<Record<string, unknown>>(COPILOT_CONFIG_JSON);
+    const parsed = readJsoncOrNull<Record<string, unknown>>(COPILOT_CONFIG_JSON);
     if (parsed !== null) {
       configRaw = parsed;
       const list = Array.isArray(configRaw.installedPlugins) ? configRaw.installedPlugins as CopilotInstalledPlugin[] : [];
@@ -644,7 +648,9 @@ export function installCopilotPlugin(
     let settings: ({ enabledPlugins?: Record<string, boolean> } & Record<string, unknown>) = {};
     let writable = true;
     try {
-      const parsed = readJsonOrNull<typeof settings>(COPILOT_SETTINGS_JSON);
+      // Copilot's settings.json is JSONC-tolerant on Copilot's side; mirror
+      // that here so a comment-prefixed file doesn't fail the read.
+      const parsed = readJsoncOrNull<typeof settings>(COPILOT_SETTINGS_JSON);
       if (parsed !== null) settings = parsed;
     } catch { writable = false; }
     if (writable) {
@@ -672,7 +678,9 @@ export function uninstallCopilotPlugin(name: string): CopilotUninstallResult {
   // 1. config.json — drop from installedPlugins[] and capture cache_path.
   let cachePath: string | null = null;
   try {
-    const config = JSON.parse(fs.readFileSync(COPILOT_CONFIG_JSON, 'utf8')) as CopilotConfigFile & Record<string, unknown>;
+    // JSONC-tolerant read: Copilot ships its own `//` comment header.
+    const config = readJsoncOrNull<CopilotConfigFile & Record<string, unknown>>(COPILOT_CONFIG_JSON);
+    if (!config) throw new Error('config absent or unreadable');
     const plugins = Array.isArray(config.installedPlugins) ? config.installedPlugins : [];
     const survivors = plugins.filter(p => {
       if (p.name === name) {
@@ -691,8 +699,8 @@ export function uninstallCopilotPlugin(name: string): CopilotUninstallResult {
   // 2. settings.json — drop matching enabledPlugins keys.
   // Keys look like `<plugin-name>@<marketplace>` or sometimes bare `<name>`.
   try {
-    const settings = JSON.parse(fs.readFileSync(COPILOT_SETTINGS_JSON, 'utf8')) as { enabledPlugins?: Record<string, boolean> } & Record<string, unknown>;
-    if (settings.enabledPlugins && typeof settings.enabledPlugins === 'object') {
+    const settings = readJsoncOrNull<{ enabledPlugins?: Record<string, boolean> } & Record<string, unknown>>(COPILOT_SETTINGS_JSON);
+    if (settings && settings.enabledPlugins && typeof settings.enabledPlugins === 'object') {
       const toRemove = Object.keys(settings.enabledPlugins).filter(k => k === name || k.startsWith(`${name}@`));
       for (const k of toRemove) delete settings.enabledPlugins[k];
       if (toRemove.length > 0) {
