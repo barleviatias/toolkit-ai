@@ -233,6 +233,32 @@ test('removeLink removes a file and returns true, returns false for non-existent
   assert.equal(data.removeLinkFalse, false);
 });
 
+test('stripJsoncComments handles the Copilot config.json shape (// headers, inline + block comments)', () => {
+  const data = runFixture('fs-helpers-ops.mjs');
+  // `//` header lines must be stripped — that's the Bar's-machine bug the
+  // reader was added to fix; without this `JSON.parse` throws and every
+  // Copilot-installed plugin reads as absent.
+  assert.deepEqual(data.stripHeader, { a: 1, b: 2 });
+  assert.deepEqual(data.stripMixed, { a: 1, b: 2 });
+});
+
+test('stripJsoncComments preserves comment-like sequences inside string literals', () => {
+  const data = runFixture('fs-helpers-ops.mjs');
+  // A naive regex strip would turn "https://..." into "https:" (everything
+  // after // dropped). Strings must come through unchanged.
+  assert.deepEqual(data.stripStrings, {
+    url: 'https://example.com/path',
+    note: 'block /* not real */ end',
+  });
+  assert.deepEqual(data.stripEscaped, { msg: 'say "hi" // not a comment' });
+});
+
+test('readJsoncOrNull returns null for absent files and parses JSONC for present ones', () => {
+  const data = runFixture('fs-helpers-ops.mjs');
+  assert.equal(data.readJsoncAbsent, null);
+  assert.deepEqual(data.readJsoncPresent, { installedPlugins: [{ name: 'demo' }] });
+});
+
 // ===========================================================================
 // scanner-patterns tests
 // ===========================================================================

@@ -187,9 +187,9 @@ function showBanner() {
   console.log();
   console.log(`${DIM}AI Toolkit${RESET}`);
   console.log();
-  console.log(`  ${DIM}$${RESET} npx toolkit-ai ${DIM}            Interactive TUI${RESET}`);
-  console.log(`  ${DIM}$${RESET} npx toolkit-ai --list ${DIM}     List all available items${RESET}`);
-  console.log(`  ${DIM}$${RESET} npx toolkit-ai --help ${DIM}     Full usage info${RESET}`);
+  console.log(`  ${DIM}$${RESET} toolkit-ai ${DIM}            Interactive TUI${RESET}`);
+  console.log(`  ${DIM}$${RESET} toolkit-ai --list ${DIM}     List all available items${RESET}`);
+  console.log(`  ${DIM}$${RESET} toolkit-ai --help ${DIM}     Full usage info${RESET}`);
   console.log();
 }
 
@@ -354,7 +354,7 @@ ${BOLD}Install:${RESET}
   mcp <name>                      Register an MCP server
   bundle <name>                   Install a bundle
   command <name>                  Install a slash command (prompt)
-  plugin <name>                   Install a plugin (decomposes into native components for every detected provider — Claude, Codex, Copilot, Cursor, VS Code, Amp; hooks are skipped)
+  plugin <name>                   Install a plugin natively in every detected provider that has a plugin registry (Claude, Codex, Copilot) and decompose into per-user dirs elsewhere (Cursor, VS Code, Amp). Hooks ride along with the plugin tree.
 
 ${BOLD}Remove:${RESET}
   remove skill <name>             Remove a skill
@@ -423,7 +423,7 @@ function showCheck(catalog: Catalog) {
 
   console.log();
   if (outdated > 0) {
-    console.log(`${YELLOW}${outdated} item(s) can be updated.${RESET} Run ${BOLD}npx toolkit-ai update${RESET} to apply.\n`);
+    console.log(`${YELLOW}${outdated} item(s) can be updated.${RESET} Run ${BOLD}toolkit-ai update${RESET} to apply.\n`);
   } else {
     console.log(`${GREEN}Everything is up to date.${RESET}\n`);
   }
