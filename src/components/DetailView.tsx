@@ -133,6 +133,12 @@ export const DetailView: React.FC<DetailViewProps> = ({
               <>
                 <Text color="green">{item.trackedByLock === false ? '● Detected on disk' : '● Installed'}</Text>
                 <Text dimColor>  Press </Text>
+                {item.hasUpdate && onUpdate && (
+                  <>
+                    <Text color="yellow" bold>u</Text>
+                    <Text dimColor> to update · </Text>
+                  </>
+                )}
                 <Text color="red" bold>r</Text>
                 <Text dimColor> to remove</Text>
               </>
@@ -147,6 +153,12 @@ export const DetailView: React.FC<DetailViewProps> = ({
                 <Text dimColor>  Press </Text>
                 <Text color="green" bold>i</Text>
                 <Text dimColor> to fill remaining · </Text>
+                {item.hasUpdate && onUpdate && (
+                  <>
+                    <Text color="yellow" bold>u</Text>
+                    <Text dimColor> to update · </Text>
+                  </>
+                )}
                 <Text color="red" bold>r</Text>
                 <Text dimColor> to remove</Text>
               </>

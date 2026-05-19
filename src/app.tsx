@@ -198,6 +198,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             onRefreshSingleSource={refreshSingleSource}
             onForgetSource={forgetSource}
             onAdoptSource={adoptSource}
+            onUpdateItem={handleUpdateItem}
           />
         )}
         {activeTab === 'settings' && (

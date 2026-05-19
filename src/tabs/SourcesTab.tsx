@@ -35,6 +35,7 @@ interface SourcesTabProps {
   onRefreshSingleSource: (source: Source, forceRefresh: boolean) => Promise<void>;
   onForgetSource: (name: string) => void;
   onAdoptSource: (source: Source) => void;
+  onUpdateItem: (item: ItemData) => void;
 }
 
 function countResources(resources: ExternalResources): number {
@@ -61,6 +62,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   onRefreshSingleSource,
   onForgetSource,
   onAdoptSource,
+  onUpdateItem,
 }) => {
   const warningByName = useMemo(() => {
     const m = new Map<string, SourceLoadWarning>();
@@ -371,6 +373,17 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           if (item) doRemove(item);
           setDetailItem(null);
         }}
+        onUpdate={detailItem.hasUpdate
+          ? (key) => {
+            const item = sourceItems.find(i => i.key === key);
+            if (!item) return;
+            setDetailItem(null);
+            runBusy(`Updating ${item.type} ${item.name}`, () => {
+              onUpdateItem(item);
+              setMessage(`Updated ${item.type} ${item.name}`);
+            });
+          }
+          : undefined}
       />
     );
   }
