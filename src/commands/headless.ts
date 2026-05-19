@@ -125,8 +125,24 @@ function printSummary(results: InstallResult[]) {
     for (const r of blocked) console.log(`    ${RED}✕${RESET} ${r.type} ${BOLD}${r.name}${RESET}`);
   }
   if (skipped.length > 0) {
+    // Group by type so a plugin install that skipped 16 skills + 4 agents +
+    // 5 commands reads as three condensed rows instead of 25 near-identical
+    // lines. The per-item names are still available on the (already printed)
+    // install stream and in ~/.toolkit/log.jsonl for anyone who wants them.
+    const skippedByType = new Map<string, string[]>();
+    for (const r of skipped) {
+      const bucket = skippedByType.get(r.type) ?? [];
+      bucket.push(r.name);
+      skippedByType.set(r.type, bucket);
+    }
     console.log(`  ${DIM}Up to date (${skipped.length}):${RESET}`);
-    for (const r of skipped) console.log(`    ${DIM}- ${r.type} ${r.name}${RESET}`);
+    for (const [type, names] of skippedByType) {
+      if (names.length <= 3) {
+        for (const name of names) console.log(`    ${DIM}- ${type} ${name}${RESET}`);
+      } else {
+        console.log(`    ${DIM}- ${names.length} ${type}s (${names.slice(0, 2).join(', ')}, …)${RESET}`);
+      }
+    }
   }
   console.log();
 }
