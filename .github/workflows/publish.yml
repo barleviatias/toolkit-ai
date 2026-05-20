@@ -27,12 +27,22 @@ jobs:
       - run: npm publish
 
       # Attach the bundled .mjs to a GitHub Release so the curl|sh installer
-      # in install.sh can fetch it without going through npm.
-      - name: Create GitHub Release with bundled asset
+      # in install.sh can fetch it without going through npm. Idempotent:
+      # if a release for the tag already exists (e.g. created manually via
+      # the GitHub UI or `gh release create`), upload the asset to it
+      # instead of failing the workflow.
+      - name: Create or update GitHub Release with bundled asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --notes "Install without npm: \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | bash\`" \
-            bin/ai-toolkit.mjs
+          NOTES="Install without npm: \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | bash\`"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} exists — uploading asset (--clobber) and refreshing notes."
+            gh release upload "${GITHUB_REF_NAME}" bin/ai-toolkit.mjs --clobber
+            gh release edit "${GITHUB_REF_NAME}" --notes "${NOTES}"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "${NOTES}" \
+              bin/ai-toolkit.mjs
+          fi
