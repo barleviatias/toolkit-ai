@@ -567,8 +567,8 @@ The toolkit scans source repos recursively and discovers resources by file namin
 
 The TUI includes a **Settings** tab for install mode, source cache duration, parallel source refreshes, detected providers, and the config/cache paths. The same values are stored in `~/.toolkit/config.json` and used by headless CLI commands.
 
-- `installMode: "copy"` installs stable snapshots of skills/agents.
-- `installMode: "link"` symlinks skills/agents to the source cache, useful when you want refreshes and local source edits to be reflected without reinstalling.
+- `installMode: "link"` (default) symlinks skills/agents to the source cache, so refreshes and local source edits propagate without reinstalling.
+- `installMode: "copy"` installs stable snapshots of skills/agents instead — useful when you want installed content frozen at install time, independent of source-cache refreshes.
 - `cacheTTL` controls how long source clones are considered fresh before the next launch or refresh fetches updates.
 - `cacheTTL: 0` always checks remote sources.
 - `sourceConcurrency` controls how many source repos fetch in parallel.
