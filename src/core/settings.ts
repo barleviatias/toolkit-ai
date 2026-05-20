@@ -18,7 +18,7 @@ export interface ToolkitSettings {
 }
 
 export const DEFAULT_SETTINGS: ToolkitSettings = {
-  installMode: 'copy',
+  installMode: 'link',
   cacheTTL: 24 * 60 * 60,
   sourceConcurrency: 4,
   disabledTools: [],

@@ -143,7 +143,7 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
 - Skills: detected targets among `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/`, `~/.config/amp/skills/`
 - Agents: detected targets among `~/.claude/agents/`, `~/.copilot/agents/`, generated Codex agents in `~/.codex/agents/*.toml`
 - MCPs: existing local configs plus detected global targets among `~/.claude/settings.json`, `~/.vscode/mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/amp/settings.json`
-- Skills/agents copy by default unless `~/.toolkit/config.json` sets `installMode: "link"` or the CLI call passes `--link`
+- Skills/agents are symlinked into the source cache by default (`installMode: "link"`) so refreshes and source edits propagate without reinstalling. Set `~/.toolkit/config.json` to `installMode: "copy"` (or run `ai-toolkit settings install-mode copy`) for stable snapshots instead. The `--link` CLI flag forces link mode for a single install regardless of the configured default.
 
 ### CI (GitHub Actions)
 

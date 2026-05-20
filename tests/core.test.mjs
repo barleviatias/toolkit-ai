@@ -186,7 +186,7 @@ test('target detection limits writable paths to installed tools', () => {
 
 test('settings persist install/cache defaults and symlink mode drives installs', () => {
   const data = runFixture('settings.mjs');
-  assert.equal(data.initial.installMode, 'copy');
+  assert.equal(data.initial.installMode, 'link');
   assert.equal(data.initial.cacheTTL, data.defaultCacheTTL);
   assert.deepEqual(data.saved, { installMode: 'link', cacheTTL: 3600, sourceConcurrency: 2, disabledTools: [] });
   assert.equal(data.clamped.cacheTTL, 0);
