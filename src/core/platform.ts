@@ -234,6 +234,11 @@ function reasonsForTool(definition: ToolDefinition): string[] {
   return reasons;
 }
 
+/** Friendly display label for a tool id (e.g. "claude" → "Claude Code"). */
+export function labelForTool(toolId: ToolId): string {
+  return TOOL_DEFINITIONS.find(t => t.id === toolId)?.label ?? toolId;
+}
+
 /** Detect supported AI tools installed for the current user. */
 export function detectToolInstallations(): ToolInstallation[] {
   return TOOL_DEFINITIONS.map(definition => {

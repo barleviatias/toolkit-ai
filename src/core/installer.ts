@@ -14,6 +14,7 @@ import {
   getWritableMcpConfigFiles,
   getWritableSkillTargets,
   isToolSelected,
+  labelForTool,
   writeCodexMcpServer,
   assertSafePathSegment,
   type CommandTarget,
@@ -76,6 +77,21 @@ export interface InstallOptions {
 
 export type LogFn = (msg: string) => void;
 
+/**
+ * Build the "why" suffix for a no-target skip. If the install is running under
+ * a plugin decompose (excludeTools is non-empty), the user-level dirs for
+ * those tools are intentionally suppressed because the plugin tree already
+ * exposes the item — so a bare "no supported target apps detected" misleads
+ * the user into thinking nothing happened. Spell it out instead.
+ */
+function explainNoTargets(excludeTools?: Set<ToolId>): string {
+  if (excludeTools && excludeTools.size > 0) {
+    const labels = [...excludeTools].map(labelForTool).sort();
+    return `plugin tree owns it in ${labels.join(', ')} (decomposed copy suppressed to avoid duplicate)`;
+  }
+  return 'no supported target apps detected';
+}
+
 interface ExternalResourcesLike {
   skills: CatalogEntry[];
   agents: CatalogEntry[];
@@ -126,7 +142,7 @@ function writeMcpToConfigs(
 ): { action: InstallResult['action']; targetCount: number } {
   const configsToWrite = getWritableMcpConfigFiles(opts.excludeTools);
   if (configsToWrite.length === 0) {
-    log(`  [skip] mcp ${mcpName}: no supported target apps detected`);
+    log(`  [skip] mcp ${mcpName}: ${explainNoTargets(opts.excludeTools)}`);
     return { action: 'skipped', targetCount: 0 };
   }
 
@@ -287,7 +303,7 @@ export function installExternalSkill(
 
   const targets = getWritableSkillTargets(opts.excludeTools);
   if (targets.length === 0) {
-    log(`  [skip] skill ${skillName}: no supported target apps detected`);
+    log(`  [skip] skill ${skillName}: ${explainNoTargets(opts.excludeTools)}`);
     return { type: 'skill', name: skillName, action: 'skipped' };
   }
 
@@ -350,7 +366,7 @@ export function installExternalAgent(
   const fileTargets = agentTargets.filter(dir => dir !== CODEX_AGENT_TARGET);
   const shouldWriteCodex = agentTargets.includes(CODEX_AGENT_TARGET);
   if (fileTargets.length === 0 && !shouldWriteCodex) {
-    log(`  [skip] agent ${agentName}: no supported target apps detected`);
+    log(`  [skip] agent ${agentName}: ${explainNoTargets(opts.excludeTools)}`);
     return { type: 'agent', name: agentName, action: 'skipped' };
   }
 
@@ -635,7 +651,7 @@ export function installExternalCommand(
 
   const targets = getWritableCommandTargets(opts.excludeTools);
   if (targets.length === 0) {
-    log(`  [skip] command ${commandName}: no supported target apps detected`);
+    log(`  [skip] command ${commandName}: ${explainNoTargets(opts.excludeTools)}`);
     return { type: 'command', name: commandName, action: 'skipped' };
   }
 
@@ -848,22 +864,42 @@ export function installExternalPlugin(
   const subOpts: InstallOptions = { ...opts, parentKey, excludeTools };
   const results: InstallResult[] = [];
 
+  // Plugin installs typically skip every decomposed sub-item (the plugin tree
+  // owns them) with the same reason text. Echoing 25 near-identical `[skip]`
+  // lines to stdout drowns out the actual install activity, so collapse them
+  // here: intercept per-item skip messages, count them by type + reason, and
+  // emit one summary line per unique reason at the end. Non-skip lines pass
+  // through unchanged.
+  const skipBuckets = new Map<string, Map<string, number>>();
+  const skipPattern = /^\s*\[skip\]\s+(\w+)\s+[\w@.\-/]+:\s*(.+?)\s*$/;
+  const collapsingLog: LogFn = (msg: string) => {
+    const m = msg.match(skipPattern);
+    if (!m) {
+      log(msg);
+      return;
+    }
+    const [, type, reason] = m;
+    let typeCounts = skipBuckets.get(reason);
+    if (!typeCounts) { typeCounts = new Map(); skipBuckets.set(reason, typeCounts); }
+    typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+  };
+
   for (const skill of contents.skills) {
     const skillRel = path.relative(getSourceRoot(sourceName), skill.absPath);
     const skillHash = hashDir(skill.absPath);
-    results.push(installExternalSkill(sourceName, skill.name, skillRel, skillHash, subOpts, log));
+    results.push(installExternalSkill(sourceName, skill.name, skillRel, skillHash, subOpts, collapsingLog));
   }
 
   for (const agent of contents.agents) {
     const agentRel = path.relative(getSourceRoot(sourceName), agent.absPath);
     const agentHash = hashFile(agent.absPath);
-    results.push(installExternalAgent(sourceName, agent.name, agentRel, agentHash, subOpts, log));
+    results.push(installExternalAgent(sourceName, agent.name, agentRel, agentHash, subOpts, collapsingLog));
   }
 
   for (const command of contents.commands) {
     const commandRel = path.relative(getSourceRoot(sourceName), command.absPath);
     const commandHash = hashFile(command.absPath);
-    results.push(installExternalCommand(sourceName, command.name, commandRel, commandHash, subOpts, log));
+    results.push(installExternalCommand(sourceName, command.name, commandRel, commandHash, subOpts, collapsingLog));
   }
 
   for (const mcpFile of contents.mcpConfigs) {
@@ -878,11 +914,20 @@ export function installExternalPlugin(
     }
     for (const [serverName] of extractMcpServers(raw)) {
       try {
-        results.push(installExternalMcp(sourceName, serverName, mcpRel, mcpHash, subOpts, log));
+        results.push(installExternalMcp(sourceName, serverName, mcpRel, mcpHash, subOpts, collapsingLog));
       } catch (e: unknown) {
         log(`  [!] plugin ${pluginName}: mcp ${serverName} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+  }
+
+  // Flush the accumulated per-item skip lines as one summary line per reason.
+  // Plural-aware so "1 skill" vs "16 skills" reads naturally.
+  for (const [reason, typeCounts] of skipBuckets) {
+    const parts = [...typeCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([type, n]) => `${n} ${type}${n > 1 ? 's' : ''}`);
+    log(`  [skip] ${parts.join(', ')}: ${reason}`);
   }
 
   if (contents.hasHooks) {

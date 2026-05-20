@@ -39,24 +39,36 @@ fs.writeFileSync(path.join(cachePath, 'agents', 'helper.md'),
   '---\nname: helper\ndescription: helper agent\n---\nhelp.\n');
 
 // Authoritative registry — config.json with installedPlugins[].
-fs.writeFileSync(path.join(tempHome, '.copilot', 'config.json'), JSON.stringify({
-  firstLaunchAt: '2026-05-05T10:54:04.148Z',
-  installedPlugins: [{
-    name: pluginName,
-    marketplace,
-    version: '0.5.0',
-    installed_at: '2026-05-14T12:58:44.986Z',
-    enabled: true,
-    cache_path: cachePath,
-  }],
-}, null, 2));
+// Match Copilot CLI's real format: `//` header comments on top, then JSON.
+// Strict JSON.parse rejects this; only the JSONC-tolerant reader recovers
+// the registry. This is a regression target — the symptom on Bar's machine
+// was that obsidian had been installed long ago and `radware-ams` later, but
+// the comment header made every toolkit-ai read return `[]`, so the
+// plugins-tab UI mis-reported Copilot as "will install".
+fs.writeFileSync(path.join(tempHome, '.copilot', 'config.json'),
+  '// User settings belong in settings.json.\n' +
+  '// This file is managed automatically.\n' +
+  JSON.stringify({
+    firstLaunchAt: '2026-05-05T10:54:04.148Z',
+    installedPlugins: [{
+      name: pluginName,
+      marketplace,
+      version: '0.5.0',
+      installed_at: '2026-05-14T12:58:44.986Z',
+      enabled: true,
+      cache_path: cachePath,
+    }],
+  }, null, 2));
 
 // settings.json with the plugin enabled. Toolkit's uninstaller should drop
-// the matching key on remove.
-fs.writeFileSync(path.join(tempHome, '.copilot', 'settings.json'), JSON.stringify({
-  enabledPlugins: { [`${pluginName}@${marketplace}`]: true },
-  unrelated: 'preserved',
-}, null, 2));
+// the matching key on remove. Also prefix with a `//` header to lock in
+// JSONC tolerance on this read path too.
+fs.writeFileSync(path.join(tempHome, '.copilot', 'settings.json'),
+  '// settings — JSONC-tolerant.\n' +
+  JSON.stringify({
+    enabledPlugins: { [`${pluginName}@${marketplace}`]: true },
+    unrelated: 'preserved',
+  }, null, 2));
 
 for (const dir of [
   path.join(tempHome, '.claude'),

@@ -116,6 +116,16 @@ function assertPluginRoundTrip(data) {
   assert.equal(data.stalePurgedAfterReinstall.staleSkillGone, true,
     'reinstall must purge ~/.copilot/skills/<name>/ left by pre-exclusion installs');
 
+  // Root-level files inside skills/ (e.g. AMS's .ams-stack-index) must be
+  // copied verbatim into every plugin install tree — the pre-fix loop
+  // only iterated skill folders and silently dropped these.
+  assert.equal(data.skillsRoot.claudeHasIndex, true,
+    'skills/.ams-stack-index must land in the Claude plugin tree');
+  assert.equal(data.skillsRoot.copilotHasIndex, true,
+    'skills/.ams-stack-index must land in the Copilot plugin tree');
+  assert.equal(data.skillsRoot.codexHasIndex, true,
+    'skills/.ams-stack-index must land in the Codex plugin tree');
+
   // Per-tool hooks.json swap. A plugin can ship hooks/configs/<tool>.hooks.json
   // alongside the canonical hooks/hooks.json (Claude flavor). The installer
   // overwrites the canonical file with the tool-flavored template at

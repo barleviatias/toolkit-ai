@@ -42,6 +42,60 @@ export function readJsonOrNull<T = unknown>(filePath: string): T | null {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
 }
 
+/**
+ * Strip `//` line comments and `/* ... *\/` block comments from a JSONC source
+ * string, preserving comment-like sequences inside string literals. Used by
+ * `readJsoncOrNull` for files written as JSONC by tools that don't use strict
+ * JSON (notably GitHub Copilot CLI's `~/.copilot/config.json`, which ships
+ * with two `//` header lines).
+ */
+export function stripJsoncComments(input: string): string {
+  let out = '';
+  let i = 0;
+  const n = input.length;
+  let inString = false;
+  let stringQuote: string | null = null;
+  let inLine = false;
+  let inBlock = false;
+  while (i < n) {
+    const ch = input[i];
+    const next = i + 1 < n ? input[i + 1] : '';
+    if (inLine) {
+      if (ch === '\n') { inLine = false; out += ch; }
+      i++; continue;
+    }
+    if (inBlock) {
+      if (ch === '*' && next === '/') { inBlock = false; i += 2; continue; }
+      i++; continue;
+    }
+    if (inString) {
+      out += ch;
+      if (ch === '\\' && i + 1 < n) { out += input[i + 1]; i += 2; continue; }
+      if (ch === stringQuote) { inString = false; stringQuote = null; }
+      i++; continue;
+    }
+    if (ch === '"') { inString = true; stringQuote = '"'; out += ch; i++; continue; }
+    if (ch === '/' && next === '/') { inLine = true; i += 2; continue; }
+    if (ch === '/' && next === '*') { inBlock = true; i += 2; continue; }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * JSONC-tolerant variant of `readJsonOrNull`. Use for external config files
+ * that may legally contain `//` or `/* *\/` comments (e.g. Copilot's
+ * `config.json`, which JSON.parse rejects outright). Strict-JSON files
+ * (toolkit-ai's own lock, Claude's installed_plugins.json) should keep using
+ * `readJsonOrNull` so a stray comment surfaces as a corruption error.
+ */
+export function readJsoncOrNull<T = unknown>(filePath: string): T | null {
+  if (!fs.existsSync(filePath)) return null;
+  const raw = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(stripJsoncComments(raw)) as T;
+}
+
 // Dirs that are dev-state, never part of published content. We skip them
 // when recursively copying so a plugin author's `.claude/worktrees/` (git
 // worktrees full of broken symlinks) or `node_modules/` can't blow up an

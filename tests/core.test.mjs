@@ -128,6 +128,17 @@ test('source refresh falls back to cached resources when fetch fails', () => {
   assert.equal(data.warnings[0].name, 'cached-src');
   assert.equal(data.warnings[0].usedCache, true);
   assert.equal(data.warnings[0].hasOfflineMessage, true);
+
+  // Refresh failures must also persist to ~/.toolkit/log.jsonl so the user
+  // can see the actual git/HTTP error after the TUI is dismissed. Without
+  // this, the ! warning badge is the only surface for the underlying error
+  // and it vanishes on the next refresh.
+  assert.ok(data.refreshLog, 'refresh failure must be appended to log.jsonl');
+  assert.equal(data.refreshLog.action, 'refresh-source');
+  assert.equal(data.refreshLog.name, 'cached-src');
+  assert.equal(data.refreshLog.result, 'failed-used-cache');
+  assert.equal(data.refreshLog.hasOfflineMessage, true);
+  assert.equal(data.refreshLog.lineHasOfflineMessage, true);
 });
 
 test('disabled providers are excluded from skill, command, and MCP write targets', () => {
@@ -220,6 +231,32 @@ test('removeLink removes a file and returns true, returns false for non-existent
   assert.equal(data.removeLinkTrue, true);
   assert.equal(data.removeLinkGone, true);
   assert.equal(data.removeLinkFalse, false);
+});
+
+test('stripJsoncComments handles the Copilot config.json shape (// headers, inline + block comments)', () => {
+  const data = runFixture('fs-helpers-ops.mjs');
+  // `//` header lines must be stripped — that's the Bar's-machine bug the
+  // reader was added to fix; without this `JSON.parse` throws and every
+  // Copilot-installed plugin reads as absent.
+  assert.deepEqual(data.stripHeader, { a: 1, b: 2 });
+  assert.deepEqual(data.stripMixed, { a: 1, b: 2 });
+});
+
+test('stripJsoncComments preserves comment-like sequences inside string literals', () => {
+  const data = runFixture('fs-helpers-ops.mjs');
+  // A naive regex strip would turn "https://..." into "https:" (everything
+  // after // dropped). Strings must come through unchanged.
+  assert.deepEqual(data.stripStrings, {
+    url: 'https://example.com/path',
+    note: 'block /* not real */ end',
+  });
+  assert.deepEqual(data.stripEscaped, { msg: 'say "hi" // not a comment' });
+});
+
+test('readJsoncOrNull returns null for absent files and parses JSONC for present ones', () => {
+  const data = runFixture('fs-helpers-ops.mjs');
+  assert.equal(data.readJsoncAbsent, null);
+  assert.deepEqual(data.readJsoncPresent, { installedPlugins: [{ name: 'demo' }] });
 });
 
 // ===========================================================================

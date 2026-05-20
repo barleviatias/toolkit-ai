@@ -192,11 +192,13 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             allItems={allItems}
             catalog={catalog}
             sourceStatus={sourceStatus}
+            sourceWarnings={sourceWarnings}
             onRefresh={handleRefresh}
             onRefreshSources={refreshExternal}
             onRefreshSingleSource={refreshSingleSource}
             onForgetSource={forgetSource}
             onAdoptSource={adoptSource}
+            onUpdateItem={handleUpdateItem}
           />
         )}
         {activeTab === 'settings' && (

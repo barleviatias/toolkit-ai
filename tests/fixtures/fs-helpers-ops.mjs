@@ -5,7 +5,7 @@ import { pathToFileURL } from 'url';
 
 const buildDir = process.env.TEST_BUILD_DIR;
 
-const { ensureDir, copyDirRecursive, linkOrCopyFile, removeLink } =
+const { ensureDir, copyDirRecursive, linkOrCopyFile, removeLink, stripJsoncComments, readJsoncOrNull } =
   await import(pathToFileURL(path.join(buildDir, 'core', 'fs-helpers.js')).href);
 
 const results = {};
@@ -58,6 +58,30 @@ try {
   // --- removeLink: returns false for non-existent ---
   const removeNonExistent = removeLink(path.join(tempDir, 'does-not-exist.txt'));
   results.removeLinkFalse = removeNonExistent;
+
+  // --- stripJsoncComments: header line comments (Copilot config.json shape) ---
+  const headerJsonc = '// header line\n// another\n{"a":1,"b":2}\n';
+  results.stripHeader = JSON.parse(stripJsoncComments(headerJsonc));
+
+  // --- stripJsoncComments: trailing line comments and block comments ---
+  const mixedJsonc = '{\n  "a": 1, // inline\n  /* block\n     spanning */\n  "b": 2\n}';
+  results.stripMixed = JSON.parse(stripJsoncComments(mixedJsonc));
+
+  // --- stripJsoncComments: strings containing comment-like sequences are preserved ---
+  const stringJsonc = '{"url": "https://example.com/path", "note": "block /* not real */ end"}';
+  results.stripStrings = JSON.parse(stripJsoncComments(stringJsonc));
+
+  // --- stripJsoncComments: escaped quotes inside strings handled correctly ---
+  const escapedJsonc = '{"msg": "say \\"hi\\" // not a comment"}';
+  results.stripEscaped = JSON.parse(stripJsoncComments(escapedJsonc));
+
+  // --- readJsoncOrNull: returns null for absent file, parses JSONC for present file ---
+  const absentPath = path.join(tempDir, 'absent.jsonc');
+  results.readJsoncAbsent = readJsoncOrNull(absentPath);
+
+  const jsoncPath = path.join(tempDir, 'present.jsonc');
+  fs.writeFileSync(jsoncPath, '// Copilot-style header\n{"installedPlugins": [{"name": "demo"}]}');
+  results.readJsoncPresent = readJsoncOrNull(jsoncPath);
 } catch (err) {
   results.error = err instanceof Error ? err.message : String(err);
 }
