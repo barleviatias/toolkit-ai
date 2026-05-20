@@ -540,7 +540,14 @@ export function applyToolFlavoredHooks(destDir: string, tool: 'copilot' | 'codex
     const template = path.join(destDir, 'hooks', 'configs', `${tool}.hooks.json`);
     if (!fs.existsSync(template)) return false;
     const raw = fs.readFileSync(template, 'utf8');
-    const rendered = raw.split('__AMS_PLUGIN_ROOT__').join(destDir);
+    // Hook commands run under bash on every platform (Git Bash on Windows).
+    // path.join returns native separators, so on Windows destDir has
+    // backslashes; substituting them verbatim into a bash command string
+    // can collide with bash escape sequences ($, `, ", \). Normalize to
+    // POSIX-style forward slashes — bash on Windows handles forward
+    // slashes everywhere, and no-op on macOS/Linux where sep is already /.
+    const posixDest = destDir.split(path.sep).join('/');
+    const rendered = raw.split('__AMS_PLUGIN_ROOT__').join(posixDest);
     const target = path.join(destDir, 'hooks', 'hooks.json');
     fs.writeFileSync(target, rendered, 'utf8');
     return true;

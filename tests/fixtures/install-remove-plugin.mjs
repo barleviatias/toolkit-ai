@@ -327,14 +327,19 @@ const skillsRoot = {
   codexHasIndex:   readStackIndex(codexPluginTree)   === stackIndexContent,
 };
 
+// __AMS_PLUGIN_ROOT__ is substituted with the POSIX form of destDir so
+// hook commands run cleanly under bash on Windows (Git Bash treats `\`
+// as an escape inside double-quoted strings). On macOS/Linux path.sep
+// is already '/', so this is a no-op there.
+const toPosix = (p) => p.split(path.sep).join('/');
 const hooksSwap = {
   claudeUntouched: !!claudeHooksFile?.hooks?.PostToolUse,
   claudeNoPlaceholder: !JSON.stringify(claudeHooksFile ?? {}).includes('__AMS_PLUGIN_ROOT__'),
   copilotFlavor: copilotHooksFile?._flavor === 'copilot',
-  copilotRootResolved: copilotHooksFile?._pluginRoot === copilotPluginRoot,
+  copilotRootResolved: copilotHooksFile?._pluginRoot === toPosix(copilotPluginRoot),
   copilotNoPlaceholder: !JSON.stringify(copilotHooksFile ?? {}).includes('__AMS_PLUGIN_ROOT__'),
   codexFlavor: codexHooksFile?._flavor === 'codex',
-  codexRootResolved: codexHooksFile?._pluginRoot === codexPluginTree,
+  codexRootResolved: codexHooksFile?._pluginRoot === toPosix(codexPluginTree),
   codexNoPlaceholder: !JSON.stringify(codexHooksFile ?? {}).includes('__AMS_PLUGIN_ROOT__'),
 };
 
