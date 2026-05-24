@@ -191,6 +191,17 @@ test('Operation log captures install/multi-install/error in JSONL with full line
   assert.equal(errored.providers, undefined);
 });
 
+test('Tool-flavored hooks normalize Windows-style plugin roots for bash commands', () => {
+  const data = runFixture('hook-path-normalization.mjs');
+
+  assert.equal(data.applied, true, 'hook flavor template should be applied');
+  assert.equal(data.noPlaceholder, true, 'placeholder should be fully substituted');
+  assert.equal(data.noBackslashes, true,
+    'rendered hooks.json must not contain Windows backslashes in bash command paths');
+  assert.equal(data.quotedLauncher, true,
+    'rendered hook command should keep quoted launcher and script paths');
+});
+
 test('Plugin install (Claude .claude-plugin manifest) decomposes across every detected provider and round-trips on remove', () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-claude-'));
   const data = runFixture('install-remove-plugin.mjs', [tempHome], {
@@ -293,7 +304,7 @@ test('Manifest path overrides drive recursive discovery for cross-tool plugins (
   fs.rmSync(tempHome, { recursive: true, force: true });
 });
 
-test('Plugins already installed by GitHub Copilot CLI: discover via config.json, decompose-install, and full native uninstall on remove', () => {
+test('Plugins already installed by GitHub Copilot CLI: discover via config.json, mirror, and full native uninstall on remove', () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-copilot-installed-'));
   const data = runFixture('copilot-installed-plugins.mjs', [tempHome], {
     HOME: tempHome,
@@ -308,7 +319,8 @@ test('Plugins already installed by GitHub Copilot CLI: discover via config.json,
   assert.equal(data.discovered[0].description, 'A plugin Copilot CLI already installed');
   assert.equal(data.discovered[0].path, path.join('demo-marketplace', 'copilot-installed-demo'));
 
-  // Install: decompose-install lands components in every detected provider.
+  // Install: mirror into every detected provider, using native plugin
+  // registries where available and decomposed copies only for fallbacks.
   const actions = Object.fromEntries(data.installResultActions.map(r => [`${r.type}:${r.name}`, r.action]));
   assert.equal(actions['skill:greet'], 'installed');
   assert.equal(actions['agent:helper'], 'skipped');
@@ -383,7 +395,7 @@ test('Plugins already installed by Codex surface in the catalog and mirror-insta
     'removePlugin must remove the toolkit-ai Codex cache copy');
 });
 
-test('Plugins already installed by Claude Code surface in the catalog and decompose-install across providers', () => {
+test('Plugins already installed by Claude Code surface in the catalog and mirror across providers', () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-claude-installed-'));
   const data = runFixture('claude-installed-plugins.mjs', [tempHome], {
     HOME: tempHome,
@@ -418,7 +430,7 @@ test('Plugins already installed by Claude Code surface in the catalog and decomp
 
   // Critical safety check: removePlugin must NEVER delete files from
   // Claude Code's own plugin cache or its installed_plugins.json registry.
-  // The toolkit only owns the decomposed copies it wrote.
+  // The toolkit only owns the fallback copies and native plugin mirrors it wrote.
   assert.equal(data.claudeCachePreservedAfterRemove, true,
     'toolkit removePlugin must not touch ~/.claude/plugins/cache');
   assert.equal(data.claudeInstalledJsonPreserved, true,

@@ -23,10 +23,17 @@ function loadDefaultConfig(): SourcesConfig {
 // ---------------------------------------------------------------------------
 
 /** Parse a GitHub/Bitbucket URL or shorthand into a Source object. */
-export function parseSourceInput(input: string): Source {
-  const normalized = input.trim();
+export function parseSourceInput(input: string, nameOverride?: string): Source {
+  let normalized = input.trim();
   let repo: string;
   let type: Source['type'] = 'github';
+  let branch: string | undefined;
+
+  const hashIndex = normalized.indexOf('#');
+  if (hashIndex >= 0) {
+    branch = normalized.slice(hashIndex + 1).trim();
+    normalized = normalized.slice(0, hashIndex).trim();
+  }
 
   // Full URL: https://github.com/owner/repo or https://bitbucket.org/owner/repo
   if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
@@ -58,9 +65,21 @@ export function parseSourceInput(input: string): Source {
     repo = normalized.replace(/\.git$/, '');
   }
 
-  const name = repo.split('/').pop() || repo;
+  const name = nameOverride || repo.split('/').pop() || repo;
   assertSafePathSegment(name, 'source name');
-  return { name, type, repo };
+  if (branch) {
+    assertSafeGitRef(branch);
+  }
+  return { name, type, repo, ...(branch ? { branch } : {}) };
+}
+
+function assertSafeGitRef(ref: string): string {
+  if (!ref || ref.length > 200) throw new Error(`Unsafe git ref: ${ref}`);
+  if (ref.startsWith('-')) throw new Error(`Unsafe git ref: ${ref}`);
+  if (ref.includes('..') || ref.includes('@{') || ref.includes('\\')) throw new Error(`Unsafe git ref: ${ref}`);
+  if (ref.endsWith('/') || ref.endsWith('.') || ref.includes('//')) throw new Error(`Unsafe git ref: ${ref}`);
+  if (!/^[A-Za-z0-9._/\-]+$/.test(ref)) throw new Error(`Unsafe git ref: ${ref}`);
+  return ref;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,8 +197,18 @@ function fetchSource(source: Source): void {
   }
   ensureDir(path.dirname(tempDir));
 
+  const cloneArgs = (repoUrl: string) => [
+    'clone',
+    '--depth',
+    '1',
+    '--single-branch',
+    ...(source.branch ? ['--branch', assertSafeGitRef(source.branch)] : []),
+    repoUrl,
+    tempDir,
+  ];
+
   for (const repoUrl of cloneUrls) {
-    const result = spawnSync('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
+    const result = spawnSync('git', cloneArgs(repoUrl), {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: CLONE_TIMEOUT_MS,
       env: gitEnv(),
@@ -205,9 +234,17 @@ function fetchSource(source: Source): void {
   throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
 }
 
-function cloneSource(repoUrl: string, tempDir: string): Promise<{ ok: boolean; error: string }> {
+function cloneSource(repoUrl: string, tempDir: string, branch?: string): Promise<{ ok: boolean; error: string }> {
   return new Promise(resolve => {
-    const child = spawn('git', ['clone', '--depth', '1', '--single-branch', repoUrl, tempDir], {
+    const child = spawn('git', [
+      'clone',
+      '--depth',
+      '1',
+      '--single-branch',
+      ...(branch ? ['--branch', assertSafeGitRef(branch)] : []),
+      repoUrl,
+      tempDir,
+    ], {
       stdio: ['ignore', 'ignore', 'pipe'],
       env: gitEnv(),
     });
@@ -252,7 +289,7 @@ async function fetchSourceAsync(source: Source): Promise<void> {
   ensureDir(path.dirname(tempDir));
 
   for (const repoUrl of cloneUrls) {
-    const result = await cloneSource(repoUrl, tempDir);
+    const result = await cloneSource(repoUrl, tempDir, source.branch);
     if (result.ok) {
       fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
       if (fs.existsSync(cacheDir)) {
