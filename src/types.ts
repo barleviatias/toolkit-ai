@@ -121,6 +121,7 @@ export interface Source {
   name: string;
   type: 'github' | 'bitbucket' | 'local';
   repo?: string; // 'owner/repo' for github/bitbucket
+  branch?: string; // optional branch/tag/ref for github/bitbucket sources
   path?: string; // local path
   /**
    * Disabled sources stay in sources.json but are skipped during fetch and

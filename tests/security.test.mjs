@@ -47,6 +47,25 @@ test('Rejects unsafe source and install path segments, and scans MCP headers wit
     type: 'github',
     repo: 'org/repo.name',
   });
+  assert.deepEqual(data.parsedGitHubBranch, {
+    name: 'repo.name',
+    type: 'github',
+    repo: 'org/repo.name',
+    branch: 'fix/windows-hooks',
+  });
+  assert.deepEqual(data.parsedShorthandBranch, {
+    name: 'repo.name',
+    type: 'github',
+    repo: 'org/repo.name',
+    branch: 'feature/toolkit-branch',
+  });
+  assert.deepEqual(data.parsedNamedBranch, {
+    name: 'repo-name-feature',
+    type: 'github',
+    repo: 'org/repo.name',
+    branch: 'feature/toolkit-branch',
+  });
+  assert.match(data.parseUnsafeBranchError, /Unsafe git ref/);
   assert.match(data.skillInstallError, /Unsafe skill name/);
   assert.match(data.agentInstallError, /Unsafe agent name/);
   assert.equal(data.scannerBlocked, true);

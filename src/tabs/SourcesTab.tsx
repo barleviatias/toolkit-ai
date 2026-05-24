@@ -490,6 +490,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
           <Text dimColor>Paste a URL or owner/repo:</Text>
           <Text dimColor>  https://github.com/owner/repo</Text>
+          <Text dimColor>  https://github.com/owner/repo#branch</Text>
+          <Text dimColor>  CLI: source add owner/repo#branch --name repo-branch</Text>
           <Text dimColor>  https://bitbucket.org/owner/repo</Text>
           <Text dimColor>  owner/repo</Text>
           <Box marginTop={1}>

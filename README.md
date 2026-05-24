@@ -271,10 +271,11 @@ provider** — Claude Code, Codex, GitHub Copilot, Cursor, VS Code, and Amp.
 - **Plugins already installed by Claude Code's `/plugin install`** — read from
   `~/.claude/plugins/installed_plugins.json` and surfaced under the synthetic
   `claude` source. No source configuration needed; they appear automatically
-  in `--list` and the TUI catalog. Run `toolkit plugin <name>` on one to
-  decompose-install it across every other detected provider so the same
-  plugin works in Codex/Copilot/Cursor/Amp/VS Code too. Toolkit never writes
-  to Claude's plugin state — `remove plugin` only removes the decomposed copies.
+  in `toolkit list` and the TUI catalog. Run `toolkit plugin <name>` on one to
+  mirror it across every other detected provider, using native plugin installs
+  where available and decomposed copies only for fallback providers. Toolkit
+  never writes to Claude's plugin state — `remove plugin` only removes the
+  toolkit-managed copies.
 - **Plugins already installed by Codex** — read from `~/.codex/config.toml`
   `[plugins."<name>@<marketplace>"]` entries plus
   `~/.codex/plugins/cache/<marketplace>/<name>/<version>/`, then surfaced
@@ -284,9 +285,9 @@ provider** — Claude Code, Codex, GitHub Copilot, Cursor, VS Code, and Amp.
   discovered by walking `~/.copilot/installed-plugins/_direct/` (the per-plugin
   install root the Copilot CLI populates) and surfaced under the synthetic
   `copilot` source. Same flow as the Claude case: appear automatically in
-  `--list`, run `toolkit plugin <name>` to decompose-install across every
+  `toolkit list`, run `toolkit plugin <name>` to mirror it across every
   other detected provider. Toolkit never writes back to Copilot's installed-
-  plugins tree — `remove plugin` only removes the decomposed copies.
+  plugins tree — `remove plugin` only removes the toolkit-managed copies.
 
 **Manifest path overrides — for plugins that don't fit Claude's layout:**
 
@@ -316,23 +317,27 @@ walks the right places:
 Each field accepts a string or an array of strings, all relative to the
 plugin root. The toolkit walks each declared root recursively for
 `SKILL.md` / `*.agent.md` / `*.md` / `*.prompt.md` / `*.mcp.json`, then
-decompose-installs across every detected provider exactly as it does for
+installs or mirrors across every detected provider exactly as it does for
 Claude-shaped plugins. When fields are absent, the conventional dirs
 (`skills/`, `agents/`, `commands/`, root `.mcp.json`) are scanned instead.
 
 **Install — what happens to each component:**
 
-Installing a plugin **decomposes** it and writes each component into the
-native on-disk format every detected provider already reads:
+Installing a plugin uses each provider's native plugin system when one is
+available, and decomposes only for providers that do not have a plugin registry:
 
-- `skills/<name>/SKILL.md` → `~/.claude/skills/`, `~/.copilot/skills/`, `~/.agents/skills/` (Codex), `~/.config/amp/skills/`
-- `agents/<name>.md` → `~/.claude/agents/`, `~/.copilot/agents/`, and a generated `~/.codex/agents/<name>.toml` for Codex
-- `commands/<name>.md` → `~/.claude/commands/`, `~/.cursor/commands/` (verbatim), and a transformed `*.prompt.md` for VS Code / Insiders
+- Claude Code → `~/.claude/plugins/cache/toolkit-ai/<name>/<version>/`
+- Codex → `~/.codex/plugins/cache/toolkit-ai/<name>/<version>/`
+- GitHub Copilot CLI → `~/.copilot/installed-plugins/toolkit-ai/<name>/`
+- Cursor / VS Code / Amp → decomposed skills, agents, commands, and MCP config in the native per-user locations those tools already read
+- `commands/<name>.md` → transformed `*.prompt.md` for VS Code / Insiders
 - `.mcp.json` → registered as MCP servers in every detected MCP-aware config (`.claude/settings.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.codex/config.toml`, `.config/amp/settings.json`, etc.)
 
 The result is that the same plugin works in every assistant the user has
 installed, in each one's own native shape — no provider-specific plugin
-machinery required on the consumer side.
+machinery required on the consumer side. Native plugin installs deliberately
+do not also copy the same skills/agents into Claude/Copilot/Codex user dirs,
+because that duplicates agents in provider UIs.
 
 **Native Copilot plugin registration**: when GitHub Copilot CLI is detected,
 plugin install also writes a real entry to Copilot's plugin manager — copies
@@ -371,7 +376,9 @@ ships `hooks/configs/copilot.hooks.json` or `hooks/configs/codex.hooks.json`,
 the installer for that tool reads the matching template, substitutes the
 literal string `__AMS_PLUGIN_ROOT__` with the install destination directory,
 and writes the result over `hooks/hooks.json` inside that tool's install.
-Claude's install is never swapped — it keeps the canonical file.
+Claude's install is never swapped — it keeps the canonical file. During the
+substitution, toolkit normalizes backslashes to forward slashes so Git Bash
+on Windows receives paths it can execute safely.
 
 ```
 plugin/
@@ -409,7 +416,7 @@ actually do last week" without keeping the TUI summary toast on screen.
 > each skill (the namespaced plugin form and the bare standalone form).
 
 ```bash
-toolkit plugin feature-dev          # decompose-install a plugin across all detected providers
+toolkit plugin feature-dev          # install or mirror a plugin across detected providers
 toolkit remove plugin feature-dev   # remove the plugin and every component
 ```
 
@@ -547,6 +554,9 @@ All content comes from external repos. The toolkit ships with no bundled resourc
 ```bash
 # Add sources
 toolkit source add owner/repo
+toolkit source add owner/repo#feature/my-branch
+toolkit source add owner/repo --branch feature/my-branch
+toolkit source add owner/repo#feature/my-branch --name repo-feature
 toolkit source add https://github.com/owner/repo
 toolkit source add https://bitbucket.org/owner/repo
 toolkit source add git@github.com:owner/repo.git
@@ -577,7 +587,7 @@ Directories named `node_modules`, `.git`, `dist`, `build`, `.next`, and `coverag
 
 ### Caching
 
-Sources are shallow-cloned (`--depth 1`) and cached at `~/.toolkit/cache/`. The cache refreshes automatically every 24 hours. Force a refresh with:
+Sources are shallow-cloned (`--depth 1 --single-branch`) and cached at `~/.toolkit/cache/`. Add `#branch` or `--branch <branch>` to track a feature branch before it is merged. Use `--name <alias>` when you want two sources from the same repo on different branches. Force a refresh with:
 
 ```bash
 toolkit refresh                    # re-fetch all sources

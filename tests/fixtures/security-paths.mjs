@@ -49,6 +49,15 @@ try {
 const parsedBitbucketSsh = parseSourceInput('git@bitbucket.org:example-org/awesome-copilot.git');
 const parsedBitbucketHttps = parseSourceInput('https://bitbucket.org/example-org/awesome-copilot');
 const parsedGitHubWithDot = parseSourceInput('https://github.com/org/repo.name.git');
+const parsedGitHubBranch = parseSourceInput('https://github.com/org/repo.name.git#fix/windows-hooks');
+const parsedShorthandBranch = parseSourceInput('org/repo.name#feature/toolkit-branch');
+const parsedNamedBranch = parseSourceInput('org/repo.name#feature/toolkit-branch', 'repo-name-feature');
+let parseUnsafeBranchError = '';
+try {
+  parseSourceInput('org/repo#bad..branch');
+} catch (error) {
+  parseUnsafeBranchError = error instanceof Error ? error.message : String(error);
+}
 
 let skillInstallError = '';
 try {
@@ -75,6 +84,10 @@ process.stdout.write(JSON.stringify({
   parsedBitbucketSsh,
   parsedBitbucketHttps,
   parsedGitHubWithDot,
+  parsedGitHubBranch,
+  parsedShorthandBranch,
+  parsedNamedBranch,
+  parseUnsafeBranchError,
   skillInstallError,
   agentInstallError,
   scannerBlocked: !scanReport.passed,

@@ -87,8 +87,8 @@ interface ClaudeInstalledPluginsFile {
 
 /**
  * Surface plugins that Claude Code installed via `/plugin install` so the
- * toolkit can show them to the user and offer to decompose-install them
- * across every other detected provider (Codex/Copilot/Cursor/Amp/VS Code).
+ * toolkit can show them to the user and mirror them across every other
+ * detected provider (Codex/Copilot/Cursor/Amp/VS Code).
  *
  * Source of truth: `~/.claude/plugins/installed_plugins.json` lists every
  * installed plugin keyed `<plugin>@<marketplace>` with the absolute
@@ -546,7 +546,7 @@ export function applyToolFlavoredHooks(destDir: string, tool: 'copilot' | 'codex
     // can collide with bash escape sequences ($, `, ", \). Normalize to
     // POSIX-style forward slashes — bash on Windows handles forward
     // slashes everywhere, and no-op on macOS/Linux where sep is already /.
-    const posixDest = destDir.split(path.sep).join('/');
+    const posixDest = destDir.replace(/\\/g, '/').split(path.sep).join('/');
     const rendered = raw.split('__AMS_PLUGIN_ROOT__').join(posixDest);
     const target = path.join(destDir, 'hooks', 'hooks.json');
     fs.writeFileSync(target, rendered, 'utf8');

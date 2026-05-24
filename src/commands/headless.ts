@@ -369,15 +369,18 @@ ${BOLD}Remove:${RESET}
   remove plugin <name>            Remove a plugin (and its decomposed components)
 
 ${BOLD}Sources:${RESET}
-  source add <repo>               Add an external skill source
+  source add <repo>[#branch]      Add an external skill source
   source list                     List configured sources
   source disable <name>           Disable a source (keeps config, skips fetch)
   source enable <name>            Re-enable a previously disabled source
   source remove <name>            Remove a source entirely
   source refresh [name]           Force re-fetch sources (all or by name)
 
-  ${DIM}Accepts: owner/repo, https://github.com/owner/repo,
-          https://bitbucket.org/owner/repo, git@github.com:owner/repo.git${RESET}
+  ${DIM}Accepts: owner/repo, owner/repo#branch,
+          https://github.com/owner/repo[#branch],
+          https://bitbucket.org/owner/repo[#branch],
+          git@github.com:owner/repo.git[#branch]
+          Use --name <alias> to keep multiple branches of the same repo${RESET}
 
 ${BOLD}Settings:${RESET}
   settings install-mode copy      Copy skills/agents when installing
@@ -512,9 +515,17 @@ function runSourceCommand(args: string[]): boolean {
   const sub = args[0];
 
   if (sub === 'add' && args[1]) {
-    const source = parseSourceInput(args[1]);
+    const branchFlag = args.findIndex(arg => arg === '--branch' || arg === '-b');
+    const nameFlag = args.findIndex(arg => arg === '--name' || arg === '-n');
+    const source = parseSourceInput(
+      branchFlag >= 0 && args[branchFlag + 1]
+        ? `${args[1]}#${args[branchFlag + 1]}`
+        : args[1],
+      nameFlag >= 0 ? args[nameFlag + 1] : undefined,
+    );
     addSource(source);
-    console.log(`  ${GREEN}[+]${RESET} Added source ${BOLD}${source.name}${RESET} (${source.type}: ${source.repo})`);
+    const branch = source.branch ? `#${source.branch}` : '';
+    console.log(`  ${GREEN}[+]${RESET} Added source ${BOLD}${source.name}${RESET} (${source.type}: ${source.repo}${branch})`);
     return true;
   }
 
@@ -526,7 +537,8 @@ function runSourceCommand(args: string[]): boolean {
       console.log(`\n${BOLD}Sources${RESET}\n`);
       for (const s of config.sources) {
         const state = s.enabled === false ? `  ${DIM}[disabled]${RESET}` : '';
-        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}${state}`);
+        const ref = s.branch ? `#${s.branch}` : '';
+        console.log(`  ${BOLD}${s.name.padEnd(20)}${RESET} ${DIM}${s.type}${RESET}  ${s.repo || s.path || ''}${ref}${state}`);
       }
       console.log();
     }

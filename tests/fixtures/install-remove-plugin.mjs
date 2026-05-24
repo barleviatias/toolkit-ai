@@ -329,9 +329,9 @@ const skillsRoot = {
 
 // __AMS_PLUGIN_ROOT__ is substituted with the POSIX form of destDir so
 // hook commands run cleanly under bash on Windows (Git Bash treats `\`
-// as an escape inside double-quoted strings). On macOS/Linux path.sep
-// is already '/', so this is a no-op there.
-const toPosix = (p) => p.split(path.sep).join('/');
+// as an escape inside double-quoted strings). Literal backslashes are
+// normalized too so non-Windows CI can still exercise Windows-looking paths.
+const toPosix = (p) => p.replace(/\\/g, '/').split(path.sep).join('/');
 const hooksSwap = {
   claudeUntouched: !!claudeHooksFile?.hooks?.PostToolUse,
   claudeNoPlaceholder: !JSON.stringify(claudeHooksFile ?? {}).includes('__AMS_PLUGIN_ROOT__'),
