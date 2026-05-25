@@ -81,7 +81,12 @@ Review the changes.
 `);
 
 fs.writeFileSync(path.join(pluginDir, 'commands', 'deploy.md'), `---
+name: deploy
+phase: implementation
+persona: engineer
 description: Deploy the app
+argument-hint: '<env>'
+model: opus
 ---
 Deploy now.
 `);
@@ -182,6 +187,7 @@ const filesAfterInstall = {
   agentCodex:    fs.existsSync(path.join(tempHome, '.codex', 'agents', 'reviewer.toml')),
   commandClaudeUser:   fs.existsSync(path.join(tempHome, '.claude', 'commands', 'deploy.md')),
   commandClaudePlugin: fs.existsSync(path.join(claudePluginTree, 'commands', 'deploy.md')),
+  commandCodexPlugin:  fs.existsSync(path.join(codexPluginTree, 'commands', 'deploy.md')),
   commandCursor: fs.existsSync(path.join(tempHome, '.cursor', 'commands', 'deploy.md')),
 };
 
@@ -281,6 +287,19 @@ const codexNative = {
   selectedAgentPresent: fs.existsSync(path.join(codexPluginTree, 'agents', 'reviewer.agent.md')),
   unselectedAgentVariantAbsent: !fs.existsSync(path.join(codexPluginTree, 'agents', 'reviewer.md')),
   adapterSubdirAbsent: !fs.existsSync(path.join(codexPluginTree, 'agents', 'adapters')),
+  commandFrontmatterSafe: (() => {
+    try {
+      const text = fs.readFileSync(path.join(codexPluginTree, 'commands', 'deploy.md'), 'utf8');
+      return text.includes('description: Deploy the app') &&
+        text.includes("argument-hint: '<env>'") &&
+        !text.includes('name: deploy') &&
+        !text.includes('phase: implementation') &&
+        !text.includes('persona: engineer') &&
+        !text.includes('model: opus');
+    } catch {
+      return false;
+    }
+  })(),
 };
 
 const copilotNative = {

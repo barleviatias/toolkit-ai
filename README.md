@@ -339,6 +339,11 @@ machinery required on the consumer side. Native plugin installs deliberately
 do not also copy the same skills/agents into Claude/Copilot/Codex user dirs,
 because that duplicates agents in provider UIs.
 
+For Codex native plugin installs, command files are copied into the plugin's
+`commands/` directory with only Codex-safe frontmatter (`description` and
+`argument-hint`). Claude-only metadata such as `name`, `phase`, `persona`, or
+`model` is stripped from the Codex copy so slash commands can be discovered.
+
 **Native Copilot plugin registration**: when GitHub Copilot CLI is detected,
 plugin install also writes a real entry to Copilot's plugin manager — copies
 the plugin tree to `~/.copilot/installed-plugins/toolkit-ai/<name>/`, adds
