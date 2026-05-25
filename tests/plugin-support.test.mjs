@@ -62,6 +62,7 @@ function assertPluginRoundTrip(data) {
   assert.equal(data.filesAfterInstall.agentCodexPlugin, true, 'agent should be inside Codex plugin tree');
   assert.equal(data.filesAfterInstall.commandClaudeUser, false, 'command must NOT land in ~/.claude/commands/ (Claude plugin tree owns it)');
   assert.equal(data.filesAfterInstall.commandClaudePlugin, true, 'command should be inside Claude plugin tree');
+  assert.equal(data.filesAfterInstall.commandCodexPlugin, true, 'command should be inside Codex plugin tree');
   assert.equal(data.filesAfterInstall.commandCursor, true, 'command should install for Cursor');
 
   // After removePlugin: every decomposed file is cleaned, lock entry is gone.
@@ -99,6 +100,8 @@ function assertPluginRoundTrip(data) {
     'unselected agent variant must NOT be copied into Codex plugin tree');
   assert.equal(data.codexNative.adapterSubdirAbsent, true,
     'adapter subdir layout must not survive the scoped Codex copy');
+  assert.equal(data.codexNative.commandFrontmatterSafe, true,
+    'Codex plugin commands must drop AMS/Claude-only frontmatter keys while preserving description and argument-hint');
   assert.equal(data.copilotNative.selectedAgentPresent, true,
     'manifest-selected agent must be in the Copilot plugin tree at canonical path');
   assert.equal(data.copilotNative.unselectedAgentVariantAbsent, true,

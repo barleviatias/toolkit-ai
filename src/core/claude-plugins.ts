@@ -429,11 +429,29 @@ export interface CopilotInstallResult {
  * uses default locations, so any `agents: "agents/adapters/copilot/"`-style
  * declarations would point at empty dirs and confuse downstream tooling.
  */
+type PluginTreeFlavor = 'claude' | 'codex' | 'copilot';
+
+function renderCodexCommandFile(sourceText: string): string {
+  const match = sourceText.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return sourceText;
+
+  const allowed = new Set(['description', 'argument-hint']);
+  const kept = match[1]
+    .split(/\r?\n/)
+    .filter(line => {
+      const key = line.match(/^\s*([A-Za-z0-9_-]+)\s*:/)?.[1];
+      return key ? allowed.has(key) : false;
+    });
+  const body = sourceText.slice(match[0].length);
+  return kept.length > 0 ? `---\n${kept.join('\n')}\n---\n\n${body}` : body;
+}
+
 function copyPluginTreeScoped(
   sourceDir: string,
   destDir: string,
   manifest: PluginManifest,
   contents: PluginContents,
+  flavor: PluginTreeFlavor,
 ): void {
   ensureDir(destDir);
 
@@ -499,7 +517,13 @@ function copyPluginTreeScoped(
   for (const cmd of contents.commands) {
     const dest = path.join(destDir, 'commands', path.basename(cmd.absPath));
     ensureDir(path.dirname(dest));
-    try { fs.copyFileSync(cmd.absPath, dest); } catch { /* ignore */ }
+    try {
+      if (flavor === 'codex') {
+        fs.writeFileSync(dest, renderCodexCommandFile(fs.readFileSync(cmd.absPath, 'utf8')), 'utf8');
+      } else {
+        fs.copyFileSync(cmd.absPath, dest);
+      }
+    } catch { /* ignore */ }
   }
 
   for (const mcp of contents.mcpConfigs) {
@@ -607,7 +631,7 @@ export function installCopilotPlugin(
       ensureDir(path.dirname(destDir));
       if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true });
       if (contents) {
-        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents);
+        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents, 'copilot');
       } else {
         copyDirRecursive(sourcePluginDir, destDir);
       }
@@ -842,7 +866,7 @@ export function installCodexPlugin(
       ensureDir(path.dirname(destDir));
       if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true });
       if (contents) {
-        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents);
+        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents, 'codex');
       } else {
         copyDirRecursive(sourcePluginDir, destDir);
       }
@@ -959,7 +983,7 @@ export function installClaudePlugin(
       ensureDir(path.dirname(destDir));
       if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true });
       if (contents) {
-        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents);
+        copyPluginTreeScoped(sourcePluginDir, destDir, manifest, contents, 'claude');
       } else {
         copyDirRecursive(sourcePluginDir, destDir);
       }
