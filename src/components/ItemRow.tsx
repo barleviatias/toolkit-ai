@@ -6,6 +6,7 @@ export interface ItemData {
   type: string;       // 'skill' | 'agent' | 'mcp' | 'bundle'
   name: string;
   description: string;
+  version?: string;
   source: string;     // source name
   installed: boolean;
   hasUpdate?: boolean;
@@ -78,6 +79,9 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         <Text color={checkColor}>{check}</Text>
         <Text color={typeColor} bold>{item.type.toUpperCase().padEnd(7)} </Text>
         <Text bold={isActive}>{item.name}</Text>
+        {item.type === 'plugin' && item.version && (
+          <Text dimColor> · v{item.version}</Text>
+        )}
         <Text dimColor> · {item.source}</Text>
         {item.source === 'claude' && item.type === 'plugin' && (
           <Text color="cyan"> · via Claude</Text>

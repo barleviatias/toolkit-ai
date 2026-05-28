@@ -11,7 +11,7 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, type ExternalResources, type SourceLoadWarning } from '../core/sources.js';
+import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, uniquifySourceName, type ExternalResources, type SourceLoadWarning } from '../core/sources.js';
 import type { Source } from '../types.js';
 import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
 import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin } from '../core/remover.js';
@@ -186,7 +186,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         markEscConsumed();
         setMode('list');
       } else if (key.return && input.trim()) {
-        const source = parseSourceInput(input.trim());
+        const parsed = parseSourceInput(input.trim());
+        const source = uniquifySourceName(parsed, loadSources().sources);
         // Non-blocking add: persist + return to list immediately. The new
         // source row shows "⟳ fetching" via sourceStatus while the clone runs.
         addSource(source);

@@ -83,7 +83,13 @@ export function useCatalog() {
   const [sourceOrder, setSourceOrder] = useState<string[]>(() =>
     loadSources().sources.filter(isEnabled).map(s => s.name),
   );
-  const [sourceStatus, setSourceStatus] = useState<Map<string, SourceFetchStatus>>(() => new Map());
+  const [sourceStatus, setSourceStatus] = useState<Map<string, SourceFetchStatus>>(() => {
+    const initial = new Map<string, SourceFetchStatus>();
+    for (const source of loadSources().sources.filter(isEnabled)) {
+      initial.set(source.name, 'fetching');
+    }
+    return initial;
+  });
   const [lock, setLock] = useState(() => readLock());
 
   // Generation counter — refresh waves bump this; per-source resolvers check
@@ -397,6 +403,7 @@ export function useCatalog() {
         type,
         name: entry.name,
         description: entry.description,
+        version: entry.version,
         source: src,
         installed,
         hasUpdate,

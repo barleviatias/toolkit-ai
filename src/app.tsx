@@ -29,6 +29,33 @@ interface AppProps {
 
 const TAB_ORDER: TabId[] = ['catalog', 'installed', 'sources', 'settings'];
 
+interface InitialSourceLoadingProps {
+  sourceStatus: Map<string, string>;
+}
+
+const InitialSourceLoading: React.FC<InitialSourceLoadingProps> = ({ sourceStatus }) => {
+  const fetching = Array.from(sourceStatus.entries())
+    .filter(([, status]) => status === 'fetching')
+    .map(([name]) => name);
+  const visible = fetching.slice(0, 5);
+  const hidden = Math.max(0, fetching.length - visible.length);
+
+  return (
+    <Box marginTop={1} marginX={2} borderStyle="round" borderColor="cyan" paddingX={1} paddingY={1} flexDirection="column">
+      <Spinner label="Loading source catalog..." />
+      <Text dimColor>  Scanning local cache first; slow remotes continue in the background.</Text>
+      {visible.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          {visible.map(name => (
+            <Text key={name} dimColor>  fetching {name}</Text>
+          ))}
+          {hidden > 0 && <Text dimColor>  fetching {hidden} more source{hidden === 1 ? '' : 's'}</Text>}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 const App: React.FC<AppProps> = ({ initialTab }) => {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const { exit } = useApp();
@@ -63,6 +90,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   } = useCatalog();
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
+  const showInitialSourceLoading = loading && allItems.length === 0 && activeTab !== 'settings';
 
   const tabs: Tab[] = [
     { id: 'catalog', label: updateCount > 0 ? `Catalog ~${updateCount}` : 'Catalog', badge: allItems.length },
@@ -142,17 +170,8 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
       </Box>
       {updateInfo.newer && updateInfo.latest && (
         <Box marginLeft={2}>
-          {updateInfo.autoUpdating ? (
-            <>
-              <Text color="cyan">↑ Upgrading to toolkit-ai {updateInfo.latest} in the background</Text>
-              <Text dimColor>  (restart the CLI to pick it up)</Text>
-            </>
-          ) : (
-            <>
-              <Text color="yellow">↑ toolkit-ai {updateInfo.latest} available</Text>
-              <Text dimColor>  (you are on {updateInfo.current} — run `npm install -g toolkit-ai@latest`)</Text>
-            </>
-          )}
+          <Text color="yellow">↑ Update available: toolkit-ai {updateInfo.current} → {updateInfo.latest}</Text>
+          <Text dimColor>  Run: npm install -g toolkit-ai@latest</Text>
         </Box>
       )}
       {sourceWarnings.length > 0 && (
@@ -162,14 +181,17 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         </Box>
       )}
 
-      {loading && allItems.length === 0 && activeTab !== 'settings' && (
+      {showInitialSourceLoading && (
         <Box marginLeft={2}>
           <Spinner label="Fetching sources from GitHub/Bitbucket..." />
         </Box>
       )}
 
       <Box flexDirection="column" flexGrow={1}>
-        {activeTab === 'catalog' && (
+        {showInitialSourceLoading && activeTab !== 'sources' && (
+          <InitialSourceLoading sourceStatus={sourceStatus} />
+        )}
+        {!showInitialSourceLoading && activeTab === 'catalog' && (
           <CatalogTab
             items={allItems}
             catalog={catalog}
@@ -178,7 +200,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             onUpdateAll={handleUpdateAll}
           />
         )}
-        {activeTab === 'installed' && (
+        {!showInitialSourceLoading && activeTab === 'installed' && (
           <InstalledTab
             items={installedItems}
             catalog={catalog}

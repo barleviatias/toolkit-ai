@@ -1,6 +1,7 @@
 export interface CatalogEntry {
   name: string;
   description: string;
+  version?: string;
   hash: string;
   path: string;
   source: string;
@@ -121,6 +122,7 @@ export interface Source {
   name: string;
   type: 'github' | 'bitbucket' | 'local';
   repo?: string; // 'owner/repo' for github/bitbucket
+  protocol?: 'https' | 'ssh' | 'auto'; // preferred clone transport; refresh falls back to the other remote form
   branch?: string; // optional branch/tag/ref for github/bitbucket sources
   path?: string; // local path
   /**

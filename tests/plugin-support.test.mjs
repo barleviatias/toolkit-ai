@@ -320,6 +320,7 @@ test('Plugins already installed by GitHub Copilot CLI: discover via config.json,
   assert.equal(data.discovered[0].name, 'copilot-installed-demo');
   assert.equal(data.discovered[0].source, 'copilot');
   assert.equal(data.discovered[0].description, 'A plugin Copilot CLI already installed');
+  assert.equal(data.discovered[0].version, '0.5.0');
   assert.equal(data.discovered[0].path, path.join('demo-marketplace', 'copilot-installed-demo'));
 
   // Install: mirror into every detected provider, using native plugin
@@ -371,6 +372,7 @@ test('Plugins already installed by Codex surface in the catalog and mirror-insta
   assert.equal(data.discovered[0].name, 'codex-installed-demo');
   assert.equal(data.discovered[0].source, 'codex');
   assert.equal(data.discovered[0].description, 'A plugin Codex already installed');
+  assert.equal(data.discovered[0].version, '1.2.0');
   assert.equal(data.discovered[0].path, path.join('demo-marketplace', 'codex-installed-demo', '1.2.0'));
 
   const actions = Object.fromEntries(data.installResultActions.map(r => [`${r.type}:${r.name}`, r.action]));
@@ -411,6 +413,7 @@ test('Plugins already installed by Claude Code surface in the catalog and mirror
   assert.equal(data.discovered[0].name, 'demo-plugin');
   assert.equal(data.discovered[0].source, 'claude');
   assert.equal(data.discovered[0].description, 'A plugin Claude Code already installed');
+  assert.equal(data.discovered[0].version, '1.2.3');
   // Path is stored relative to ~/.claude/plugins/cache so getSourceRoot resolves it.
   assert.equal(data.discovered[0].path, path.join('official', 'demo-plugin', '1.2.3'));
 

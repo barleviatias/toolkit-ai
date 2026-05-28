@@ -110,7 +110,7 @@ const claudeInstalledJsonPreserved = fs.existsSync(
 );
 
 process.stdout.write(JSON.stringify({
-  discovered: discovered.map(d => ({ name: d.name, source: d.source, description: d.description, path: d.path })),
+  discovered: discovered.map(d => ({ name: d.name, source: d.source, description: d.description, version: d.version, path: d.path })),
   installResultActions: installResults.map(r => ({ type: r.type, name: r.name, action: r.action })),
   pluginLockedItems: pluginEntry ? Object.keys(pluginEntry.items || {}).sort() : null,
   filesAfterInstall,

@@ -27,6 +27,7 @@ export function parseSourceInput(input: string, nameOverride?: string): Source {
   let normalized = input.trim();
   let repo: string;
   let type: Source['type'] = 'github';
+  let protocol: Source['protocol'];
   let branch: string | undefined;
 
   const hashIndex = normalized.indexOf('#');
@@ -37,6 +38,7 @@ export function parseSourceInput(input: string, nameOverride?: string): Source {
 
   // Full URL: https://github.com/owner/repo or https://bitbucket.org/owner/repo
   if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    protocol = 'https';
     try {
       const parsed = new URL(normalized);
       const parts = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/');
@@ -52,6 +54,7 @@ export function parseSourceInput(input: string, nameOverride?: string): Source {
   }
   // SSH: git@github.com:owner/repo.git or git@bitbucket.org:owner/repo.git
   else if (normalized.match(/^git@/)) {
+    protocol = 'ssh';
     const sshMatch = normalized.match(/^git@(github\.com|bitbucket\.org):([^/]+)\/(.+?)(?:\.git)?$/);
     if (sshMatch) {
       type = sshMatch[1] === 'bitbucket.org' ? 'bitbucket' : 'github';
@@ -70,7 +73,42 @@ export function parseSourceInput(input: string, nameOverride?: string): Source {
   if (branch) {
     assertSafeGitRef(branch);
   }
-  return { name, type, repo, ...(branch ? { branch } : {}) };
+  return { name, type, repo, ...(protocol ? { protocol } : {}), ...(branch ? { branch } : {}) };
+}
+
+function sameSourceTarget(a: Source, b: Source): boolean {
+  return a.type === b.type &&
+    a.repo === b.repo &&
+    a.path === b.path &&
+    a.branch === b.branch;
+}
+
+function slugSourceSuffix(value: string): string {
+  return value
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+/**
+ * Return a copy with a non-conflicting name for UI add flows. CLI add keeps
+ * replace-by-name behavior so `toolkit source add ... --name x` can update x.
+ */
+export function uniquifySourceName(source: Source, existing: Source[]): Source {
+  const colliding = existing.find(s => s.name === source.name);
+  if (!colliding || sameSourceTarget(source, colliding)) return source;
+
+  const base = source.name;
+  const suffix = source.branch ? slugSourceSuffix(source.branch) : '';
+  const preferred = suffix ? `${base}-${suffix}` : base;
+  let name = preferred;
+  let i = 2;
+  while (existing.some(s => s.name === name && !sameSourceTarget(source, s))) {
+    name = `${preferred}-${i}`;
+    i += 1;
+  }
+  assertSafePathSegment(name, 'source name');
+  return { ...source, name };
 }
 
 function assertSafeGitRef(ref: string): string {
@@ -180,24 +218,32 @@ function gitEnv(): NodeJS.ProcessEnv {
 
 const CLONE_TIMEOUT_MS = 25000;
 
+function getCloneUrls(source: Source): string[] {
+  const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
+  const httpsUrl = `https://${host}/${source.repo}.git`;
+  const sshUrl = `git@${host}:${source.repo}.git`;
+  if (source.protocol === 'https') return [httpsUrl, sshUrl];
+  if (source.protocol === 'ssh') return [sshUrl, httpsUrl];
+  return [httpsUrl, sshUrl];
+}
+
+function makeTempDir(cacheDir: string): string {
+  return `${cacheDir}.fetching-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function fetchSource(source: Source): void {
   if (source.type !== 'github' && source.type !== 'bitbucket') return;
 
   const cacheDir = getCacheDir(source);
-  const tempDir = `${cacheDir}.fetching-${process.pid}`;
-  const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
-  const cloneUrls = [`https://${host}/${source.repo}.git`, `git@${host}:${source.repo}.git`];
+  const cloneUrls = getCloneUrls(source);
   const errors: string[] = [];
 
   // Clone into a temp dir, then atomically swap on success. Try HTTPS first,
   // fall back to SSH for private/SSH-only repos. If every URL fails, the
   // existing cache is preserved (no wipe before the new clone succeeds).
-  if (fs.existsSync(tempDir)) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
-  ensureDir(path.dirname(tempDir));
+  ensureDir(path.dirname(cacheDir));
 
-  const cloneArgs = (repoUrl: string) => [
+  const cloneArgs = (repoUrl: string, tempDir: string) => [
     'clone',
     '--depth',
     '1',
@@ -208,7 +254,8 @@ function fetchSource(source: Source): void {
   ];
 
   for (const repoUrl of cloneUrls) {
-    const result = spawnSync('git', cloneArgs(repoUrl), {
+    const tempDir = makeTempDir(cacheDir);
+    const result = spawnSync('git', cloneArgs(repoUrl, tempDir), {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: CLONE_TIMEOUT_MS,
       env: gitEnv(),
@@ -231,7 +278,7 @@ function fetchSource(source: Source): void {
     }
   }
 
-  throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
+  throw new Error(`Failed to fetch ${source.repo}. Tried ${formatCloneProtocols(source)}. Details: ${errors.join(' | ')}`);
 }
 
 function cloneSource(repoUrl: string, tempDir: string, branch?: string): Promise<{ ok: boolean; error: string }> {
@@ -274,21 +321,44 @@ function cloneSource(repoUrl: string, tempDir: string, branch?: string): Promise
   });
 }
 
+const inFlightFetches = new Map<string, Promise<void>>();
+
+function fetchKey(source: Source): string {
+  return `${source.type}:${source.name}`;
+}
+
+function formatCloneProtocols(source: Source): string {
+  if (source.protocol === 'https') return 'HTTPS and SSH';
+  if (source.protocol === 'ssh') return 'SSH and HTTPS';
+  return 'HTTPS and SSH';
+}
+
 async function fetchSourceAsync(source: Source): Promise<void> {
+  const key = fetchKey(source);
+  const existing = inFlightFetches.get(key);
+  if (existing) return existing;
+  const promise = fetchSourceAsyncUnmanaged(source);
+  inFlightFetches.set(key, promise);
+  try {
+    await promise;
+  } finally {
+    if (inFlightFetches.get(key) === promise) {
+      inFlightFetches.delete(key);
+    }
+  }
+}
+
+async function fetchSourceAsyncUnmanaged(source: Source): Promise<void> {
   if (source.type !== 'github' && source.type !== 'bitbucket') return;
 
   const cacheDir = getCacheDir(source);
-  const tempDir = `${cacheDir}.fetching-${process.pid}`;
-  const host = source.type === 'bitbucket' ? 'bitbucket.org' : 'github.com';
-  const cloneUrls = [`https://${host}/${source.repo}.git`, `git@${host}:${source.repo}.git`];
+  const cloneUrls = getCloneUrls(source);
   const errors: string[] = [];
 
-  if (fs.existsSync(tempDir)) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
-  ensureDir(path.dirname(tempDir));
+  ensureDir(path.dirname(cacheDir));
 
   for (const repoUrl of cloneUrls) {
+    const tempDir = makeTempDir(cacheDir);
     const result = await cloneSource(repoUrl, tempDir, source.branch);
     if (result.ok) {
       fs.writeFileSync(path.join(tempDir, '.fetched'), new Date().toISOString());
@@ -305,7 +375,7 @@ async function fetchSourceAsync(source: Source): Promise<void> {
     }
   }
 
-  throw new Error(`Failed to fetch ${source.repo}. Tried HTTPS and SSH. Details: ${errors.join(' | ')}`);
+  throw new Error(`Failed to fetch ${source.repo}. Tried ${formatCloneProtocols(source)}. Details: ${errors.join(' | ')}`);
 }
 
 /** Force-refresh one or all sources (re-clone from remote) */
@@ -620,6 +690,7 @@ function scanSourcePlugins(source: Source): CatalogEntry[] {
       entries.push({
         name: manifest.name,
         description: manifest.description || '',
+        version: manifest.version,
         hash: hashDir(pluginDir),
         path: path.relative(cacheDir, pluginDir),
         source: source.name,

@@ -141,6 +141,19 @@ test('source refresh falls back to cached resources when fetch fails', () => {
   assert.equal(data.refreshLog.lineHasOfflineMessage, true);
 });
 
+test('source refresh tries preferred HTTPS before SSH fallback and dedupes concurrent source fetches', () => {
+  const data = runFixture('source-refresh-transport.mjs');
+  assert.equal(data.preferredHttpsCallCount, 2);
+  assert.deepEqual(data.preferredHttpsUrls, [
+    'https://github.com/owner/repo.git',
+    'git@github.com:owner/repo.git',
+  ]);
+  assert.match(data.httpsOnlyWarning, /Tried HTTPS and SSH/);
+  assert.equal(data.dedupeCallCount, 1);
+  assert.deepEqual(data.firstSkillNames, ['dedupe-skill']);
+  assert.deepEqual(data.secondSkillNames, ['dedupe-skill']);
+});
+
 test('disabled providers are excluded from skill, command, and MCP write targets', () => {
   const data = runFixture('disabled-providers.mjs');
 
@@ -386,6 +399,8 @@ test('formatUpdateLine suppresses banner when no newer version, produces actiona
   assert.equal(data.nullNoBanner, null, 'no latest -> no banner');
   assert.equal(data.noNewerNoBanner, null, 'same version -> no banner');
   assert.equal(data.bannerHasCommand, true, 'banner must tell the user how to upgrade');
+  assert.equal(data.bannerSaysUpdateAvailable, true, 'banner must clearly say an update is available');
+  assert.equal(data.bannerDoesNotClaimAutoUpdate, true, 'banner must not claim background auto-update');
   assert.equal(data.bannerShowsBothVersions, true, 'banner shows both current and latest');
 });
 

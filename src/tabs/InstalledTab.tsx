@@ -138,6 +138,26 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
     });
   }, [doRemove, onRefresh]);
 
+  const handleRemoveFromList = useCallback((item: ItemData) => {
+    const { type, name } = parseKey(item.key);
+    setConfirmAction({
+      title: `Remove ${type} ${name}?`,
+      items: [`${type} ${name}`],
+      onConfirm: () => {
+        doRemove(item.key);
+        setMessage(`Removed ${type} ${name}`);
+        setConfirmAction(null);
+        setSelected(prev => {
+          if (!prev.has(item.key)) return prev;
+          const next = new Set(prev);
+          next.delete(item.key);
+          return next;
+        });
+        onRefresh();
+      },
+    });
+  }, [doRemove, onRefresh]);
+
   const handleUpdateFromList = useCallback((item: ItemData) => {
     if (!item.hasUpdate) {
       setMessage(`No update available for ${item.type} ${item.name}`);
@@ -215,6 +235,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
         onToggle={handleToggle}
         onSubmit={handleSubmit}
         onDetail={setDetailItem}
+        onRemove={handleRemoveFromList}
         onUpdate={handleUpdateFromList}
         isFocused={focus === 'list'}
       />

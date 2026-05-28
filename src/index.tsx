@@ -1,7 +1,7 @@
 import path from 'path';
 import { runHeadless, runBanner } from './commands/headless.js';
 import { runInit } from './commands/init.js';
-import { autoUpdateInFlight, checkForUpdate, formatUpdateLine, getCachedUpdateInfo, maybeAutoUpdate } from './core/update-check.js';
+import { checkForUpdate, formatUpdateLine, getCachedUpdateInfo } from './core/update-check.js';
 import { RED, RESET, YELLOW } from './core/ansi.js';
 
 const TOOLKIT_DIR = path.join(__dirname, '..');
@@ -14,9 +14,7 @@ const IS_QUICK_COMMAND = args.length === 1 && /^(--version|--help|-v|-h)$/.test(
 async function main() {
   const updatePromise = IS_QUICK_COMMAND
     ? null
-    : checkForUpdate()
-        .then(info => { maybeAutoUpdate(info); return info; })
-        .catch(() => null);
+    : checkForUpdate().catch(() => null);
 
   if (args[0] === 'init') {
     runInit(args[1] || '.');
@@ -61,10 +59,6 @@ function printUpdateLineFromCache(): void {
   // command's actual stdout output.
   if (!process.stderr.isTTY) return;
   const info = getCachedUpdateInfo();
-  if (autoUpdateInFlight(info)) {
-    console.error(`\n${YELLOW}↑ toolkit-ai ${info.latest} is installing in the background — restart the CLI to pick it up.${RESET}`);
-    return;
-  }
   const line = formatUpdateLine(info);
   if (line) console.error(`\n${YELLOW}${line}${RESET}`);
 }

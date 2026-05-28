@@ -60,6 +60,8 @@ const results = {
   nullNoBanner: formatUpdateLine({ current: '2.1.0', latest: null, newer: false }),
   noNewerNoBanner: formatUpdateLine({ current: '2.1.0', latest: '2.1.0', newer: false }),
   bannerHasCommand: (formatUpdateLine({ current: '2.1.0', latest: '2.1.1', newer: true }) || '').includes('npm install -g toolkit-ai@latest'),
+  bannerSaysUpdateAvailable: (formatUpdateLine({ current: '2.1.0', latest: '2.1.1', newer: true }) || '').includes('Update available'),
+  bannerDoesNotClaimAutoUpdate: !/(background|installing|upgrading)/i.test(formatUpdateLine({ current: '2.1.0', latest: '2.1.1', newer: true }) || ''),
   bannerShowsBothVersions: (() => {
     const line = formatUpdateLine({ current: '2.1.0', latest: '2.1.1', newer: true }) || '';
     return line.includes('2.1.0') && line.includes('2.1.1');

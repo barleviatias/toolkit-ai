@@ -1,15 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
 import { TOOLKIT_HOME, TOOLKIT_VERSION, UPDATE_CHECK_FILE } from './platform.js';
 import { ensureDir } from './fs-helpers.js';
 
 /**
- * Self-update: check the npm registry for a newer toolkit-ai, show a banner,
- * and — when running from a global npm install — spawn `npm install -g
- * toolkit-ai@latest` detached so the next launch picks it up. Opt out with
- * TOOLKIT_NO_UPDATE_CHECK=1 (skip check entirely) or TOOLKIT_AUTO_UPDATE=off
- * (keep banner, skip spawn). CI environments are auto-detected and skipped.
+ * Update notification: check the npm registry for a newer toolkit-ai and show
+ * a clear command to run. We intentionally do not self-update; global npm
+ * permissions, nvm layouts, Windows shells, and corporate npm config make
+ * silent background updates unreliable and hard to explain.
+ *
+ * Opt out with TOOLKIT_NO_UPDATE_CHECK=1. CI environments are auto-detected
+ * and skipped.
  */
 
 /** Matches the de-facto CI signals every mainstream CLI (gh, npm, turbo,
@@ -52,8 +53,6 @@ export interface UpdateInfo {
 interface CacheShape {
   latest: string;
   checkedAt: number;
-  lastAutoUpdateVersion?: string;
-  lastAutoUpdateAt?: number;
 }
 
 // Module-level memo so multiple callers within a single process (the startup
@@ -146,24 +145,22 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 
 export function formatUpdateLine(info: UpdateInfo): string | null {
   if (!info.newer || !info.latest) return null;
-  return `A newer toolkit-ai is available: ${info.current} -> ${info.latest}. Run \`npm install -g toolkit-ai@latest\` to upgrade.`;
+  return `Update available: toolkit-ai ${info.current} -> ${info.latest}. Run: npm install -g toolkit-ai@latest`;
 }
 
 // ---------------------------------------------------------------------------
-// Install-mode detection + auto-apply
+// Install-mode detection
 // ---------------------------------------------------------------------------
 
 export type InstallMode =
-  | 'global-npm' // installed via `npm install -g toolkit-ai` — safe to auto-update
+  | 'global-npm' // installed via `npm install -g toolkit-ai`
   | 'local-npm'  // inside a project's node_modules — don't touch
   | 'npx'        // ephemeral npx cache — npx already fetches latest
   | 'dev'        // repo source (npm link or clone) — never clobber
   | 'unknown';
 
-// Memo: the script path doesn't change within a process. The stat calls in
-// detect() are cheap individually but this gets called from maybeAutoUpdate
-// which may fire twice (e.g. test fixtures). No invalidation — if you're
-// relinking binaries while the CLI is running you have bigger problems.
+// Memo: the script path doesn't change within a process. No invalidation — if
+// you're relinking binaries while the CLI is running you have bigger problems.
 let memoMode: InstallMode | undefined;
 let memoKey: string | undefined;
 
@@ -201,51 +198,4 @@ function detect(scriptPath: string): InstallMode {
   } catch {
     return 'unknown';
   }
-}
-
-export type AutoUpdateResult =
-  | 'spawned'
-  | 'skipped-off'
-  | 'skipped-no-update'
-  | 'skipped-mode'
-  | 'skipped-recent'
-  | 'skipped-dev'
-  | 'skipped-spawn-error';
-
-export function maybeAutoUpdate(info: UpdateInfo): AutoUpdateResult {
-  if (process.env.TOOLKIT_AUTO_UPDATE === 'off') return 'skipped-off';
-  if (TOOLKIT_VERSION === 'dev') return 'skipped-dev';
-  if (!info.newer || !info.latest) return 'skipped-no-update';
-  if (detectInstallMode() !== 'global-npm') return 'skipped-mode';
-
-  const cache = readCache();
-  if (cache?.lastAutoUpdateVersion === info.latest &&
-      cache.lastAutoUpdateAt &&
-      Date.now() - cache.lastAutoUpdateAt < CACHE_TTL_MS) {
-    return 'skipped-recent';
-  }
-
-  try {
-    spawn('npm', ['install', '-g', `${PACKAGE_NAME}@latest`], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    }).unref();
-    writeCache({
-      latest: info.latest,
-      checkedAt: cache?.checkedAt ?? Date.now(),
-      lastAutoUpdateVersion: info.latest,
-      lastAutoUpdateAt: Date.now(),
-    });
-    return 'spawned';
-  } catch {
-    return 'skipped-spawn-error';
-  }
-}
-
-export function autoUpdateInFlight(info: UpdateInfo): boolean {
-  if (!info.latest) return false;
-  const cache = readCache();
-  if (!cache?.lastAutoUpdateAt || cache.lastAutoUpdateVersion !== info.latest) return false;
-  return Date.now() - cache.lastAutoUpdateAt < CACHE_TTL_MS;
 }

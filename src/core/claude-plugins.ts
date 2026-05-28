@@ -151,6 +151,7 @@ export function scanClaudeInstalledPlugins(): CatalogEntry[] {
     entries.push({
       name,
       description: manifest.description || '',
+      version: install.version || manifest.version,
       hash: install.gitCommitSha || install.version || hashDir(install.installPath),
       path: relPath,
       source: CLAUDE_NATIVE_SOURCE,
@@ -230,6 +231,7 @@ export function scanCopilotInstalledPlugins(): CatalogEntry[] {
     results.push({
       name,
       description: manifest.description || '',
+      version: entry.version || manifest.version,
       hash: entry.version || manifest.version || hashDir(entry.cache_path),
       path: relPath,
       source: COPILOT_NATIVE_SOURCE,
@@ -251,6 +253,7 @@ export function scanCopilotInstalledPlugins(): CatalogEntry[] {
       results.push({
         name,
         description: manifest.description || '',
+        version: manifest.version,
         hash: manifest.version || hashDir(pluginDir),
         path: path.join('_direct', dirEntry.name),
         source: COPILOT_NATIVE_SOURCE,
@@ -355,6 +358,7 @@ export function scanCodexInstalledPlugins(): CatalogEntry[] {
     results.push({
       name,
       description: manifest.description || '',
+      version: manifest.version,
       hash: manifest.version || hashDir(entry.cachePath),
       path: relPath,
       source: CODEX_NATIVE_SOURCE,

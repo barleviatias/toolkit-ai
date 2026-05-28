@@ -62,6 +62,12 @@ export const DetailView: React.FC<DetailViewProps> = ({
         <Text>{item.description}</Text>
       </Box>
 
+      {item.type === 'plugin' && item.version && (
+        <Box marginTop={1}>
+          <Text dimColor>Version: {item.version}</Text>
+        </Box>
+      )}
+
       {item.installed && item.lastUpdatedAt && (
         <Box marginTop={1}>
           <Text dimColor>Last updated: {formatDateTime(item.lastUpdatedAt) || item.lastUpdatedAt}</Text>

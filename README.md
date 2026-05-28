@@ -92,7 +92,7 @@ npx toolkit-ai check
 
 ```bash
 # Recommended — install once, get the short `toolkit` command,
-# and self-updates in the background on every launch.
+# and get a clear update notice when a newer version is available.
 npm install -g toolkit-ai
 toolkit                    # launch the TUI
 toolkit --help             # CLI reference
@@ -118,13 +118,11 @@ AI_TOOLKIT_VERSION=v2.1.6 curl -fsSL .../install.sh | bash
 AI_TOOLKIT_BIN_DIR=~/bin   curl -fsSL .../install.sh | bash
 ```
 
-**Auto-updates:** when launched from a global npm install, toolkit-ai checks the
-npm registry once per 24h and, if a newer version exists, silently runs
-`npm install -g toolkit-ai@latest` in the background. The upgrade takes effect
-on the next launch. Never runs when installed via `npx`, `npm link`, or a local
-clone. Auto-skipped on CI (`CI=true`, `GITHUB_ACTIONS`, `CODESPACES`, etc.) and
-when stderr isn't a TTY. Opt out with `TOOLKIT_AUTO_UPDATE=off` (or
-`TOOLKIT_NO_UPDATE_CHECK=1` to disable the check entirely).
+**Update notices:** toolkit-ai checks the npm registry once per 24h and, if a
+newer version exists, prints the exact command to run:
+`npm install -g toolkit-ai@latest`. It does not auto-update. Checks are skipped
+on CI (`CI=true`, `GITHUB_ACTIONS`, `CODESPACES`, etc.) and when stderr isn't a
+TTY. Opt out with `TOOLKIT_NO_UPDATE_CHECK=1`.
 
 ---
 

@@ -8,7 +8,7 @@ process.env.USERPROFILE = tempHome;
 
 const buildDir = process.env.TEST_BUILD_DIR;
 
-const { parseSourceInput } =
+const { parseSourceInput, uniquifySourceName } =
   await import(pathToFileURL(path.join(buildDir, 'core', 'sources.js')).href);
 const { installExternalSkill, installExternalAgent } =
   await import(pathToFileURL(path.join(buildDir, 'core', 'installer.js')).href);
@@ -52,6 +52,17 @@ const parsedGitHubWithDot = parseSourceInput('https://github.com/org/repo.name.g
 const parsedGitHubBranch = parseSourceInput('https://github.com/org/repo.name.git#fix/windows-hooks');
 const parsedShorthandBranch = parseSourceInput('org/repo.name#feature/toolkit-branch');
 const parsedNamedBranch = parseSourceInput('org/repo.name#feature/toolkit-branch', 'repo-name-feature');
+const uniqueBranchSource = uniquifySourceName(
+  parseSourceInput('https://bitbucket.org/rdwr/ai_resources#feature/toolkit-resources'),
+  [parseSourceInput('https://bitbucket.org/rdwr/ai_resources')],
+);
+const uniqueSecondBranchSource = uniquifySourceName(
+  parseSourceInput('https://bitbucket.org/rdwr/ai_resources#feature/toolkit-resources'),
+  [
+    parseSourceInput('https://bitbucket.org/rdwr/ai_resources'),
+    { ...parseSourceInput('https://bitbucket.org/rdwr/ai_resources#other'), name: 'ai_resources-feature-toolkit-resources' },
+  ],
+);
 let parseUnsafeBranchError = '';
 try {
   parseSourceInput('org/repo#bad..branch');
@@ -87,6 +98,8 @@ process.stdout.write(JSON.stringify({
   parsedGitHubBranch,
   parsedShorthandBranch,
   parsedNamedBranch,
+  uniqueBranchSource,
+  uniqueSecondBranchSource,
   parseUnsafeBranchError,
   skillInstallError,
   agentInstallError,

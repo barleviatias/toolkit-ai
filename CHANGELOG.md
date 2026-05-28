@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.1.13] - 2026-05-28
+
+### Fixed
+- Source refresh now preserves the pasted remote preference and falls back to the other Git transport only after the first clone form fails.
+- Source refresh temp directories are unique per attempt, and concurrent same-source fetches are deduped to avoid Windows `.fetching-*` races.
+- TUI source add auto-aliases same-repo different-branch entries instead of overwriting the existing source.
+- Installed tab `r` now opens remove confirmation for the active installed row.
+- First launch now shows a loading panel instead of an empty Catalog/Installed view while sources are still loading.
+
+### Changed
+- Update checks are notification-only. Toolkit no longer attempts background npm self-updates; it shows the exact command to run instead.
+- Plugin rows and detail views now show plugin manifest versions when available.
+
 ### Added
 - **Disable a source without removing it.** Sources have a new `enabled` flag — disabled sources stay in `sources.json` but are skipped during fetch, so they contribute zero items to the catalog. Useful for temporarily muting a noisy internal repo without losing its URL. In the TUI, `d` toggles disable/enable and `r` removes with confirmation (was `d` = remove with no confirm, now impossible to delete by accident). CLI: `toolkit source disable <name>` / `toolkit source enable <name>`.
 

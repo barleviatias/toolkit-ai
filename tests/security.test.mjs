@@ -36,21 +36,25 @@ test('Rejects unsafe source and install path segments, and scans MCP headers wit
     name: 'awesome-copilot',
     type: 'bitbucket',
     repo: 'example-org/awesome-copilot',
+    protocol: 'ssh',
   });
   assert.deepEqual(data.parsedBitbucketHttps, {
     name: 'awesome-copilot',
     type: 'bitbucket',
     repo: 'example-org/awesome-copilot',
+    protocol: 'https',
   });
   assert.deepEqual(data.parsedGitHubWithDot, {
     name: 'repo.name',
     type: 'github',
     repo: 'org/repo.name',
+    protocol: 'https',
   });
   assert.deepEqual(data.parsedGitHubBranch, {
     name: 'repo.name',
     type: 'github',
     repo: 'org/repo.name',
+    protocol: 'https',
     branch: 'fix/windows-hooks',
   });
   assert.deepEqual(data.parsedShorthandBranch, {
@@ -64,6 +68,20 @@ test('Rejects unsafe source and install path segments, and scans MCP headers wit
     type: 'github',
     repo: 'org/repo.name',
     branch: 'feature/toolkit-branch',
+  });
+  assert.deepEqual(data.uniqueBranchSource, {
+    name: 'ai_resources-feature-toolkit-resources',
+    type: 'bitbucket',
+    repo: 'rdwr/ai_resources',
+    protocol: 'https',
+    branch: 'feature/toolkit-resources',
+  });
+  assert.deepEqual(data.uniqueSecondBranchSource, {
+    name: 'ai_resources-feature-toolkit-resources-2',
+    type: 'bitbucket',
+    repo: 'rdwr/ai_resources',
+    protocol: 'https',
+    branch: 'feature/toolkit-resources',
   });
   assert.match(data.parseUnsafeBranchError, /Unsafe git ref/);
   assert.match(data.skillInstallError, /Unsafe skill name/);
