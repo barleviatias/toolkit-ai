@@ -34,6 +34,14 @@ import type { ItemData } from '../components/ItemRow.js';
 // to persist across renders and avoids expensive filesystem I/O on every state change.
 const scanCache = new Map<string, { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string }>();
 
+// Module-level cache for plugin contents, keyed by "source:hash".
+// readPluginContents recursively walks a plugin's skill/agent/command dirs —
+// cheap on macOS, slow on Windows (NTFS + Defender scanning every read). The
+// allItems memo reruns several times as sources stream in on startup, so without
+// this each plugin's tree is re-walked every rerun (and unreadable synthetic
+// plugins re-fail FS each time). Contents only change with the plugin's hash.
+const pluginContentsCache = new Map<string, ItemData['pluginContents'] | null>();
+
 const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
 
 export type SourceFetchStatus = 'idle' | 'fetching' | 'ready' | 'error';
@@ -506,20 +514,31 @@ export function useCatalog() {
         }
       }
 
-      // Enrich plugin items with the components they install
+      // Enrich plugin items with the components they install — cached by
+      // source:hash so the streaming-startup memo reruns don't re-walk every
+      // plugin tree (see pluginContentsCache). Unreadable plugins (native
+      // synthetic sources) cache as null so they don't retry FS each rerun.
       if (type === 'plugin') {
-        try {
-          const pluginDir = path.join(getSourceRoot(src), entry.path);
-          const contents = readPluginContents(pluginDir);
-          item.pluginContents = {
-            skills: contents.skills.map(s => s.name),
-            agents: contents.agents.map(a => a.name),
-            commands: contents.commands.map(c => c.name),
-            mcps: contents.mcpConfigs.length,
-            hasHooks: contents.hasHooks,
-          };
-        } catch {
-          // Plugin contents not readable (e.g. native synthetic source) — skip
+        const pcKey = `${src}:${entry.hash}`;
+        if (pluginContentsCache.has(pcKey)) {
+          const cached = pluginContentsCache.get(pcKey);
+          if (cached) item.pluginContents = cached;
+        } else {
+          let computed: ItemData['pluginContents'] | null = null;
+          try {
+            const contents = readPluginContents(path.join(getSourceRoot(src), entry.path));
+            computed = {
+              skills: contents.skills.map(s => s.name),
+              agents: contents.agents.map(a => a.name),
+              commands: contents.commands.map(c => c.name),
+              mcps: contents.mcpConfigs.length,
+              hasHooks: contents.hasHooks,
+            };
+          } catch {
+            computed = null; // not readable (native synthetic source)
+          }
+          pluginContentsCache.set(pcKey, computed);
+          if (computed) item.pluginContents = computed;
         }
       }
 
