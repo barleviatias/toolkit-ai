@@ -27,20 +27,18 @@ import { scanSkillDir, scanAgentFile, scanMcpConfig } from '../core/scanner.js';
 import { getInstalledTargetLabelsForType, getSourceRoot, getWritableTargetLabelsForType } from '../core/platform.js';
 import { makeKey } from '../core/item-key.js';
 import { getInstalledState } from '../core/installed-state.js';
+import { loadStartupCache, saveStartupCache, type PluginCacheEntry } from '../core/startup-cache.js';
 import type { ItemData } from '../components/ItemRow.js';
 
-// Module-level cache for security scan results, keyed by "type:source:hash".
-// Scan results only change when item content changes (new hash), so this is safe
-// to persist across renders and avoids expensive filesystem I/O on every state change.
-const scanCache = new Map<string, { scanStatus: 'ok' | 'warn' | 'block'; scanSummary?: string }>();
-
-// Module-level cache for plugin contents, keyed by "source:hash".
-// readPluginContents recursively walks a plugin's skill/agent/command dirs —
-// cheap on macOS, slow on Windows (NTFS + Defender scanning every read). The
-// allItems memo reruns several times as sources stream in on startup, so without
-// this each plugin's tree is re-walked every rerun (and unreadable synthetic
-// plugins re-fail FS each time). Contents only change with the plugin's hash.
-const pluginContentsCache = new Map<string, ItemData['pluginContents'] | null>();
+// Security-scan and plugin-contents caches, keyed by content hash and seeded
+// from disk (see startup-cache.ts). Both back filesystem-heavy work — the scanner
+// reads every skill/agent/MCP file, readPluginContents walks every plugin tree —
+// that is cheap on macOS but slow on Windows. Persisting across processes means an
+// unchanged catalog reads one JSON file instead of re-scanning everything each
+// launch; new/changed content (new hash) is still scanned live.
+const { scan: scanCache, plugins: pluginContentsCache } = loadStartupCache();
+// Set true when a live scan/walk adds an entry, so the flush effect persists it.
+let startupCacheDirty = false;
 
 const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
 
@@ -402,6 +400,7 @@ export function useCatalog() {
       }
 
       scanCache.set(cacheKey, result);
+      startupCacheDirty = true;
       return result;
     }
 
@@ -524,7 +523,7 @@ export function useCatalog() {
           const cached = pluginContentsCache.get(pcKey);
           if (cached) item.pluginContents = cached;
         } else {
-          let computed: ItemData['pluginContents'] | null = null;
+          let computed: PluginCacheEntry = null;
           try {
             const contents = readPluginContents(path.join(getSourceRoot(src), entry.path));
             computed = {
@@ -538,6 +537,7 @@ export function useCatalog() {
             computed = null; // not readable (native synthetic source)
           }
           pluginContentsCache.set(pcKey, computed);
+          startupCacheDirty = true;
           if (computed) item.pluginContents = computed;
         }
       }
@@ -558,6 +558,17 @@ export function useCatalog() {
   // Installed items for the Installed tab
   const installedItems: ItemData[] = useMemo(() => {
     return allItems.filter(i => i.installed);
+  }, [allItems]);
+
+  // Persist the scan / plugin-contents caches shortly after the catalog settles,
+  // coalescing the streaming-startup memo reruns into a single write. Warm
+  // launches that hit the cache for everything never set the dirty flag, so they
+  // don't write at all.
+  useEffect(() => {
+    if (!startupCacheDirty) return;
+    startupCacheDirty = false;
+    const t = setTimeout(() => saveStartupCache(scanCache, pluginContentsCache), 100);
+    return () => clearTimeout(t);
   }, [allItems]);
 
   // True when at least one source is still fetching. Cosmetic — used for the

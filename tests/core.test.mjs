@@ -154,6 +154,14 @@ test('source refresh tries preferred HTTPS before SSH fallback and dedupes concu
   assert.deepEqual(data.secondSkillNames, ['dedupe-skill']);
 });
 
+test('startup cache persists scan + plugin results across launches and degrades safely', () => {
+  const data = runFixture('startup-cache.mjs');
+  assert.ok(data.emptyOk, 'missing cache file yields empty maps');
+  assert.ok(data.roundTrip, 'save then load round-trips entries, including a null plugin entry');
+  assert.ok(data.mismatchOk, 'version mismatch yields empty maps (forces re-scan)');
+  assert.ok(data.corruptOk, 'corrupt JSON yields empty maps without throwing');
+});
+
 test('source refresh updates an existing clone incrementally instead of re-cloning', () => {
   const data = runFixture('source-incremental-fetch.mjs');
   // Cold cache: full clone.
