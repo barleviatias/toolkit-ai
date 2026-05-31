@@ -1,7 +1,7 @@
 import path from 'path';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import type { Catalog, CatalogEntry, LockEntry, Source } from '../types.js';
-import { loadMcpConfig, loadBundleConfig } from '../core/catalog.js';
+import { loadMcpConfig, loadBundleConfig, readPluginContents } from '../core/catalog.js';
 import {
   isClaudePluginInstalled,
   isCodexPluginInstalled,
@@ -491,6 +491,23 @@ export function useCatalog() {
           };
         } catch {
           // Bundle config not loadable — skip enrichment
+        }
+      }
+
+      // Enrich plugin items with the components they install
+      if (type === 'plugin') {
+        try {
+          const pluginDir = path.join(getSourceRoot(src), entry.path);
+          const contents = readPluginContents(pluginDir);
+          item.pluginContents = {
+            skills: contents.skills.map(s => s.name),
+            agents: contents.agents.map(a => a.name),
+            commands: contents.commands.map(c => c.name),
+            mcps: contents.mcpConfigs.length,
+            hasHooks: contents.hasHooks,
+          };
+        } catch {
+          // Plugin contents not readable (e.g. native synthetic source) — skip
         }
       }
 

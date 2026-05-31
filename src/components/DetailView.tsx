@@ -132,6 +132,35 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </Box>
       )}
 
+      {/* Plugin contents — what an install lays down. Compact (count + first
+          few names per category) so a large plugin stays a handful of lines. */}
+      {item.pluginContents && (() => {
+        const pc = item.pluginContents;
+        if (pc.skills.length + pc.agents.length + pc.commands.length + pc.mcps === 0 && !pc.hasHooks) return null;
+        const compact = (names: string[], max = 4) =>
+          names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')}, … (+${names.length - max})`;
+        return (
+          <Box marginTop={1} flexDirection="column">
+            <Text bold dimColor>Installs:</Text>
+            {pc.skills.length > 0 && (
+              <Text><Text color="magenta">  {pc.skills.length} skill{pc.skills.length > 1 ? 's' : ''}</Text><Text dimColor>: {compact(pc.skills)}</Text></Text>
+            )}
+            {pc.agents.length > 0 && (
+              <Text><Text color="blue">  {pc.agents.length} agent{pc.agents.length > 1 ? 's' : ''}</Text><Text dimColor>: {compact(pc.agents)}</Text></Text>
+            )}
+            {pc.commands.length > 0 && (
+              <Text><Text color="green">  {pc.commands.length} command{pc.commands.length > 1 ? 's' : ''}</Text><Text dimColor>: {compact(pc.commands)}</Text></Text>
+            )}
+            {pc.mcps > 0 && (
+              <Text color="yellow">  {pc.mcps} MCP server{pc.mcps > 1 ? 's' : ''}</Text>
+            )}
+            {pc.hasHooks && (
+              <Text dimColor>  hooks (detected, not installed)</Text>
+            )}
+          </Box>
+        );
+      })()}
+
       {/* MCP details */}
       {item.mcpType && (
         <Box marginTop={1} flexDirection="column">

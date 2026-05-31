@@ -29,6 +29,8 @@ export interface ItemData {
   targetStatus?: { label: string; installed: boolean }[];
   // Bundle-specific
   bundleContents?: { skills: string[]; agents: string[]; mcps: string[] };
+  // Plugin-specific — the components a plugin install lays down
+  pluginContents?: { skills: string[]; agents: string[]; commands: string[]; mcps: number; hasHooks: boolean };
   // MCP-specific
   mcpType?: string;
   url?: string;
