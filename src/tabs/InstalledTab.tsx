@@ -237,7 +237,7 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
         onDetail={setDetailItem}
         onRemove={handleRemoveFromList}
         onUpdate={handleUpdateFromList}
-        isFocused={focus === 'list'}
+        isFocused={focus === 'list' && !busy}
       />
       {busy && (
         <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (please wait)</Text></Text>

@@ -399,6 +399,20 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           Source: <Text color="cyan">{activeSource}</Text>
           <Text dimColor> · {sourceItems.length} item{sourceItems.length !== 1 ? 's' : ''} · {installedCount} installed</Text>
         </Text>
+        {/* Surface this source's fetch state while browsing — otherwise a failed
+            refresh is invisible here and the (stale) cached items look current. */}
+        {(() => {
+          const status = sourceStatus.get(activeSource);
+          const warning = warningByName.get(activeSource);
+          if (status === 'fetching') return <Text color="yellow">  ⟳ fetching…</Text>;
+          if (warning) return (
+            <Box flexDirection="column">
+              <Text color="red">  ! {warning.message}</Text>
+              {warning.usedCache && <Text dimColor>    showing cached items from the last successful fetch</Text>}
+            </Box>
+          );
+          return null;
+        })()}
         <SearchInput
           value={query}
           onChange={setQuery}
