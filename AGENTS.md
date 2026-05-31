@@ -19,12 +19,15 @@ Static data lives in `resources/` (default sources manifest); repo-level utiliti
 | Command | Purpose |
 |---------|---------|
 | `npm install` | Install dev dependencies (ink, react, tsup, typescript) |
-| `npm run build` | Bundle the CLI with tsup into `bin/ai-toolkit.mjs` |
+| `npm run build` | Production bundle into `bin/ai-toolkit.mjs` (publish only) |
+| `npm run build:dev` | **Local verification build** — stamps a git build number into the UI / `--version`; use this to verify changes manually |
 | `npm run dev` | `tsup --watch` for iterative development |
 | `npm test` | `tsc --noEmit` typecheck, then run all `tests/*.test.mjs` via `node:test` |
 | `npm link` | Link the CLI globally for local testing (`toolkit`, `ai-toolkit`, `toolkit-ai`) |
 
 Tests are authored against the compiled build in `.test-dist/` (see `tests/run.mjs`). Fixtures live in `tests/fixtures/*.mjs` and communicate results as JSON via stdout.
+
+**Manual / TUI verification must use `npm run build:dev`, never `npm run build`.** The dev build stamps a build number (git short SHA, `+-dirty`) into the Logo and `--version`, e.g. `toolkit-ai v2.1.13 dev build · adb1edd`. This matters because the global `toolkit` command may resolve to the **published npm copy** in `node_modules`, not your repo build — both print the same version, so a stale global silently runs old code. Run `npm link` first so the global commands point at the repo build, then confirm the build number in the UI before trusting any manual verification.
 
 ## Coding Style & Naming Conventions
 

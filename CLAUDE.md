@@ -34,11 +34,22 @@ node bin/ai-toolkit.mjs settings
 
 ```bash
 npm install              # install deps
-npm run build            # build with tsup -> bin/ai-toolkit.mjs
+npm run build            # production build -> bin/ai-toolkit.mjs (publish only)
+npm run build:dev        # LOCAL VERIFICATION BUILD — stamps a build number into the UI
 npm run dev              # build with watch mode
 npm test                 # typecheck + run 31 unit/integration tests
 npm link                 # link globally for local testing
 ```
+
+### Verifying changes locally — `build:dev` only
+
+Manual / TUI verification **must** use `npm run build:dev`, never `npm run build`. The dev build stamps a build number (git short SHA, `+-dirty` when the tracked tree is dirty) into the Logo and `--version`:
+
+```
+toolkit-ai v2.1.13 dev build · adb1edd
+```
+
+Why this is mandatory: the global `toolkit` command may resolve to the **published npm copy** under `node_modules`, not your repo build — both print the same `vX.Y.Z`, so a stale global silently runs old code and a change looks like it "didn't work." Run `npm link` once so the global bin points at the repo build, then **confirm the build number in the UI before trusting any manual verification**. Production `npm run build` carries no build number and is for publishing only.
 
 ## Testing
 
