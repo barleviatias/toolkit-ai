@@ -170,3 +170,9 @@ bin/ai-toolkit.mjs
 
 # Radware AMS phase-cache (Jira is canonical when used)
 .ams/cache/
+
+# Radware AMS working state (Jira / ams-docs are canonical)
+.ams/
+
+# Playwright MCP working dir
+.playwright-mcp/
