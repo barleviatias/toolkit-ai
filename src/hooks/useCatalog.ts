@@ -50,12 +50,16 @@ function mergePerSource(
   // then keep the per-source dedupe ordering inside each. Without this, items
   // shift under the user's cursor when sources stream in out-of-order.
   //
-  // Plugins are deduped by name globally — a plugin authored in a configured
-  // source AND already installed via Claude Code shouldn't appear twice. The
-  // synthetic `claude` source is iterated last (see useCatalog.adoptClaudeSource),
-  // so configured-source entries win the dedupe.
+  // Plugin dedupe only collapses a plugin's *natively-installed twin* (the
+  // synthetic claude/codex/copilot sources, iterated last) against a configured
+  // source that already provides the same plugin name. Two configured sources
+  // that both carry a plugin — e.g. two branches of one repo, `ai_resources`
+  // and `ai_resources-bar` — each keep their entry, exactly like skills/agents,
+  // so the user can see and pick a specific branch.
+  const NATIVE_PLUGIN_SOURCES = new Set<string>([CLAUDE_NATIVE_SOURCE, CODEX_NATIVE_SOURCE, COPILOT_NATIVE_SOURCE]);
   const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
-  const seenPlugin = new Set<string>();
+  const configuredPluginNames = new Set<string>();
+  const seenNativePluginNames = new Set<string>();
   for (const name of sourceOrder) {
     const r = perSource.get(name);
     if (!r) continue;
@@ -64,9 +68,17 @@ function mergePerSource(
     merged.mcps.push(...r.mcps);
     merged.bundles.push(...r.bundles);
     merged.commands.push(...r.commands);
+    const isNative = NATIVE_PLUGIN_SOURCES.has(name);
     for (const p of r.plugins) {
-      if (seenPlugin.has(p.name)) continue;
-      seenPlugin.add(p.name);
+      if (isNative) {
+        // Skip the native twin when a configured source already provides this
+        // plugin name; also dedupe natives among themselves (a plugin installed
+        // in both Claude and Codex lists once).
+        if (configuredPluginNames.has(p.name) || seenNativePluginNames.has(p.name)) continue;
+        seenNativePluginNames.add(p.name);
+      } else {
+        configuredPluginNames.add(p.name);
+      }
       merged.plugins.push(p);
     }
     merged.warnings.push(...r.warnings);
