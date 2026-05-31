@@ -519,8 +519,10 @@ export function getSourceRoot(sourceName: string): string {
  *  Falls back to 'dev' when running from the unbuilt source tree. */
 export const TOOLKIT_VERSION = process.env.TOOLKIT_VERSION || 'dev';
 export const TOOLKIT_BUILD_CHANNEL = process.env.TOOLKIT_BUILD_CHANNEL || 'dev';
+/** Short commit SHA (+ `-dirty`) for local/dev builds; empty on production. */
+export const TOOLKIT_BUILD_NUMBER = process.env.TOOLKIT_BUILD_NUMBER || '';
 export const IS_DEV_BUILD = TOOLKIT_VERSION === 'dev' || TOOLKIT_BUILD_CHANNEL === 'dev';
-export const TOOLKIT_VERSION_LABEL = `${TOOLKIT_VERSION}${IS_DEV_BUILD ? ' dev build' : ''}`;
+export const TOOLKIT_VERSION_LABEL = `${TOOLKIT_VERSION}${IS_DEV_BUILD ? ' dev build' : ''}${IS_DEV_BUILD && TOOLKIT_BUILD_NUMBER ? ` (${TOOLKIT_BUILD_NUMBER})` : ''}`;
 
 /** Validate that a string is safe to use as a single path segment (no traversal, no slashes). */
 export function assertSafePathSegment(value: string, label = 'path segment'): string {
