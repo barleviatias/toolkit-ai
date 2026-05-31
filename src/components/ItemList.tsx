@@ -18,17 +18,20 @@ interface ItemListProps {
 
 /**
  * Compute the maximum list items that fit given a terminal row count. Chrome
- * reservation covers logo, tabs, search, filters, source header, status bar,
- * and margins — each ItemRow is 2 lines. Conservative cap so transient UI
- * (messages, confirm dialogs) never pushes the frame past the viewport.
+ * reservation covers logo, tabs, targets, the bordered search box (3 lines),
+ * filters, the tab header, the message/busy line that sits below the list, the
+ * status bar, and list margins — each ItemRow is 2 lines. Confirm dialogs and
+ * the detail view are modal (they replace the list), so only the single message
+ * line competes with it. The ceiling keeps the frame within the viewport even
+ * when the optional update/source-warning banners appear.
  */
 function computeMaxVisible(rows: number): number {
   const CHROME_RESERVE = rows >= 30
-    ? 21  // with logo: logo 9 + tabs 2 + targets 1 + search 2 + filters 2 + header 2 + status 2 + margin 1
-    : 13; // no logo: tabs 2 + targets 1 + search 2 + filters 2 + header 2 + status 2 + margin 2
+    ? 22  // with logo: logo 9 + tabs 2 + targets 1 + search 3 + filters 2 + header 1 + message 1 + status 2 + margin 1
+    : 14; // no logo: tabs 2 + targets 1 + search 3 + filters 2 + header 1 + message 1 + status 2 + margin 2
   const ROWS_PER_ITEM = 2;
   const available = Math.max(3, Math.floor((rows - CHROME_RESERVE) / ROWS_PER_ITEM));
-  return Math.min(15, available);
+  return Math.min(18, available);
 }
 
 export const ItemList: React.FC<ItemListProps> = ({

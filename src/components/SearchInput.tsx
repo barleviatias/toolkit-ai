@@ -16,7 +16,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({ value, onChange, isFoc
     <TextInput
       value={value}
       onChange={onChange}
-      placeholder="Search..."
+      placeholder="Search name, description, type…"
       focus={isFocused}
     />
     {total != null && (

@@ -155,29 +155,29 @@ function listAll(catalog: Catalog) {
   showLogo();
   console.log();
 
+  // Show the source next to each item so two entries with the same name from
+  // different sources (e.g. two branches of one repo: `ai_resources` and
+  // `ai_resources-bar`) read as distinct rows, not a duplicate-listing bug.
+  const row = (e: { name: string; source: string; description: string }) =>
+    console.log(`  ${e.name.padEnd(28)} ${DIM}${(e.source || '').padEnd(18)}${RESET} ${DIM}${e.description}${RESET}`);
+
   console.log(`${BOLD}=== Skills ===${RESET}`);
-  for (const s of catalog.skills)
-    console.log(`  ${s.name.padEnd(28)} ${DIM}${s.description}${RESET}`);
+  for (const s of catalog.skills) row(s);
 
   console.log(`\n${BOLD}=== Agents ===${RESET}`);
-  for (const a of catalog.agents)
-    console.log(`  ${a.name.padEnd(28)} ${DIM}${a.description}${RESET}`);
+  for (const a of catalog.agents) row(a);
 
   console.log(`\n${BOLD}=== MCPs ===${RESET}`);
-  for (const m of catalog.mcps)
-    console.log(`  ${m.name.padEnd(28)} ${DIM}${m.description}${RESET}`);
+  for (const m of catalog.mcps) row(m);
 
   console.log(`\n${BOLD}=== Bundles ===${RESET}`);
-  for (const b of catalog.bundles)
-    console.log(`  ${b.name.padEnd(28)} ${DIM}${b.description}${RESET}`);
+  for (const b of catalog.bundles) row(b);
 
   console.log(`\n${BOLD}=== Commands ===${RESET}`);
-  for (const c of catalog.commands)
-    console.log(`  ${c.name.padEnd(28)} ${DIM}${c.description}${RESET}`);
+  for (const c of catalog.commands) row(c);
 
   console.log(`\n${BOLD}=== Plugins ===${RESET}`);
-  for (const p of catalog.plugins)
-    console.log(`  ${p.name.padEnd(28)} ${DIM}${p.description}${RESET}`);
+  for (const p of catalog.plugins) row(p);
 
   console.log();
 }
