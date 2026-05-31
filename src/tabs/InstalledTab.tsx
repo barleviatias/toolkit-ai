@@ -123,39 +123,28 @@ export const InstalledTab: React.FC<InstalledTabProps> = ({
     });
   }, [doRemove, onRefresh]);
 
+  // Single-item removal is immediate — no confirm. Removal is reversible
+  // (reinstall from the catalog), so a per-delete dialog is redundant friction.
+  // Bulk remove (handleSubmit, multiple selected) still confirms.
   const handleRemoveFromDetail = useCallback((key: string) => {
     const { type, name } = parseKey(key);
-    setConfirmAction({
-      title: `Remove ${type} ${name}?`,
-      items: [`${type} ${name}`],
-      onConfirm: () => {
-        doRemove(key);
-        setMessage(`Removed ${type} ${name}`);
-        setConfirmAction(null);
-        setDetailItem(null);
-        onRefresh();
-      },
-    });
+    doRemove(key);
+    setMessage(`Removed ${type} ${name}`);
+    setDetailItem(null);
+    onRefresh();
   }, [doRemove, onRefresh]);
 
   const handleRemoveFromList = useCallback((item: ItemData) => {
     const { type, name } = parseKey(item.key);
-    setConfirmAction({
-      title: `Remove ${type} ${name}?`,
-      items: [`${type} ${name}`],
-      onConfirm: () => {
-        doRemove(item.key);
-        setMessage(`Removed ${type} ${name}`);
-        setConfirmAction(null);
-        setSelected(prev => {
-          if (!prev.has(item.key)) return prev;
-          const next = new Set(prev);
-          next.delete(item.key);
-          return next;
-        });
-        onRefresh();
-      },
+    doRemove(item.key);
+    setMessage(`Removed ${type} ${name}`);
+    setSelected(prev => {
+      if (!prev.has(item.key)) return prev;
+      const next = new Set(prev);
+      next.delete(item.key);
+      return next;
     });
+    onRefresh();
   }, [doRemove, onRefresh]);
 
   const handleUpdateFromList = useCallback((item: ItemData) => {

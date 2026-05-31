@@ -294,26 +294,22 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     installWithBusy(item);
   }, [allItems, installWithBusy]);
 
+  // Immediate removal — no confirm (reversible; per-delete dialog is redundant).
+  // Source removal (the `r` key in list mode) still confirms — that deletes the
+  // source config + cache, a heavier action.
   const doRemove = useCallback((item: ItemData) => {
     const { type, name } = parseKey(item.key);
-    setConfirmAction({
-      title: `Remove ${type} ${name}?`,
-      items: [`${type} ${name}`],
-      onConfirm: () => {
-        try {
-          if (type === 'skill')        removeSkill(catalog, name, () => {});
-          else if (type === 'agent')   removeAgent(catalog, name, () => {});
-          else if (type === 'mcp')     removeMcp(catalog, name, () => {});
-          else if (type === 'command') removeCommand(catalog, name, () => {});
-          else if (type === 'plugin')  removePlugin(catalog, name, () => {});
-          setMessage(`Removed ${type} ${name}`);
-          onRefresh();
-        } catch (e: unknown) {
-          setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        setConfirmAction(null);
-      },
-    });
+    try {
+      if (type === 'skill')        removeSkill(catalog, name, () => {});
+      else if (type === 'agent')   removeAgent(catalog, name, () => {});
+      else if (type === 'mcp')     removeMcp(catalog, name, () => {});
+      else if (type === 'command') removeCommand(catalog, name, () => {});
+      else if (type === 'plugin')  removePlugin(catalog, name, () => {});
+      setMessage(`Removed ${type} ${name}`);
+      onRefresh();
+    } catch (e: unknown) {
+      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }, [catalog, onRefresh]);
 
   const handleSubmit = useCallback((keys: string[]) => {

@@ -210,15 +210,10 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       setMessage(`Not installed — press i to install`);
       return;
     }
-    const { type, name } = parseKey(item.key);
-    setConfirmAction({
-      title: `Remove ${type} ${name}?`,
-      items: [`${type} ${name}`],
-      onConfirm: () => {
-        doRemove(item.key);
-        setConfirmAction(null);
-      },
-    });
+    // Remove immediately — no confirm. Removal is reversible (reinstall from the
+    // catalog), so a per-delete dialog is redundant friction. Install consent
+    // (security) still prompts; only delete is direct.
+    doRemove(item.key);
   }, [doRemove]);
 
   const handleUpdateItem = useCallback((item: ItemData) => {
@@ -257,16 +252,8 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   }, [items, runBusy, runInstall]);
 
   const handleRemoveFromDetail = useCallback((key: string) => {
-    const { type, name } = parseKey(key);
-    setConfirmAction({
-      title: `Remove ${type} ${name}?`,
-      items: [`${type} ${name}`],
-      onConfirm: () => {
-        doRemove(key);
-        setConfirmAction(null);
-        setDetailItem(null);
-      },
-    });
+    doRemove(key);
+    setDetailItem(null);
   }, [doRemove]);
 
   const handleUpdateFromDetail = useCallback((key: string) => {
