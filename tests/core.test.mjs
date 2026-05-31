@@ -154,6 +154,17 @@ test('source refresh tries preferred HTTPS before SSH fallback and dedupes concu
   assert.deepEqual(data.secondSkillNames, ['dedupe-skill']);
 });
 
+test('source refresh updates an existing clone incrementally instead of re-cloning', () => {
+  const data = runFixture('source-incremental-fetch.mjs');
+  // Cold cache: full clone.
+  assert.ok(data.firstSubcommands.includes('clone'), 'first refresh should clone');
+  // Warm cache: incremental fetch + reset, never a second clone.
+  assert.deepEqual(data.secondSubcommands, ['fetch', 'reset']);
+  assert.ok(!data.secondSubcommands.includes('clone'), 'second refresh must not re-clone');
+  assert.deepEqual(data.firstSkillNames, ['dedupe-skill']);
+  assert.deepEqual(data.secondSkillNames, ['dedupe-skill']);
+});
+
 test('disabled providers are excluded from skill, command, and MCP write targets', () => {
   const data = runFixture('disabled-providers.mjs');
 

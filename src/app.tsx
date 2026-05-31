@@ -92,6 +92,11 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   const updateCount = allItems.filter(i => i.hasUpdate).length;
   const showInitialSourceLoading = loading && allItems.length === 0 && activeTab !== 'settings';
 
+  // Quiet background-refresh indicator: how many sources are still in flight.
+  // Counting only 'fetching' avoids leaking the synthetic native sources
+  // (claude/codex/copilot, always 'ready') into a misleading total.
+  const sourcesFetching = Array.from(sourceStatus.values()).filter(s => s === 'fetching').length;
+
   const tabs: Tab[] = [
     { id: 'catalog', label: updateCount > 0 ? `Catalog ~${updateCount}` : 'Catalog', badge: allItems.length },
     { id: 'installed', label: 'Installed', badge: installedItems.length },
@@ -181,9 +186,9 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         </Box>
       )}
 
-      {showInitialSourceLoading && (
+      {loading && !showInitialSourceLoading && (
         <Box marginLeft={2}>
-          <Spinner label="Fetching sources from GitHub/Bitbucket..." />
+          <Spinner label={`Updating ${sourcesFetching} source${sourcesFetching === 1 ? '' : 's'}…`} />
         </Box>
       )}
 

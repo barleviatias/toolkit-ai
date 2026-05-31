@@ -231,12 +231,82 @@ function makeTempDir(cacheDir: string): string {
   return `${cacheDir}.fetching-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Incremental refresh of an existing shallow clone. `git fetch --depth 1` pulls
+// only the objects that changed since the last fetch; `reset --hard FETCH_HEAD`
+// snaps the working tree to the new tip (and removes tracked files deleted
+// upstream). This is dramatically cheaper than wiping the cache and
+// re-downloading the whole tree, which is what a fresh `git clone` does on every
+// refresh. Callers fall back to a full clone when this returns false, so the
+// atomic-swap safety of the clone path is preserved for the failure case.
+function incrementalFetchSteps(branch?: string): string[][] {
+  const fetchArgs = ['fetch', '--depth', '1', 'origin'];
+  if (branch) fetchArgs.push(assertSafeGitRef(branch));
+  return [fetchArgs, ['reset', '--hard', 'FETCH_HEAD']];
+}
+
+function hasGitClone(cacheDir: string): boolean {
+  return fs.existsSync(path.join(cacheDir, '.git'));
+}
+
+function markFetched(dir: string): void {
+  fs.writeFileSync(path.join(dir, '.fetched'), new Date().toISOString());
+}
+
+/** Sync incremental update. Returns false (→ caller does a full clone) when
+ *  there's no clone yet or any git step fails. */
+function updateExistingClone(cacheDir: string, branch?: string): boolean {
+  if (!hasGitClone(cacheDir)) return false;
+  for (const args of incrementalFetchSteps(branch)) {
+    const result = spawnSync('git', ['-C', cacheDir, ...args], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      timeout: CLONE_TIMEOUT_MS,
+      env: gitEnv(),
+    });
+    if (result.status !== 0) return false;
+  }
+  markFetched(cacheDir);
+  return true;
+}
+
+function runGitStep(cacheDir: string, args: string[]): Promise<boolean> {
+  return new Promise(resolve => {
+    const child = spawn('git', ['-C', cacheDir, ...args], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: gitEnv(),
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already dead */ } }, 2000);
+    }, CLONE_TIMEOUT_MS);
+    child.on('error', () => { clearTimeout(timer); resolve(false); });
+    child.on('close', code => { clearTimeout(timer); resolve(code === 0 && !timedOut); });
+  });
+}
+
+/** Async incremental update — the non-blocking counterpart used by the TUI's
+ *  background refresh. Same semantics as {@link updateExistingClone}. */
+async function updateExistingCloneAsync(cacheDir: string, branch?: string): Promise<boolean> {
+  if (!hasGitClone(cacheDir)) return false;
+  for (const args of incrementalFetchSteps(branch)) {
+    if (!(await runGitStep(cacheDir, args))) return false;
+  }
+  markFetched(cacheDir);
+  return true;
+}
+
 function fetchSource(source: Source): void {
   if (source.type !== 'github' && source.type !== 'bitbucket') return;
 
   const cacheDir = getCacheDir(source);
   const cloneUrls = getCloneUrls(source);
   const errors: string[] = [];
+
+  // Fast path: refresh the existing clone in place with an incremental fetch
+  // instead of re-downloading the whole tree. Falls through to a full clone if
+  // there's no clone yet or the fetch fails.
+  if (updateExistingClone(cacheDir, source.branch)) return;
 
   // Clone into a temp dir, then atomically swap on success. Try HTTPS first,
   // fall back to SSH for private/SSH-only repos. If every URL fails, the
@@ -354,6 +424,9 @@ async function fetchSourceAsyncUnmanaged(source: Source): Promise<void> {
   const cacheDir = getCacheDir(source);
   const cloneUrls = getCloneUrls(source);
   const errors: string[] = [];
+
+  // Fast path: incremental fetch on the existing clone (see updateExistingClone).
+  if (await updateExistingCloneAsync(cacheDir, source.branch)) return;
 
   ensureDir(path.dirname(cacheDir));
 
