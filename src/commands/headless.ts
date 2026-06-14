@@ -698,11 +698,9 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   const isForce = flag(args, '--force');
-  // Auto-strict when no human is driving the terminal. `curl ... | bash` and CI
-  // runs have stdin piped (not a TTY), so treat them as "I can't ask the user"
-  // and default to hard-fail on block-severity findings. Explicit --strict still
-  // overrides; explicit --force doesn't disable strict (force = ignore lock hash).
-  const isStrict = flag(args, '--strict') || !process.stdin.isTTY;
+  // Strict mode is explicit. Headless installs still surface scanner findings,
+  // but do not block unless the caller opted into CI-style hard failure.
+  const isStrict = flag(args, '--strict');
   const isRemove   = flag(args, 'remove');
   const isList     = flag(args, '--list') || flag(args, 'list');
   const isCheck    = flag(args, '--check') || flag(args, 'check');

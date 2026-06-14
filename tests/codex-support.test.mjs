@@ -35,6 +35,7 @@ test('Codex MCP config round-trip is idempotent and preserves supported fields',
   assert.equal(data.firstWrite, 'installed');
   assert.equal(data.secondWrite, 'skipped');
   assert.deepEqual(data.parsed, {
+    type: 'sse',
     url: 'https://example.test/mcp',
     bearerTokenEnvVar: 'EXAMPLE_TOKEN',
     httpHeaders: { 'X-Region': 'eu-west-1' },
@@ -76,6 +77,7 @@ test('Install, recovery, idempotency, and removal work for Codex plus legacy tar
   assert.equal(data.mcpTargets.cursorHasCodexOnlyFields, false);
   assert.equal(data.mcpTargets.vscodeHasCodexOnlyFields, false);
   assert.deepEqual(data.mcpTargets.codexParsed, {
+    type: 'stdio',
     command: 'npx',
     args: ['-y', '@example/mcp'],
     env: { API_KEY: 'secret' },

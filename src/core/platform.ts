@@ -89,6 +89,7 @@ const LOCAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
 ];
 
 const GLOBAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
+  { path: path.join(COPILOT_HOME, 'mcp-config.json'), platform: ['darwin', 'linux', 'win32'], tool: 'copilot', createIfDetected: true },
   { path: path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'), platform: ['win32'], tool: 'vscode', createIfDetected: true },
   { path: path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'), platform: ['win32'], tool: 'copilot', createIfDetected: true },
   { path: CLAUDE_GLOBAL_CONFIG, platform: ['darwin', 'linux', 'win32'], tool: 'claude', createIfDetected: true },
@@ -152,7 +153,10 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     indicators: [COPILOT_HOME, path.join(HOME, 'AppData', 'Local', 'github-copilot')],
     skillTarget: COPILOT_SKILL_TARGET,
     agentTarget: COPILOT_AGENT_TARGET,
-    mcpConfigTargets: [path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json')],
+    mcpConfigTargets: [
+      path.join(COPILOT_HOME, 'mcp-config.json'),
+      path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'),
+    ],
   },
   {
     id: 'amp',
@@ -568,6 +572,7 @@ function sortRecord(record?: Record<string, string>): Record<string, string> | u
 
 function normalizeCodexMcpEntry(entry: McpServerEntry): McpServerEntry {
   return {
+    type: entry.type,
     url: entry.url,
     command: entry.command,
     args: entry.args ? [...entry.args] : undefined,
@@ -671,7 +676,8 @@ export function parseCodexMcpSection(text: string, name: string): McpServerEntry
       continue;
     }
 
-    if (key === 'url' && typeof value === 'string') config.url = value;
+    if (key === 'type' && typeof value === 'string') config.type = value;
+    else if (key === 'url' && typeof value === 'string') config.url = value;
     else if (key === 'command' && typeof value === 'string') config.command = value;
     else if (key === 'cwd' && typeof value === 'string') config.cwd = value;
     else if (key === 'bearer_token_env_var' && typeof value === 'string') config.bearerTokenEnvVar = value;
@@ -704,6 +710,7 @@ export function writeCodexMcpServer(
 
   const sectionKey = tomlKey(name);
   const lines = [`[mcp_servers.${sectionKey}]`];
+  if (normalizedEntry.type) lines.push(`type = ${tomlString(normalizedEntry.type)}`);
   if (normalizedEntry.url) lines.push(`url = ${tomlString(normalizedEntry.url)}`);
   if (normalizedEntry.command) lines.push(`command = ${tomlString(normalizedEntry.command)}`);
   if (normalizedEntry.args?.length) lines.push(`args = ${tomlStringArray(normalizedEntry.args)}`);

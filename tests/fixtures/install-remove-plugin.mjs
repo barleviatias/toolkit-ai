@@ -91,6 +91,15 @@ model: opus
 Deploy now.
 `);
 
+fs.writeFileSync(path.join(pluginDir, '.mcp.json'), JSON.stringify({
+  mcpServers: {
+    'plugin-memory': {
+      type: 'sse',
+      url: 'https://example.test/plugin-memory/sse',
+    },
+  },
+}, null, 2));
+
 // Hooks file — installer must skip this and log a warning.
 fs.writeFileSync(path.join(pluginDir, 'hooks', 'hooks.json'), JSON.stringify({
   hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'echo done' }] }] },
@@ -140,6 +149,19 @@ for (const dir of [
 ]) {
   fs.mkdirSync(dir, { recursive: true });
 }
+fs.writeFileSync(path.join(tempHome, '.claude', 'settings.json'), '{}');
+
+const legacyCodexMarketplacePath = path.join(
+  tempHome,
+  '.codex',
+  'plugins',
+  'cache',
+  'toolkit-ai',
+  '.codex-plugin',
+  'marketplace.json',
+);
+fs.mkdirSync(path.dirname(legacyCodexMarketplacePath), { recursive: true });
+fs.writeFileSync(legacyCodexMarketplacePath, JSON.stringify({ stale: true }, null, 2));
 
 const catalog = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [] };
 
@@ -191,6 +213,33 @@ const filesAfterInstall = {
   commandCursor: fs.existsSync(path.join(tempHome, '.cursor', 'commands', 'deploy.md')),
 };
 
+const readJsonFile = (p) => {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch { return null; }
+};
+const claudeSettingsAfterInstall = readJsonFile(path.join(tempHome, '.claude', 'settings.json'));
+const copilotMcpAfterInstall = readJsonFile(path.join(tempHome, '.copilot', 'mcp-config.json'));
+const ampSettingsAfterInstall = readJsonFile(path.join(tempHome, '.config', 'amp', 'settings.json'));
+const codexConfigAfterInstall = (() => {
+  try { return fs.readFileSync(path.join(tempHome, '.codex', 'config.toml'), 'utf8'); }
+  catch { return ''; }
+})();
+const mcpRootConfigs = {
+  claudeSettingsHasMcp: !!claudeSettingsAfterInstall?.mcpServers?.['plugin-memory'],
+  codexConfigHasMcp: codexConfigAfterInstall.includes('[mcp_servers.plugin-memory]'),
+  copilotMcpConfigHasMcp: !!copilotMcpAfterInstall?.mcpServers?.['plugin-memory'],
+  ampSettingsHasMcp: ampSettingsAfterInstall?.['amp.mcpServers']?.['plugin-memory']?.type === 'sse',
+};
+const readPluginManifest = (root) =>
+  readJsonFile(path.join(root, '.claude-plugin', 'plugin.json')) ||
+  readJsonFile(path.join(root, '.codex-plugin', 'plugin.json')) ||
+  readJsonFile(path.join(root, 'plugin.json'));
+const mcpNativeManifests = {
+  claudeHasMcp: readPluginManifest(claudePluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
+  codexHasMcp: readPluginManifest(codexPluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
+  copilotHasMcp: readPluginManifest(copilotPluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
+};
+
 removePlugin(catalog, 'example-plugin', noop);
 
 const lockAfterRemove = readLock();
@@ -199,6 +248,8 @@ const codexConfigAfterRemove = (() => {
   try { return fs.readFileSync(path.join(tempHome, '.codex', 'config.toml'), 'utf8'); }
   catch { return ''; }
 })();
+const claudeSettingsAfterRemove = readJsonFile(path.join(tempHome, '.claude', 'settings.json'));
+const copilotMcpAfterRemove = readJsonFile(path.join(tempHome, '.copilot', 'mcp-config.json'));
 
 const filesAfterRemove = {
   anySkillSurvives:
@@ -218,6 +269,10 @@ const filesAfterRemove = {
     fs.existsSync(path.join(tempHome, '.claude', 'commands', 'deploy.md')) ||
     fs.existsSync(path.join(tempHome, '.cursor', 'commands', 'deploy.md')) ||
     fs.existsSync(path.join(claudePluginTree, 'commands', 'deploy.md')),
+  anyMcpSurvives:
+    !!claudeSettingsAfterRemove?.mcpServers?.['plugin-memory'] ||
+    !!copilotMcpAfterRemove?.mcpServers?.['plugin-memory'] ||
+    codexConfigAfterRemove.includes('[mcp_servers.plugin-memory]'),
   codexConfigHasPlugin:
     codexConfigAfterRemove.includes('[plugins."example-plugin@toolkit-ai"]'),
 };
@@ -262,6 +317,9 @@ const codexConfig = (() => {
   try { return fs.readFileSync(path.join(tempHome, '.codex', 'config.toml'), 'utf8'); }
   catch { return ''; }
 })();
+const codexMarketplaceSnapshot = readJsonFile(
+  path.join(tempHome, '.codex', 'plugins', 'cache', 'toolkit-ai', '.agents', 'plugins', 'marketplace.json'),
+);
 const copilotSettings = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(tempHome, '.copilot', 'settings.json'), 'utf8')); }
   catch { return null; }
@@ -282,6 +340,9 @@ const codexNative = {
     codexConfig.includes('enabled = true'),
   configHasMarketplace: codexConfig.includes('[marketplaces.toolkit-ai]') &&
     codexConfig.includes('source_type = "local"'),
+  marketplaceSnapshotHasPlugin: !!codexMarketplaceSnapshot?.plugins?.some?.((plugin) =>
+    plugin?.name === 'example-plugin' && plugin?.source?.path === './example-plugin/1.0.0'),
+  legacyMarketplaceSnapshotGone: !fs.existsSync(legacyCodexMarketplacePath),
   cacheTreeExists:
     fs.existsSync(path.join(codexPluginTree, '.codex-plugin', 'plugin.json')),
   selectedAgentPresent: fs.existsSync(path.join(codexPluginTree, 'agents', 'reviewer.agent.md')),
@@ -325,10 +386,7 @@ const copilotNative = {
 // (PostToolUse marker survives); Copilot and Codex installs must have
 // it overwritten with their flavor and `__AMS_PLUGIN_ROOT__` substituted
 // with the install destDir.
-const readJson = (p) => {
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
-  catch { return null; }
-};
+const readJson = readJsonFile;
 const claudeHooksFile  = readJson(path.join(claudePluginTree, 'hooks', 'hooks.json'));
 const copilotHooksFile = readJson(path.join(copilotPluginRoot, 'hooks', 'hooks.json'));
 const codexHooksFile   = readJson(path.join(codexPluginTree, 'hooks', 'hooks.json'));
@@ -368,6 +426,8 @@ process.stdout.write(JSON.stringify({
   pluginLockHash: pluginEntry?.hash ?? null,
   filesAfterInstall,
   filesAfterRemove,
+  mcpRootConfigs,
+  mcpNativeManifests,
   skillsRoot,
   hooksSwap,
   stalePresentBeforeReinstall,

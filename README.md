@@ -228,6 +228,7 @@ Model Context Protocol server configurations. The toolkit reads these JSON files
 ~/.claude/settings.json    → mcpServers.<name>
 ~/.cursor/mcp.json         → mcpServers.<name>
 ~/.vscode/mcp.json         → servers.<name>
+~/.copilot/mcp-config.json → mcpServers.<name>
 ~/.claude.json             → mcpServers.<name>
 ~/.codex/config.toml       → [mcp_servers.<name>]
 ```
@@ -329,13 +330,13 @@ available, and decomposes only for providers that do not have a plugin registry:
 - GitHub Copilot CLI → `~/.copilot/installed-plugins/toolkit-ai/<name>/`
 - Cursor / VS Code / Amp → decomposed skills, agents, commands, and MCP config in the native per-user locations those tools already read
 - `commands/<name>.md` → transformed `*.prompt.md` for VS Code / Insiders
-- `.mcp.json` → registered as MCP servers in every detected MCP-aware config (`.claude/settings.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.codex/config.toml`, `.config/amp/settings.json`, etc.)
+- `.mcp.json` → embedded in native plugin manifests for Claude Code, Codex, and GitHub Copilot so MCPs appear under the plugin; decomposed into user MCP configs only for tools without a native plugin registry (`.cursor/mcp.json`, `.vscode/mcp.json`, `.config/amp/settings.json`, etc.)
 
 The result is that the same plugin works in every assistant the user has
 installed, in each one's own native shape — no provider-specific plugin
 machinery required on the consumer side. Native plugin installs deliberately
-do not also copy the same skills/agents into Claude/Copilot/Codex user dirs,
-because that duplicates agents in provider UIs.
+do not also copy the same skills/agents/MCPs into Claude/Copilot/Codex user
+dirs, because that duplicates entries in provider UIs.
 
 For Codex native plugin installs, command files are copied into the plugin's
 `commands/` directory with only Codex-safe frontmatter (`description` and

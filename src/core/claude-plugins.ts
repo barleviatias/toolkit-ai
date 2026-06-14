@@ -450,6 +450,28 @@ function renderCodexCommandFile(sourceText: string): string {
   return kept.length > 0 ? `---\n${kept.join('\n')}\n---\n\n${body}` : body;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function collectMcpServersForManifest(contents: PluginContents): Record<string, unknown> {
+  const servers: Record<string, unknown> = {};
+  for (const mcp of contents.mcpConfigs) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(mcp.absPath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed)) continue;
+    const serverMap = isRecord(parsed.mcpServers) ? parsed.mcpServers : parsed;
+    for (const [name, server] of Object.entries(serverMap)) {
+      if (isRecord(server)) servers[name] = server;
+    }
+  }
+  return servers;
+}
+
 function copyPluginTreeScoped(
   sourceDir: string,
   destDir: string,
@@ -466,6 +488,16 @@ function copyPluginTreeScoped(
   delete canonicalManifest.skills;
   delete canonicalManifest.commands;
   delete canonicalManifest.mcps;
+  const manifestMcpServers = isRecord(canonicalManifest.mcpServers)
+    ? canonicalManifest.mcpServers
+    : {};
+  const mcpServers = {
+    ...collectMcpServersForManifest(contents),
+    ...manifestMcpServers,
+  };
+  if (Object.keys(mcpServers).length > 0) {
+    canonicalManifest.mcpServers = mcpServers;
+  }
 
   const claudeManifestPath = path.join(sourceDir, '.claude-plugin', 'plugin.json');
   const rootManifestPath = path.join(sourceDir, 'plugin.json');
@@ -844,10 +876,51 @@ function updateCodexConfigForPlugin(name: string, version: string): { marketplac
   try {
     ensureDir(path.dirname(CODEX_CONFIG_TOML));
     fs.writeFileSync(CODEX_CONFIG_TOML, plugin.text, 'utf8');
+    writeCodexMarketplaceSnapshot();
     return { marketplace: true, plugin: true };
   } catch {
     return { marketplace: false, plugin: false };
   }
+}
+
+function writeCodexMarketplaceSnapshot(): void {
+  const marketplaceDir = path.join(CODEX_PLUGIN_CACHE_DIR, TOOLKIT_MARKETPLACE);
+  const snapshotPath = path.join(marketplaceDir, '.agents', 'plugins', 'marketplace.json');
+  const stalePath = path.join(marketplaceDir, '.codex-plugin', 'marketplace.json');
+
+  try { fs.rmSync(stalePath, { force: true }); } catch { /* ignore stale legacy snapshot cleanup */ }
+
+  const plugins = readCodexInstalledPlugins()
+    .filter(entry => entry.marketplace === TOOLKIT_MARKETPLACE && entry.enabled && entry.cachePath)
+    .flatMap(entry => {
+      if (!entry.cachePath) return [];
+      let manifest: PluginManifest | null = null;
+      try { manifest = loadPluginManifest(entry.cachePath); } catch { manifest = null; }
+      const name = manifest?.name || entry.name;
+      const version = manifest?.version || path.basename(entry.cachePath);
+      const relPath = path.relative(marketplaceDir, entry.cachePath);
+      if (!name || relPath.startsWith('..') || path.isAbsolute(relPath)) return [];
+      return [{
+        name,
+        source: { source: 'local', path: `./${relPath.split(path.sep).join('/')}` },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: 'Engineering',
+        ...(version ? { version } : {}),
+        ...(manifest?.description ? { description: manifest.description } : {}),
+      }];
+    });
+
+  if (plugins.length === 0) {
+    try { fs.rmSync(snapshotPath, { force: true }); } catch { /* ignore */ }
+    return;
+  }
+
+  ensureDir(path.dirname(snapshotPath));
+  writeJsonAtomic(snapshotPath, {
+    name: TOOLKIT_MARKETPLACE,
+    interface: { displayName: TOOLKIT_MARKETPLACE },
+    plugins,
+  });
 }
 
 export function installCodexPlugin(
@@ -908,6 +981,7 @@ export function uninstallCodexPlugin(name: string): CodexUninstallResult {
           : removeTomlTable(plugin.text, `marketplaces.${TOOLKIT_MARKETPLACE}`).text;
         fs.writeFileSync(CODEX_CONFIG_TOML, next, 'utf8');
         result.removedFromConfig = true;
+        writeCodexMarketplaceSnapshot();
       }
     }
   } catch { /* leave config untouched on malformed/unwritable files */ }
@@ -924,6 +998,7 @@ export function uninstallCodexPlugin(name: string): CodexUninstallResult {
           result.removedMarketplaceDir = marketplaceRoot;
         }
       } catch { /* not empty */ }
+      writeCodexMarketplaceSnapshot();
     } catch { /* best-effort cleanup */ }
   }
 

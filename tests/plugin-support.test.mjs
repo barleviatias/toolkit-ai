@@ -30,6 +30,7 @@ function assertPluginRoundTrip(data) {
   assert.equal(actions['skill:hello'], 'installed');
   assert.equal(actions['agent:reviewer'], 'skipped');
   assert.equal(actions['command:deploy'], 'installed');
+  assert.equal(actions['mcp:plugin-memory'], 'installed');
 
   // Hooks were detected but never installed — no hooks-related result entry.
   assert.ok(!data.installResultActions.some(r => r.name === 'hooks'));
@@ -38,6 +39,7 @@ function assertPluginRoundTrip(data) {
   assert.equal(data.pluginLockHash, 'plugin-hash-1');
   assert.deepEqual(data.pluginLockedItems, [
     'command:deploy',
+    'mcp:plugin-memory',
     'skill:hello',
   ]);
 
@@ -64,11 +66,26 @@ function assertPluginRoundTrip(data) {
   assert.equal(data.filesAfterInstall.commandClaudePlugin, true, 'command should be inside Claude plugin tree');
   assert.equal(data.filesAfterInstall.commandCodexPlugin, true, 'command should be inside Codex plugin tree');
   assert.equal(data.filesAfterInstall.commandCursor, true, 'command should install for Cursor');
+  assert.equal(data.mcpNativeManifests.claudeHasMcp, true,
+    'plugin MCP must be declared in the Claude plugin manifest so it appears under the plugin');
+  assert.equal(data.mcpNativeManifests.codexHasMcp, true,
+    'plugin MCP must be declared in the Codex plugin manifest so it appears under the plugin');
+  assert.equal(data.mcpNativeManifests.copilotHasMcp, true,
+    'plugin MCP must be declared in the Copilot plugin manifest so it appears under the plugin');
+  assert.equal(data.mcpRootConfigs.claudeSettingsHasMcp, false,
+    'plugin MCP must not be duplicated into Claude user MCPs');
+  assert.equal(data.mcpRootConfigs.codexConfigHasMcp, false,
+    'plugin MCP must not be duplicated into Codex user MCPs');
+  assert.equal(data.mcpRootConfigs.copilotMcpConfigHasMcp, false,
+    'plugin MCP must not be duplicated into Copilot user MCPs');
+  assert.equal(data.mcpRootConfigs.ampSettingsHasMcp, true,
+    'plugin MCP should still decompose for tools without a native plugin registry');
 
   // After removePlugin: every decomposed file is cleaned, lock entry is gone.
   assert.equal(data.filesAfterRemove.anySkillSurvives, false);
   assert.equal(data.filesAfterRemove.anyAgentSurvives, false);
   assert.equal(data.filesAfterRemove.anyCommandSurvives, false);
+  assert.equal(data.filesAfterRemove.anyMcpSurvives, false);
   assert.equal(data.filesAfterRemove.codexConfigHasPlugin, false);
   assert.equal(data.pluginEntryAfterRemove, null);
 
@@ -92,6 +109,10 @@ function assertPluginRoundTrip(data) {
     'plugin must be enabled in ~/.codex/config.toml');
   assert.equal(data.codexNative.configHasMarketplace, true,
     'toolkit-ai marketplace must be registered in ~/.codex/config.toml');
+  assert.equal(data.codexNative.marketplaceSnapshotHasPlugin, true,
+    'toolkit-ai marketplace snapshot must list the installed Codex plugin');
+  assert.equal(data.codexNative.legacyMarketplaceSnapshotGone, true,
+    'legacy .codex-plugin marketplace snapshot must be cleaned up');
   assert.equal(data.codexNative.cacheTreeExists, true,
     'plugin tree must be copied to ~/.codex/plugins/cache/toolkit-ai/<name>/<version>/');
   assert.equal(data.codexNative.selectedAgentPresent, true,
