@@ -234,10 +234,14 @@ const readPluginManifest = (root) =>
   readJsonFile(path.join(root, '.claude-plugin', 'plugin.json')) ||
   readJsonFile(path.join(root, '.codex-plugin', 'plugin.json')) ||
   readJsonFile(path.join(root, 'plugin.json'));
+const readPluginMcpConfig = (root) => readJsonFile(path.join(root, '.mcp.json'));
 const mcpNativeManifests = {
-  claudeHasMcp: readPluginManifest(claudePluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
-  codexHasMcp: readPluginManifest(codexPluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
-  copilotHasMcp: readPluginManifest(copilotPluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
+  claudeHasMcp: readPluginManifest(claudePluginTree)?.mcpServers === './.mcp.json' &&
+    readPluginMcpConfig(claudePluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
+  codexHasMcp: readPluginManifest(codexPluginTree)?.mcpServers === './.mcp.json' &&
+    readPluginMcpConfig(codexPluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
+  copilotHasMcp: readPluginManifest(copilotPluginTree)?.mcpServers === './.mcp.json' &&
+    readPluginMcpConfig(copilotPluginTree)?.mcpServers?.['plugin-memory']?.type === 'sse',
 };
 
 removePlugin(catalog, 'example-plugin', noop);

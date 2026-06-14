@@ -496,7 +496,7 @@ function copyPluginTreeScoped(
     ...manifestMcpServers,
   };
   if (Object.keys(mcpServers).length > 0) {
-    canonicalManifest.mcpServers = mcpServers;
+    canonicalManifest.mcpServers = './.mcp.json';
   }
 
   const claudeManifestPath = path.join(sourceDir, '.claude-plugin', 'plugin.json');
@@ -566,6 +566,9 @@ function copyPluginTreeScoped(
     const dest = path.join(destDir, mcp.relPath);
     ensureDir(path.dirname(dest));
     try { fs.copyFileSync(mcp.absPath, dest); } catch { /* ignore */ }
+  }
+  if (Object.keys(mcpServers).length > 0) {
+    writeJsonAtomic(path.join(destDir, '.mcp.json'), { mcpServers });
   }
 
   // Hooks. The toolkit refuses to write hooks into the user's
