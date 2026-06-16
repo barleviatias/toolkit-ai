@@ -46,7 +46,47 @@ Tests use Node.js built-in runner (`node:test`). To add a test:
 2. Add a `test()` call in the appropriate `tests/*.test.mjs` that calls `runFixture()` and asserts on the JSON result
 3. Run `npm test` to typecheck + compile + execute
 
-Current coverage: 31 unit/integration tests across item-key, lock, catalog, fs-helpers, scanner (RCE / reverse shells / size limits / SSRF / protocol blocks / format), Codex config round-trip, install/remove/recovery, security paths.
+Current coverage: 64 unit/integration tests across item-key, lock, catalog, fs-helpers, scanner (RCE / reverse shells / size limits / SSRF / protocol blocks / format), Codex config round-trip, install/remove/recovery, security paths, native plugin install/remove, provider-specific MCP behavior, and plugin discovery from Claude/Codex/Copilot native installs.
+
+## Native Plugin MCP Notes
+
+When debugging plugin installs, keep native plugin behavior separate from
+decomposed resource installs:
+
+- Claude, Codex, and GitHub Copilot have native plugin registries. For these
+  tools, plugin MCPs should stay inside the plugin tree and be referenced from
+  the plugin manifest as `mcpServers: "./.mcp.json"`.
+- Cursor, VS Code, and Amp do not use the toolkit native plugin registry. For
+  these tools, plugin MCPs still decompose into their normal user-level MCP
+  config files.
+- Do not re-add plugin MCPs to Claude/Codex/Copilot user-level MCP config as a
+  fallback without documenting why. It creates duplicate MCP entries on clients
+  that already read plugin-scoped MCPs.
+- `src/core/claude-plugins.ts` owns scoped plugin tree copying. The helper
+  collects `.mcp.json` entries, writes one canonical `.mcp.json` in the copied
+  plugin tree, and rewrites manifest `mcpServers` to point at that file.
+- `src/core/platform.ts` owns legacy/decomposed MCP config writes. Preserve the
+  Codex `type` field when parsing/writing `[mcp_servers.<name>]`; streamable
+  HTTP/SSE/stdio behavior depends on it.
+- Codex marketplace snapshots live at
+  `~/.codex/plugins/cache/toolkit-ai/.agents/plugins/marketplace.json`. The old
+  `.codex-plugin/marketplace.json` path is stale and should be removed during
+  install/update cleanup.
+
+Future MCP regressions need three checks before changing installer behavior:
+
+1. Installed cache shape: manifest has `mcpServers: "./.mcp.json"` and copied
+   `.mcp.json` has expected `mcpServers.<name>` entries.
+2. Provider config shape: Claude/Codex/Copilot should not have duplicate
+   user-level plugin MCP entries; Cursor/VS Code/Amp should have decomposed
+   entries when those tools are enabled.
+3. Runtime behavior: start the real target client or run the relevant Codex
+   runtime check. A correct manifest does not prove the MCP server transport is
+   compatible.
+
+Headless install strictness is explicit. Piped or CI installs do not auto-enable
+strict mode; pass `--strict` when a pipeline must hard-fail on block-severity
+scanner findings.
 
 ## Commit & Pull Request Guidelines
 
