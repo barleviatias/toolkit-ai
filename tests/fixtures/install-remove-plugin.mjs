@@ -186,6 +186,7 @@ const pluginEntry = lockAfterInstall.installed['plugin:example-plugin'];
 // as "user", once under the plugin entry).
 const copilotPluginTree = path.join(tempHome, '.copilot', 'installed-plugins', 'toolkit-ai', 'example-plugin');
 const claudePluginTree  = path.join(tempHome, '.claude', 'plugins', 'cache', 'toolkit-ai', 'example-plugin', '1.0.0');
+const claudeMarketplaceEntry = path.join(tempHome, '.claude', 'plugins', 'marketplaces', 'toolkit-ai', 'example-plugin');
 const codexPluginTree   = path.join(tempHome, '.codex', 'plugins', 'cache', 'toolkit-ai', 'example-plugin', '1.0.0');
 
 const filesAfterInstall = {
@@ -279,6 +280,7 @@ const filesAfterRemove = {
     codexConfigAfterRemove.includes('[mcp_servers.plugin-memory]'),
   codexConfigHasPlugin:
     codexConfigAfterRemove.includes('[plugins."example-plugin@toolkit-ai"]'),
+  claudeMarketplaceEntrySurvives: fs.existsSync(claudeMarketplaceEntry),
 };
 
 // Migration cleanup: simulate a stale install left over from earlier toolkit
@@ -333,11 +335,33 @@ const claudeInstalledJson = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(tempHome, '.claude', 'plugins', 'installed_plugins.json'), 'utf8')); }
   catch { return null; }
 })();
+const claudeMarketplaceJson = readJsonFile(
+  path.join(tempHome, '.claude', 'plugins', 'marketplaces', 'toolkit-ai', '.claude-plugin', 'marketplace.json'),
+);
 const claudeNative = {
   installedJsonHasPlugin: !!claudeInstalledJson?.plugins?.['example-plugin@toolkit-ai']?.[0],
   pluginTreeManifestExists:
     fs.existsSync(path.join(claudePluginTree, '.claude-plugin', 'plugin.json')) ||
     fs.existsSync(path.join(claudePluginTree, 'plugin.json')),
+  marketplaceJsonListsPlugin: !!claudeMarketplaceJson?.plugins?.some?.((plugin) =>
+    plugin?.name === 'example-plugin' && plugin?.source === './example-plugin'),
+  // Claude Code >= 2.1.251 realpath-checks every marketplace entry and
+  // refuses one that resolves outside its marketplace dir ("Plugin source
+  // path refused: ./<plugin> does not stay inside its marketplace
+  // directory"). A symlink into ~/.claude/plugins/cache/ trips that check,
+  // so the entry has to be a real directory holding a real copy.
+  marketplaceEntryIsRealDir: (() => {
+    try {
+      const stat = fs.lstatSync(claudeMarketplaceEntry);
+      return stat.isDirectory() && !stat.isSymbolicLink();
+    } catch {
+      return false;
+    }
+  })(),
+  marketplaceEntryHasManifest:
+    fs.existsSync(path.join(claudeMarketplaceEntry, '.claude-plugin', 'plugin.json')) ||
+    fs.existsSync(path.join(claudeMarketplaceEntry, 'plugin.json')),
+  marketplaceEntryHasSkill: fs.existsSync(path.join(claudeMarketplaceEntry, 'skills', 'hello', 'SKILL.md')),
 };
 const codexNative = {
   configHasPlugin: codexConfig.includes('[plugins."example-plugin@toolkit-ai"]') &&

@@ -1154,15 +1154,21 @@ function registerToolkitMarketplaceForPlugin(
   const marketplaceManifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json');
   ensureDir(path.dirname(marketplaceManifestPath));
 
-  // Point `<marketplace>/<plugin>` at the plugin cache so the relative
-  // `source: "./<plugin>"` in marketplace.json resolves. Symlink is the
-  // happy path. Windows without Developer Mode (or admin) refuses
-  // symlinkSync, so fall back to a real recursive copy. If a stale real
-  // directory occupies the path, rm it before retrying.
+  // Materialize `<marketplace>/<plugin>` as a real directory copy of the
+  // plugin cache so the relative `source: "./<plugin>"` in marketplace.json
+  // resolves. This used to be a symlink into ~/.claude/plugins/cache/, but
+  // Claude Code >= 2.1.251 realpath-checks every marketplace entry and
+  // refuses one that resolves outside its marketplace dir:
+  //
+  //   Plugin source path refused: ./<plugin> does not stay inside its
+  //   marketplace directory. Check that the marketplace entry has a plain
+  //   relative path.
+  //
+  // A copy is what Claude itself produces for directory marketplaces, works
+  // on Windows without Developer Mode, and is independent of the user's
+  // skill/agent `installMode` setting. Clear whatever occupies the path
+  // first -- a symlink from a pre-fix install, a stray file, or a stale copy.
   const pluginLink = path.join(marketplaceDir, pluginName);
-  const replaceWithSymlink = (): boolean => {
-    try { fs.symlinkSync(cacheDir, pluginLink, 'dir'); return true; } catch { return false; }
-  };
   try {
     const stat = fs.lstatSync(pluginLink, { throwIfNoEntry: false });
     if (stat) {
@@ -1170,11 +1176,7 @@ function registerToolkitMarketplaceForPlugin(
       else if (stat.isDirectory()) fs.rmSync(pluginLink, { recursive: true, force: true });
     }
   } catch { /* nothing to clear */ }
-  if (!replaceWithSymlink()) {
-    // Windows non-dev-mode path: copy the cache tree under the marketplace
-    // dir so Claude's relative-`source` lookup still finds the plugin.
-    try { copyDirRecursive(cacheDir, pluginLink); } catch { /* best-effort */ }
-  }
+  try { copyDirRecursive(cacheDir, pluginLink); } catch { /* best-effort */ }
 
   // Read existing marketplace manifest (if any) and merge our plugin entry.
   // Refuse to overwrite a malformed existing manifest -- another plugin's
@@ -1226,18 +1228,18 @@ function registerToolkitMarketplaceForPlugin(
 
 /**
  * Drop a plugin from the synthetic toolkit-ai marketplace. Removes the
- * symlink and the manifest entry. If the marketplace ends up with no
- * plugins, also removes the marketplace dir and the entry in
- * known_marketplaces.json so we leave no orphan registrations.
+ * `<marketplace>/<plugin>` copy and the manifest entry. If the marketplace
+ * ends up with no plugins, also removes the marketplace dir and the entry
+ * in known_marketplaces.json so we leave no orphan registrations.
  */
 function unregisterToolkitMarketplaceForPlugin(pluginName: string): void {
   const marketplaceDir = path.join(CLAUDE_MARKETPLACES_DIR, TOOLKIT_MARKETPLACE);
   const marketplaceManifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json');
   const pluginLink = path.join(marketplaceDir, pluginName);
 
-  // Remove the `<marketplace>/<plugin>` entry. If install fell back to a
-  // recursive copy (Windows non-dev-mode), this is a real directory; if
-  // the happy path took, it's a symlink. Handle both.
+  // Remove the `<marketplace>/<plugin>` entry. Current installs write a
+  // real directory copy; installs from before 2.1.17 left a symlink into
+  // the plugin cache. Handle both so old installs uninstall cleanly.
   try {
     const stat = fs.lstatSync(pluginLink, { throwIfNoEntry: false });
     if (stat?.isSymbolicLink() || stat?.isFile()) fs.unlinkSync(pluginLink);

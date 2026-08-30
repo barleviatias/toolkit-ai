@@ -105,6 +105,16 @@ function assertPluginRoundTrip(data) {
     'plugin must be registered in ~/.claude/plugins/installed_plugins.json');
   assert.equal(data.claudeNative.pluginTreeManifestExists, true,
     'plugin tree must be copied to ~/.claude/plugins/cache/toolkit-ai/<name>/<version>/');
+  assert.equal(data.claudeNative.marketplaceJsonListsPlugin, true,
+    'toolkit-ai marketplace.json must list the plugin with a plain relative source');
+  assert.equal(data.claudeNative.marketplaceEntryIsRealDir, true,
+    '~/.claude/plugins/marketplaces/toolkit-ai/<name> must be a real directory, not a symlink — Claude Code >= 2.1.251 refuses marketplace entries that resolve outside the marketplace dir');
+  assert.equal(data.claudeNative.marketplaceEntryHasManifest, true,
+    'marketplace entry must hold a full copy of the plugin tree (manifest present)');
+  assert.equal(data.claudeNative.marketplaceEntryHasSkill, true,
+    'marketplace entry must hold a full copy of the plugin tree (skill present)');
+  assert.equal(data.filesAfterRemove.claudeMarketplaceEntrySurvives, false,
+    'removePlugin must delete the real-directory marketplace entry');
   assert.equal(data.codexNative.configHasPlugin, true,
     'plugin must be enabled in ~/.codex/config.toml');
   assert.equal(data.codexNative.configHasMarketplace, true,
