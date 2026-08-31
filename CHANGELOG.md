@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Claude plugin installs now materialize `~/.claude/plugins/marketplaces/toolkit-ai/<plugin>` as a real directory copy instead of a symlink into `~/.claude/plugins/cache/`. Claude Code >= 2.1.251 realpath-checks marketplace entries and refused the symlink (`Plugin source path refused: ./<plugin> does not stay inside its marketplace directory`), so every toolkit-installed plugin failed to load and `claude plugin list` showed it disabled. Re-running `toolkit plugin <name> --force` (or `toolkit update`) on an affected install replaces the stale symlink.
+
 ## [2.1.13] - 2026-05-28
 
 ### Fixed
