@@ -72,6 +72,7 @@ test('Install, recovery, idempotency, and removal work for Codex plus legacy tar
   assert.equal(data.mcpTargets.claudeHasCommand, true);
   assert.equal(data.mcpTargets.cursorHasCommand, true);
   assert.equal(data.mcpTargets.vscodeHasCommand, true);
+  assert.equal(data.mcpTargets.vscodeServerHasCommand, true);
   assert.equal(data.mcpTargets.globalClaudeHasCommand, true);
   assert.equal(data.mcpTargets.claudeHasCodexOnlyFields, false);
   assert.equal(data.mcpTargets.cursorHasCodexOnlyFields, false);
@@ -104,5 +105,6 @@ test('Install, recovery, idempotency, and removal work for Codex plus legacy tar
   assert.equal(data.afterRemove.claudeMcpPresent, false);
   assert.equal(data.afterRemove.cursorMcpPresent, false);
   assert.equal(data.afterRemove.vscodeMcpPresent, false);
+  assert.equal(data.afterRemove.vscodeServerMcpPresent, false);
   assert.equal(data.afterRemove.globalClaudeMcpPresent, false);
 });

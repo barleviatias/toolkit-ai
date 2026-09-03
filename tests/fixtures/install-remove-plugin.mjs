@@ -145,6 +145,7 @@ for (const dir of [
   path.join(tempHome, '.agents'),       // Codex shared skills root
   path.join(tempHome, '.cursor'),
   path.join(tempHome, '.vscode'),
+  path.join(tempHome, '.vscode-server'),
   path.join(tempHome, '.config', 'amp'), // Amp
 ]) {
   fs.mkdirSync(dir, { recursive: true });
@@ -221,6 +222,9 @@ const readJsonFile = (p) => {
 const claudeSettingsAfterInstall = readJsonFile(path.join(tempHome, '.claude', 'settings.json'));
 const copilotMcpAfterInstall = readJsonFile(path.join(tempHome, '.copilot', 'mcp-config.json'));
 const ampSettingsAfterInstall = readJsonFile(path.join(tempHome, '.config', 'amp', 'settings.json'));
+const vscodeServerMcpAfterInstall = readJsonFile(
+  path.join(tempHome, '.vscode-server', 'data', 'User', 'mcp.json'),
+);
 const codexConfigAfterInstall = (() => {
   try { return fs.readFileSync(path.join(tempHome, '.codex', 'config.toml'), 'utf8'); }
   catch { return ''; }
@@ -230,6 +234,7 @@ const mcpRootConfigs = {
   codexConfigHasMcp: codexConfigAfterInstall.includes('[mcp_servers.plugin-memory]'),
   copilotMcpConfigHasMcp: !!copilotMcpAfterInstall?.mcpServers?.['plugin-memory'],
   ampSettingsHasMcp: ampSettingsAfterInstall?.['amp.mcpServers']?.['plugin-memory']?.type === 'sse',
+  vscodeServerHasMcp: vscodeServerMcpAfterInstall?.servers?.['plugin-memory']?.type === 'sse',
 };
 const readPluginManifest = (root) =>
   readJsonFile(path.join(root, '.claude-plugin', 'plugin.json')) ||
@@ -255,6 +260,9 @@ const codexConfigAfterRemove = (() => {
 })();
 const claudeSettingsAfterRemove = readJsonFile(path.join(tempHome, '.claude', 'settings.json'));
 const copilotMcpAfterRemove = readJsonFile(path.join(tempHome, '.copilot', 'mcp-config.json'));
+const vscodeServerMcpAfterRemove = readJsonFile(
+  path.join(tempHome, '.vscode-server', 'data', 'User', 'mcp.json'),
+);
 
 const filesAfterRemove = {
   anySkillSurvives:
@@ -277,6 +285,7 @@ const filesAfterRemove = {
   anyMcpSurvives:
     !!claudeSettingsAfterRemove?.mcpServers?.['plugin-memory'] ||
     !!copilotMcpAfterRemove?.mcpServers?.['plugin-memory'] ||
+    !!vscodeServerMcpAfterRemove?.servers?.['plugin-memory'] ||
     codexConfigAfterRemove.includes('[mcp_servers.plugin-memory]'),
   codexConfigHasPlugin:
     codexConfigAfterRemove.includes('[plugins."example-plugin@toolkit-ai"]'),

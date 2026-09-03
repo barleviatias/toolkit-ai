@@ -228,12 +228,14 @@ Model Context Protocol server configurations. The toolkit reads these JSON files
 ~/.claude/settings.json    → mcpServers.<name>
 ~/.cursor/mcp.json         → mcpServers.<name>
 ~/.vscode/mcp.json         → servers.<name>
+~/.vscode-server/data/User/mcp.json → servers.<name> (stable Remote-SSH)
 ~/.copilot/mcp-config.json → mcpServers.<name>
 ~/.claude.json             → mcpServers.<name>
 ~/.codex/config.toml       → [mcp_servers.<name>]
 ```
 
-Only config files that already exist locally are updated for editor-specific integrations. Global configs such as `~/.claude.json` and `~/.codex/config.toml` are created only when that target app is detected. Run `toolkit targets` to see what the toolkit will write to.
+Only config files that already exist locally are updated for editor-specific integrations.
+The VS Code Remote-SSH config is created only when `~/.vscode-server` already exists. Global configs such as `~/.claude.json` and `~/.codex/config.toml` are created only when that target app is detected. Run `toolkit targets` to see what the toolkit will write to.
 
 ### Bundles
 
@@ -779,6 +781,7 @@ Installed items are **copied or generated** into each tool's config directory:
 
 ~/.cursor/mcp.json                    # MCP servers registered here
 ~/.vscode/mcp.json                    # MCP servers registered here
+~/.vscode-server/data/User/mcp.json   # Remote-SSH MCP servers
 ```
 
 The **lock file** tracks every installed item with a content hash. When a resource changes upstream, `toolkit check` flags it as outdated and `toolkit update` applies the new version.
