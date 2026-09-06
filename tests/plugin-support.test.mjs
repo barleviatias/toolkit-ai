@@ -80,6 +80,8 @@ function assertPluginRoundTrip(data) {
     'plugin MCP must not be duplicated into Copilot user MCPs');
   assert.equal(data.mcpRootConfigs.ampSettingsHasMcp, true,
     'plugin MCP should still decompose for tools without a native plugin registry');
+  assert.equal(data.mcpRootConfigs.vscodeServerHasMcp, true,
+    'plugin MCP should decompose into the detected VS Code Server remote user config');
 
   // After removePlugin: every decomposed file is cleaned, lock entry is gone.
   assert.equal(data.filesAfterRemove.anySkillSurvives, false);

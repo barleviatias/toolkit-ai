@@ -13,6 +13,7 @@ const SHARED_AGENTS_HOME = path.join(HOME, '.agents');
 const AMP_HOME = path.join(HOME, '.config', 'amp');
 const CURSOR_HOME = path.join(HOME, '.cursor');
 const VSCODE_HOME = path.join(HOME, '.vscode');
+const VSCODE_SERVER_HOME = path.join(HOME, '.vscode-server');
 
 const CLAUDE_SKILL_TARGET = path.join(CLAUDE_HOME, 'skills');
 const COPILOT_SKILL_TARGET = path.join(COPILOT_HOME, 'skills');
@@ -76,6 +77,7 @@ interface McpConfigTarget {
   platform: NodeJS.Platform[];
   tool: ToolId;
   createIfDetected: boolean;
+  requiredPath?: string;
 }
 
 // MCP config file paths, tagged by tool so per-provider opt-outs apply
@@ -91,6 +93,7 @@ const LOCAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
 const GLOBAL_MCP_CONFIGS_ALL: McpConfigTarget[] = [
   { path: path.join(COPILOT_HOME, 'mcp-config.json'), platform: ['darwin', 'linux', 'win32'], tool: 'copilot', createIfDetected: true },
   { path: path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'), platform: ['win32'], tool: 'vscode', createIfDetected: true },
+  { path: path.join(VSCODE_SERVER_HOME, 'data', 'User', 'mcp.json'), platform: ['darwin', 'linux', 'win32'], tool: 'vscode', createIfDetected: true, requiredPath: VSCODE_SERVER_HOME },
   { path: path.join(HOME, 'AppData', 'Local', 'github-copilot', 'intellij', 'mcp.json'), platform: ['win32'], tool: 'copilot', createIfDetected: true },
   { path: CLAUDE_GLOBAL_CONFIG, platform: ['darwin', 'linux', 'win32'], tool: 'claude', createIfDetected: true },
   { path: path.join(CODEX_HOME, 'config.toml'), platform: ['darwin', 'linux', 'win32'], tool: 'codex', createIfDetected: true },
@@ -180,6 +183,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     command: 'code',
     indicators: [
       VSCODE_HOME,
+      VSCODE_SERVER_HOME,
       path.join(VSCODE_HOME, 'mcp.json'),
       path.join(HOME, 'AppData', 'Roaming', 'Code'),
       // VS Code (and Insiders) write user settings/prompts to platform-specific
@@ -187,7 +191,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       // setups). The parent dir of any prompt target is enough signal.
       ...VSCODE_PROMPT_TARGETS.map(dir => path.dirname(dir)),
     ],
-    mcpConfigTargets: [path.join(VSCODE_HOME, 'mcp.json'), path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json')],
+    mcpConfigTargets: [
+      path.join(VSCODE_HOME, 'mcp.json'),
+      path.join(VSCODE_SERVER_HOME, 'data', 'User', 'mcp.json'),
+      path.join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json'),
+    ],
     commandTargets: VSCODE_PROMPT_TARGETS.map(dir => ({ dir, format: 'vscode-prompt' as CommandFormat })),
   },
 ];
@@ -378,6 +386,7 @@ export function getWritableMcpConfigFiles(exclude?: ReadonlySet<ToolId>): string
   const globalWritable = GLOBAL_MCP_CONFIGS_ALL
     .filter(target => target.platform.includes(process.platform))
     .filter(target => selected.has(target.tool))
+    .filter(target => !target.requiredPath || pathExists(target.requiredPath))
     .filter(target => pathExists(target.path) || target.createIfDetected)
     .map(target => target.path);
 

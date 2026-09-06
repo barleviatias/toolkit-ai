@@ -71,6 +71,8 @@ for (const configPath of [
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, '{}');
 }
+const vscodeServerConfigPath = path.join(tempHome, '.vscode-server', 'data', 'User', 'mcp.json');
+fs.mkdirSync(path.join(tempHome, '.vscode-server'), { recursive: true });
 fs.mkdirSync(path.join(tempHome, '.codex'), { recursive: true });
 fs.mkdirSync(path.join(tempHome, '.copilot'), { recursive: true });
 
@@ -116,6 +118,7 @@ const codexAgentPath = path.join(tempHome, '.codex', 'agents', 'example-agent.to
 const claudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
 const cursorConfig = JSON.parse(fs.readFileSync(cursorConfigPath, 'utf8'));
 const vscodeConfig = JSON.parse(fs.readFileSync(vscodeConfigPath, 'utf8'));
+const vscodeServerConfig = JSON.parse(fs.readFileSync(vscodeServerConfigPath, 'utf8'));
 const globalClaudeConfig = JSON.parse(fs.readFileSync(globalClaudePath, 'utf8'));
 const codexParsed = parseCodexMcpSection(fs.readFileSync(codexConfigPath, 'utf8'), 'example-mcp');
 const recoveredKeys = [...getInstalledState(catalog, { installed: {} }).recoveredKeys];
@@ -138,6 +141,7 @@ const result = {
     claudeHasCommand: claudeSettings.mcpServers?.['example-mcp']?.command === 'npx',
     cursorHasCommand: cursorConfig.mcpServers?.['example-mcp']?.command === 'npx',
     vscodeHasCommand: vscodeConfig.servers?.['example-mcp']?.command === 'npx',
+    vscodeServerHasCommand: vscodeServerConfig.servers?.['example-mcp']?.command === 'npx',
     globalClaudeHasCommand: globalClaudeConfig.mcpServers?.['example-mcp']?.command === 'npx',
     claudeHasCodexOnlyFields: 'enabledTools' in (claudeSettings.mcpServers?.['example-mcp'] || {}) ||
       'disabledTools' in (claudeSettings.mcpServers?.['example-mcp'] || {}) ||
@@ -166,6 +170,7 @@ result.afterRemove = {
   claudeMcpPresent: !!JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8')).mcpServers?.['example-mcp'],
   cursorMcpPresent: !!JSON.parse(fs.readFileSync(cursorConfigPath, 'utf8')).mcpServers?.['example-mcp'],
   vscodeMcpPresent: !!JSON.parse(fs.readFileSync(vscodeConfigPath, 'utf8')).servers?.['example-mcp'],
+  vscodeServerMcpPresent: !!JSON.parse(fs.readFileSync(vscodeServerConfigPath, 'utf8')).servers?.['example-mcp'],
   globalClaudeMcpPresent: !!JSON.parse(fs.readFileSync(globalClaudePath, 'utf8')).mcpServers?.['example-mcp'],
 };
 
