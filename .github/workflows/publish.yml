@@ -4,6 +4,25 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (used when exact version is blank)
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: Optional exact version (for example 2.2.0 or v2.2.0)
+        required: false
+        type: string
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
 
 permissions:
   # id-token: npm OIDC trusted publishing.
@@ -15,7 +34,19 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+
+      - name: Require main for manual releases
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Manual releases must be started from main."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -24,6 +55,40 @@ jobs:
 
       - run: npm ci
       - run: npm test
+
+      - name: Bump version and push release refs
+        if: github.event_name == 'workflow_dispatch'
+        id: bump
+        env:
+          BUMP_TYPE: ${{ inputs.bump }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --ff-only origin/main
+          if [ -n "${REQUESTED_VERSION}" ]; then
+            VERSION_SPEC="${REQUESTED_VERSION#v}"
+          else
+            VERSION_SPEC="${BUMP_TYPE}"
+          fi
+          npm version "${VERSION_SPEC}" --message="Release toolkit-ai %s"
+          RELEASE_TAG="v$(node -p "require('./package.json').version")"
+          git push --atomic origin HEAD:main "${RELEASE_TAG}"
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve release tag
+        id: release
+        env:
+          BUMP_TAG: ${{ steps.bump.outputs.release_tag }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            RELEASE_TAG="${BUMP_TAG}"
+          else
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+
       - run: npm publish
 
       # Attach the bundled .mjs to a GitHub Release so the curl|sh installer
@@ -34,15 +99,16 @@ jobs:
       - name: Create or update GitHub Release with bundled asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         run: |
           NOTES="Install without npm: \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | bash\`"
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} exists — uploading asset (--clobber) and refreshing notes."
-            gh release upload "${GITHUB_REF_NAME}" bin/ai-toolkit.mjs --clobber
-            gh release edit "${GITHUB_REF_NAME}" --notes "${NOTES}"
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} exists — uploading asset (--clobber) and refreshing notes."
+            gh release upload "${RELEASE_TAG}" bin/ai-toolkit.mjs --clobber
+            gh release edit "${RELEASE_TAG}" --notes "${NOTES}"
           else
-            gh release create "${GITHUB_REF_NAME}" \
-              --title "${GITHUB_REF_NAME}" \
+            gh release create "${RELEASE_TAG}" \
+              --title "${RELEASE_TAG}" \
               --notes "${NOTES}" \
               bin/ai-toolkit.mjs
           fi
