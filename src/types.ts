@@ -30,6 +30,7 @@ export interface Catalog {
  * an array of paths, all relative to the plugin root.
  */
 export interface PluginManifest {
+  herdr?: boolean;
   name: string;
   description?: string;
   version?: string;
@@ -108,6 +109,7 @@ export interface McpConfigFile {
 }
 
 export interface LockEntry {
+  herdr?: { id: string; path: string };
   hash: string;
   installedAt: string;
   items?: Record<string, LockEntry>;

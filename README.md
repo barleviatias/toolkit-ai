@@ -825,3 +825,44 @@ Post-launch plans live in [ROADMAP.md](ROADMAP.md) — UX polish (cold-start spi
 ## License
 
 [MIT](LICENSE) © Bar Levi Atias
+
+### HerdR workflow plugins
+
+Toolkit discovers `herdr-plugin.toml` plugins from configured sources. Use the
+plugin directory name (for example, `herdr-ams`), not the manifest display name:
+
+```sh
+toolkit plugin herdr-ams
+toolkit check
+toolkit update
+toolkit remove plugin herdr-ams
+```
+
+HerdR must be on PATH, along with the plugin's build tools (AMS Buddy needs
+Cargo/Rust, Bash and Python). Toolkit copies the plugin into
+`~/.toolkit/plugins/herdr/<name>/install-*/`, scans it, runs supported manifest
+`[[build]]` commands as argv arrays, and calls `herdr plugin link`. It never
+edits HerdR's registry or distributes this plugin to AI agent caches.
+
+Updates build a new copy before linking it. Failed builds leave the previous
+installation intact, and disabled plugins stay disabled. Older copies remain
+available for running panes until removal; restart plugin panes to load an update.
+Removal calls `herdr plugin unlink` and deletes only toolkit-managed copies.
+HerdR 0.8.2 requires a running server for unlink; start HerdR before removal.
+An unlink failure retains the files and toolkit lock record for retry.
+A plugin already linked from another location must be explicitly unlinked before
+toolkit can take over. `--force` rebuilds an owned install; it does not override
+ownership checks. `--link` does not change this copy-based HerdR installation.
+
+For plugins that need adjacent runtime files, add an optional `toolkit.json`
+beside `herdr-plugin.toml`:
+
+```json
+{ "runtimeSiblings": ["radware-ams"] }
+```
+
+These sibling directories must live inside the same configured source. They are
+copied beside the plugin, scanned, and included in its update hash; they are not
+installed separately into agent clients. Symlinked runtime content is rejected.
+The normal scanner policy applies: findings are reported; `--strict` blocks
+block-severity findings before any build or registration.

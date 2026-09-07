@@ -5,7 +5,7 @@ import type { Source, SourcesConfig, CatalogEntry } from '../types.js';
 import { SOURCES_FILE, CACHE_DIR, assertSafePathSegment } from './platform.js';
 import { loadSettings } from './settings.js';
 import { ensureDir } from './fs-helpers.js';
-import { parseFrontmatter, hashDir, hashFile, loadPluginManifest, findPluginManifestPath } from './catalog.js';
+import { parseFrontmatter, hashDir, hashFile, hashPluginDir, loadPluginManifest, findPluginManifestPath } from './catalog.js';
 import { logSourceRefresh } from './logger.js';
 
 function loadDefaultConfig(): SourcesConfig {
@@ -764,7 +764,7 @@ function scanSourcePlugins(source: Source): CatalogEntry[] {
         name: manifest.name,
         description: manifest.description || '',
         version: manifest.version,
-        hash: hashDir(pluginDir),
+        hash: hashPluginDir(pluginDir, cacheDir),
         path: path.relative(cacheDir, pluginDir),
         source: source.name,
       });

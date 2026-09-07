@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { removeHerdrPlugin } from './herdr-plugins.js';
 import path from 'path';
 import type { Catalog, LockFile } from '../types.js';
 import { SKILL_TARGETS, AGENT_TARGETS, CODEX_AGENT_TARGET, MCP_CONFIG_FILES, getConfigFormat, getWritableCommandTargets, removeCodexMcpServer, assertSafePathSegment } from './platform.js';
@@ -183,6 +184,12 @@ export function removePlugin(catalog: Catalog, name: string, log: LogFn = consol
   const lock = readLock();
   const pluginKey = `plugin:${name}`;
   const pluginEntry = lock.installed[pluginKey];
+  if (pluginEntry?.herdr) {
+    removeHerdrPlugin(name, pluginEntry.herdr, log);
+    delete lock.installed[pluginKey];
+    writeLock(lock);
+    return;
+  }
 
   // Native Copilot uninstall is opportunistic — runs even when the plugin
   // isn't in the toolkit lock (the user might have installed it via Copilot

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { readHerdrManifest, herdrRuntimeDirs } from './herdr-manifest.js';
 import type { Catalog, CatalogEntry, BundleConfig, McpConfig, PluginContents, PluginManifest } from '../types.js';
 import { getSourceRoot } from './platform.js';
 
@@ -54,7 +55,7 @@ export function hashFile(filePath: string): string {
 // Dirs that are dev-state, not plugin content. We skip them when hashing or
 // scanning so e.g. a plugin author's local `.claude/worktrees/` (git worktrees
 // full of broken symlinks) doesn't crash hashDir or pollute the content hash.
-const HASH_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage', 'worktrees']);
+const HASH_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage', 'worktrees', 'target', '__pycache__', '.DS_Store']);
 
 /**
  * Compute a deterministic MD5 hash over all files in a directory (sorted by
@@ -136,7 +137,9 @@ export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undef
  *   3. `plugin.json` at the plugin root — generic shape used by ad-hoc and
  *      cross-tool plugin packages (some Copilot/community formats)
  *
- * Returns the absolute manifest path if either exists, else null.
+ *   4. `herdr-plugin.toml` — native HerdR workflow plugin
+ *
+ * Returns the absolute manifest path if one exists, else null.
  */
 export function findPluginManifestPath(pluginDir: string): string | null {
   const claudePath = path.join(pluginDir, '.claude-plugin', 'plugin.json');
@@ -145,6 +148,8 @@ export function findPluginManifestPath(pluginDir: string): string | null {
   if (fs.existsSync(codexPath)) return codexPath;
   const rootPath = path.join(pluginDir, 'plugin.json');
   if (fs.existsSync(rootPath)) return rootPath;
+  const herdrPath = path.join(pluginDir, 'herdr-plugin.toml');
+  if (fs.existsSync(herdrPath)) return herdrPath;
   return null;
 }
 
@@ -152,7 +157,18 @@ export function findPluginManifestPath(pluginDir: string): string | null {
 export function loadPluginManifest(pluginDir: string): PluginManifest {
   const manifestPath = findPluginManifestPath(pluginDir);
   if (!manifestPath) throw new Error(`No plugin manifest found in ${pluginDir}`);
+  if (path.basename(manifestPath) === 'herdr-plugin.toml') {
+    const manifest = readHerdrManifest(pluginDir);
+    return { name: path.basename(pluginDir), description: manifest.description, version: manifest.version, herdr: true };
+  }
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as PluginManifest;
+}
+
+/** Hash the plugin and its explicitly packaged HerdR runtime siblings. */
+export function hashPluginDir(pluginDir: string, sourceRoot: string): string {
+  if (!loadPluginManifest(pluginDir).herdr) return hashDir(pluginDir);
+  const hashes = [hashDir(pluginDir), ...herdrRuntimeDirs(pluginDir, sourceRoot).map(dir => `${path.basename(dir)}:${hashDir(dir)}`)];
+  return crypto.createHash('md5').update(JSON.stringify(hashes)).digest('hex');
 }
 
 const PLUGIN_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage']);

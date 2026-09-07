@@ -358,7 +358,7 @@ ${BOLD}Install:${RESET}
   mcp <name>                      Register an MCP server
   bundle <name>                   Install a bundle
   command <name>                  Install a slash command (prompt)
-  plugin <name>                   Install a plugin natively in every detected provider that has a plugin registry (Claude, Codex, Copilot) and decompose into per-user dirs elsewhere (Cursor, VS Code, Amp). Hooks ride along with the plugin tree.
+  plugin <name>                   Install a plugin natively in every detected provider that has a plugin registry (Claude, Codex, Copilot) and decompose into per-user dirs elsewhere (Cursor, VS Code, Amp). Hooks ride along with the plugin tree. HerdR manifests install through herdr plugin link after building.
 
 ${BOLD}Remove:${RESET}
   remove skill <name>             Remove a skill

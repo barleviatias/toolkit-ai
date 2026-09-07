@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { installHerdrPlugin } from './herdr-plugins.js';
 import path from 'path';
 import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry, PluginContents } from '../types.js';
 import {
@@ -831,7 +832,9 @@ export function installExternalPlugin(
   if (!fs.existsSync(pluginDir)) throw new Error(`External plugin not found at: ${pluginDir}`);
 
   // Read manifest just to fail fast on a malformed plugin.
-  loadPluginManifest(pluginDir);
+  if (loadPluginManifest(pluginDir).herdr) {
+    return [installHerdrPlugin(pluginName, pluginDir, hash, sourceName, opts, log)];
+  }
   const contents = readPluginContents(pluginDir);
 
   log(`\nInstalling plugin: ${pluginName}`);

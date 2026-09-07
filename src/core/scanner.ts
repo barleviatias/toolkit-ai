@@ -207,7 +207,7 @@ export function scanSkillDir(skillDir: string, name: string, source: string, opt
 
     // Text content scanning for text-based files AND executable scripts
     const textExts = new Set([
-      '.md', '.txt', '.json', '.yaml', '.yml',
+      '.md', '.txt', '.json', '.yaml', '.yml', '.toml',
       '.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.html',
       // Executable scripts — must be scanned, not copied unchecked
       '.sh', '.bash', '.zsh', '.fish', '.ksh',
