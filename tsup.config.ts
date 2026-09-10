@@ -48,6 +48,7 @@ export default defineConfig({
     options.platform = 'node';
   },
   define: {
+    '__TOOLKIT_BUNDLED__': 'true',
     'process.env.TOOLKIT_VERSION': JSON.stringify(pkg.version),
     'process.env.TOOLKIT_BUILD_CHANNEL': JSON.stringify(buildChannel),
     'process.env.TOOLKIT_BUILD_NUMBER': JSON.stringify(buildNumber),

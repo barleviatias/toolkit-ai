@@ -831,6 +831,23 @@ export interface SourceLoadWarning {
   usedCache: boolean;
 }
 
+/** Count all catalog resources returned by a source refresh. */
+export function countExternalResources(resources: ExternalResources): number {
+  return resources.skills.length + resources.agents.length + resources.mcps.length +
+    resources.bundles.length + resources.commands.length + resources.plugins.length + resources.herdr.length;
+}
+
+/** Format a compact source-refresh result for TUI status messages. */
+export function formatRefreshMessage(resources: ExternalResources, label: string): string {
+  const total = countExternalResources(resources);
+  if (resources.warnings.length === 0) {
+    return `${label} (${total} item${total === 1 ? '' : 's'})`;
+  }
+  const cached = resources.warnings.filter(warning => warning.usedCache).length;
+  const cacheNote = cached > 0 ? `${cached} kept cached data` : 'some sources unavailable';
+  return `${label} with ${resources.warnings.length} warning${resources.warnings.length === 1 ? '' : 's'} (${cacheNote})`;
+}
+
 /** Build a unified catalog from discovered external resources. */
 export function buildCatalog(resources: ExternalResources): Catalog {
   return {

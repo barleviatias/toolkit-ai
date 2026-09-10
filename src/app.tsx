@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import { EscContext, useEscCoordinator } from './hooks/useEscContext.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
@@ -21,7 +21,6 @@ import {
   installHerdr,
 } from './core/installer.js';
 import { updateAll } from './core/updater.js';
-import { detectToolInstallations } from './core/platform.js';
 import type { ItemData } from './components/ItemRow.js';
 
 interface AppProps {
@@ -44,7 +43,7 @@ const InitialSourceLoading: React.FC<InitialSourceLoadingProps> = ({ sourceStatu
   return (
     <Box marginTop={1} marginX={2} borderStyle="round" borderColor="cyan" paddingX={1} paddingY={1} flexDirection="column">
       <Spinner label="Loading source catalog..." />
-      <Text dimColor>  Scanning local cache first; slow remotes continue in the background.</Text>
+      <Text dimColor>  Preparing your catalog. Future launches open from cache.</Text>
       {visible.length > 0 && (
         <Box marginTop={1} flexDirection="column">
           {visible.map(name => (
@@ -63,19 +62,6 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
   const { rows: termRows } = useTerminalSize();
   const esc = useEscCoordinator();
   const updateInfo = useUpdateCheck();
-  // Bumped whenever provider opt-outs change in SettingsTab. Used as a memo
-  // dep for anything that reads `disabledToolIds()` so the change cascades
-  // through the catalog (per-target labels, header chips) without needing
-  // a full source refetch.
-  const [providersVersion, setProvidersVersion] = useState(0);
-  const detectedTargets = useMemo(
-    () => detectToolInstallations().filter(target => target.installed),
-    // Re-derive on each provider toggle so the header chip set updates.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [providersVersion],
-  );
-  const targetLabels = detectedTargets.map(target => target.label);
-
   const {
     catalog,
     allItems,
@@ -88,10 +74,12 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     sourceStatus,
     loading,
     sourceWarnings,
+    targetLabels,
+    initialLoading,
   } = useCatalog();
 
   const updateCount = allItems.filter(i => i.hasUpdate).length;
-  const showInitialSourceLoading = loading && allItems.length === 0 && activeTab !== 'settings';
+  const showInitialSourceLoading = initialLoading && activeTab !== 'settings';
 
   // Quiet background-refresh indicator: how many sources are still in flight.
   // Counting only 'fetching' avoids leaking the synthetic native sources
@@ -172,7 +160,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             <Text color="cyan">{targetLabels.join(', ')}</Text>
           </>
         ) : (
-          <Text color="yellow">No target providers detected. Run `toolkit targets` for details.</Text>
+          <Text color="yellow">{loading ? 'Checking target providers…' : 'No target providers detected. Run `toolkit targets` for details.'}</Text>
         )}
       </Box>
       {updateInfo.newer && updateInfo.latest && (
@@ -190,7 +178,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
 
       {loading && !showInitialSourceLoading && (
         <Box marginLeft={2}>
-          <Spinner label={`Updating ${sourcesFetching} source${sourcesFetching === 1 ? '' : 's'}…`} />
+          <Spinner label={sourcesFetching > 0 ? `Updating ${sourcesFetching} source${sourcesFetching === 1 ? '' : 's'}…` : 'Checking installed plugins…'} />
         </Box>
       )}
 
@@ -203,6 +191,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
             items={allItems}
             catalog={catalog}
             onRefresh={handleRefresh}
+            onRefreshSources={refreshExternal}
             onUpdateItem={handleUpdateItem}
             onUpdateAll={handleUpdateAll}
           />
@@ -233,10 +222,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
         {activeTab === 'settings' && (
           <SettingsTab
             onProvidersChanged={() => {
-              // Bump version → header re-derives detectedTargets.
-              setProvidersVersion(v => v + 1);
-              // Refresh the lock so the catalog allItems memo reruns and
-              // picks up the new disabledToolIds (targetLabels per item).
+              // Recheck installed state and provider labels in the worker.
               refreshLock();
             }}
           />

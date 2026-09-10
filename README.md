@@ -436,6 +436,16 @@ Run `toolkit` with no arguments to launch the interactive interface:
 toolkit
 ```
 
+After the first catalog load, Toolkit opens immediately with the last saved
+catalog, including installed status and HerdR entries. Source discovery, provider
+checks, and security scans run in a background worker; network fetches follow
+your source cache TTL. Press `f` in Catalog to force a refresh. Cached items stay
+visible while refreshing or offline. The loading screen is only needed when no
+usable catalog snapshot exists (first run, cleared cache, or incompatible data).
+
+Display snapshots are stored in `~/.toolkit/catalog-cache.json`. They are for
+browsing; installation still runs the normal security checks.
+
 | Tab | What you do |
 |-----|-------------|
 | **Catalog** | Browse, search, filter, install, update all resources from all sources |
