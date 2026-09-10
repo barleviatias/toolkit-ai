@@ -1,7 +1,7 @@
 import type { Catalog, InstallResult } from '../types.js';
 import { findBundle, findEntry } from './catalog.js';
 import { readLock, writeLock, isItemProtected } from './lock.js';
-import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin, type LogFn } from './installer.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin, installHerdr, type LogFn } from './installer.js';
 import { removeItemFromFilesystem } from './remover.js';
 
 // ---------------------------------------------------------------------------
@@ -89,6 +89,7 @@ export function updateSelected(
       else if (type === 'mcp')     results.push(installMcp(catalog, name, { force: true }, log));
       else if (type === 'command') results.push(installCommand(catalog, name, { force: true }, log));
       else if (type === 'plugin')  results.push(...installPlugin(catalog, name, { force: true }, log));
+      else if (type === 'herdr')   results.push(installHerdr(catalog, name, { force: true }, log));
     } catch (e: unknown) {
       log(`  [!] Failed to update ${type} ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -188,6 +189,7 @@ export function updateAll(
     else if (type === 'mcp')     results.push(installMcp(catalog, name, { force: true, strict }, log));
     else if (type === 'command') results.push(installCommand(catalog, name, { force: true, strict, link: opts.link }, log));
     else if (type === 'plugin')  results.push(...installPlugin(catalog, name, { force: true, strict, link: opts.link }, log));
+    else if (type === 'herdr')   results.push(installHerdr(catalog, name, { force: true, strict }, log));
   }
 
   return results;

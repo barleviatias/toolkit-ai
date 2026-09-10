@@ -21,7 +21,7 @@ export interface LogEntry {
   ts: string;
   /** Verb describing what the toolkit was asked to do. */
   action: LogAction;
-  /** Item type when applicable (skill / agent / mcp / command / plugin / bundle). */
+  /** Item type when applicable (skill / agent / mcp / command / plugin / bundle / herdr). */
   type?: string;
   /** Item name. */
   name: string;

@@ -62,7 +62,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
         <Text>{item.description}</Text>
       </Box>
 
-      {item.type === 'plugin' && item.version && (
+      {(item.type === 'plugin' || item.type === 'herdr') && item.version && (
         <Box marginTop={1}>
           <Text dimColor>Version: {item.version}</Text>
         </Box>
@@ -75,7 +75,9 @@ export const DetailView: React.FC<DetailViewProps> = ({
       )}
 
       <Box marginTop={1} flexDirection="column">
-        {item.targetStatus && item.targetStatus.length > 0 ? (
+        {item.type === 'herdr' ? (
+          <Text dimColor>{item.installed ? 'Installed once through HerdR' : 'Will install once through HerdR'}</Text>
+        ) : item.targetStatus && item.targetStatus.length > 0 ? (
           <>
             <Text dimColor>Targets:</Text>
             {item.targetStatus.map(({ label, installed }) => (

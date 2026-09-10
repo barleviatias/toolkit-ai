@@ -1,10 +1,11 @@
 import path from 'path';
+import { isMainThread } from 'node:worker_threads';
+import './core/catalog-worker.js';
 import { runHeadless, runBanner } from './commands/headless.js';
 import { runInit } from './commands/init.js';
 import { checkForUpdate, formatUpdateLine, getCachedUpdateInfo } from './core/update-check.js';
 import { RED, RESET, YELLOW } from './core/ansi.js';
 
-const TOOLKIT_DIR = path.join(__dirname, '..');
 const args = process.argv.slice(2);
 
 // `--version` and `--help` are expected to exit in milliseconds and are
@@ -12,6 +13,7 @@ const args = process.argv.slice(2);
 const IS_QUICK_COMMAND = args.length === 1 && /^(--version|--help|-v|-h)$/.test(args[0]);
 
 async function main() {
+  const TOOLKIT_DIR = path.join(__dirname, '..');
   const updatePromise = IS_QUICK_COMMAND
     ? null
     : checkForUpdate().catch(() => null);
@@ -63,7 +65,7 @@ function printUpdateLineFromCache(): void {
   if (line) console.error(`\n${YELLOW}${line}${RESET}`);
 }
 
-main().catch(err => {
+if (isMainThread) main().catch(err => {
   console.error(`${RED}${err.message}${RESET}`);
   process.exit(1);
 });

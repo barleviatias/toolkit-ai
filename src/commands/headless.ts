@@ -1,8 +1,8 @@
 import path from 'path';
 import type { Catalog, InstallResult } from '../types.js';
 import { loadMcpConfig } from '../core/catalog.js';
-import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin, installHerdr } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin, removeHerdr } from '../core/remover.js';
 import { fetchExternalResources, buildCatalog } from '../core/sources.js';
 import { scanClaudeInstalledPlugins, scanCodexInstalledPlugins, scanCopilotInstalledPlugins } from '../core/claude-plugins.js';
 import { withLogging, withMultiLogging, readRecentLog, type LogEntry } from '../core/logger.js';
@@ -179,6 +179,9 @@ function listAll(catalog: Catalog) {
   console.log(`\n${BOLD}=== Plugins ===${RESET}`);
   for (const p of catalog.plugins) row(p);
 
+  console.log(`\n${BOLD}=== HerdR ===${RESET}`);
+  for (const h of catalog.herdr) row(h);
+
   console.log();
 }
 
@@ -339,7 +342,7 @@ ${BOLD}Security:${RESET}
   scan skill <name>                 Scan a specific skill
 
 ${BOLD}Updates:${RESET}
-  update                          Update all installed items
+  update                          Refresh sources, then update all installed items (including plugins and HerdR)
   check                           Check for available updates
 
 ${BOLD}Logs:${RESET}
@@ -358,7 +361,8 @@ ${BOLD}Install:${RESET}
   mcp <name>                      Register an MCP server
   bundle <name>                   Install a bundle
   command <name>                  Install a slash command (prompt)
-  plugin <name>                   Install a plugin natively in every detected provider that has a plugin registry (Claude, Codex, Copilot) and decompose into per-user dirs elsewhere (Cursor, VS Code, Amp). Hooks ride along with the plugin tree.
+  plugin <name>                   Install a plugin across supported AI providers
+  herdr <name>                    Build and install once through HerdR
 
 ${BOLD}Remove:${RESET}
   remove skill <name>             Remove a skill
@@ -367,6 +371,7 @@ ${BOLD}Remove:${RESET}
   remove bundle <name>            Remove a bundle
   remove command <name>           Remove a slash command
   remove plugin <name>            Remove a plugin (and its decomposed components)
+  remove herdr <name>             Remove a Toolkit-managed HerdR resource
 
 ${BOLD}Sources:${RESET}
   source add <repo>[#branch]      Add an external skill source
@@ -724,13 +729,14 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   const bundleName  = option(subArgs, '--bundle')  || (subArgs[0] === 'bundle'  && subArgs[1] ? subArgs[1] : null);
   const commandName = option(subArgs, '--command') || (subArgs[0] === 'command' && subArgs[1] ? subArgs[1] : null);
   const pluginName  = option(subArgs, '--plugin')  || (subArgs[0] === 'plugin'  && subArgs[1] ? subArgs[1] : null);
+  const herdrName   = option(subArgs, '--herdr')   || (subArgs[0] === 'herdr'   && subArgs[1] ? subArgs[1] : null);
 
   // Source refresh — re-fetch all external sources
   if (isRefresh) {
     const sources = loadSources();
     console.log(`${BOLD}Refreshing ${sources.sources.length} source(s)...${RESET}\n`);
     const resources = fetchExternalResources(true);
-    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles, ${resources.commands.length} commands, ${resources.plugins.length} plugins`);
+    console.log(`  ${GREEN}Done.${RESET} Found ${resources.skills.length} skills, ${resources.agents.length} agents, ${resources.mcps.length} MCPs, ${resources.bundles.length} bundles, ${resources.commands.length} commands, ${resources.plugins.length} plugins, ${resources.herdr.length} HerdR resources`);
     for (const warning of resources.warnings) {
       const cacheNote = warning.usedCache ? ' (using cached data)' : '';
       console.log(`  ${YELLOW}[!]${RESET} ${warning.name}${cacheNote}: ${warning.message}`);
@@ -741,7 +747,7 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
 
   // Commands that need the catalog
   const needsCatalog = isList || isCheck || isUpdate || isRemove || isScan ||
-    skillName || agentName || mcpName || bundleName || commandName || pluginName;
+    skillName || agentName || mcpName || bundleName || commandName || pluginName || herdrName;
 
   if (!needsCatalog) return false; // not a headless command
 
@@ -751,7 +757,12 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   // too. Configured-source plugins win the dedupe (added first); among
   // synthetic sources, Claude wins over Codex/Copilot for the same plugin name
   // (arbitrary tie-break — they're identical content).
-  const externalResources = fetchExternalResources(false);
+  if (isUpdate) {
+    showLogo();
+    console.log();
+    console.log(`${BOLD}Refreshing sources...${RESET}\n`);
+  }
+  const externalResources = fetchExternalResources(isUpdate);
   const seenPluginNames = new Set(externalResources.plugins.map(p => p.name));
   for (const p of [...scanClaudeInstalledPlugins(), ...scanCodexInstalledPlugins(), ...scanCopilotInstalledPlugins()]) {
     if (!seenPluginNames.has(p.name)) {
@@ -779,8 +790,11 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
   }
 
   if (isUpdate) {
-    showLogo();
-    console.log();
+    for (const warning of externalResources.warnings) {
+      const cacheNote = warning.usedCache ? ' (using cached data)' : '';
+      console.log(`  ${YELLOW}[!]${RESET} ${warning.name}${cacheNote}: ${warning.message}`);
+    }
+    if (externalResources.warnings.length > 0) console.log();
     console.log(`${BOLD}Updating all installed items...${RESET}\n`);
     const opts: { force: boolean; strict: boolean; link?: boolean } = { force: isForce, strict: isStrict };
     if (isLink) opts.link = true;
@@ -805,6 +819,11 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     else if (bundleName)  removed('bundle', bundleName,  log => removeBundle(catalog, bundleName!, log));
     else if (commandName) removed('command', commandName,log => removeCommand(catalog, commandName!, log));
     else if (pluginName)  removed('plugin', pluginName,  log => removePlugin(catalog, pluginName!, log));
+    else if (herdrName)   withLogging(
+      { action: 'remove', type: 'herdr', name: herdrName },
+      log => { removeHerdr(herdrName!, log); return { action: 'removed' }; },
+      console.log,
+    );
     else return false; // interactive remove -> TUI
     return true;
   }
@@ -838,6 +857,10 @@ export function runHeadless(args: string[], _toolkitDir: string): boolean {
     results.push(...withMultiLogging(
       { action: 'install-plugin', type: 'plugin', name: pluginName, providers: getWritableTargetLabelsForType('plugin') },
       log => installPlugin(catalog, pluginName!, opts, log), console.log));
+  } else if (herdrName) {
+    results.push(withLogging(
+      { action: 'install', type: 'herdr', name: herdrName },
+      log => installHerdr(catalog, herdrName!, opts, log), console.log));
   }
 
   if (results.length > 0) {

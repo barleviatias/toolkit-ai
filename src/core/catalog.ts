@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { readHerdrManifest, herdrRuntimeDirs } from './herdr-manifest.js';
 import type { Catalog, CatalogEntry, BundleConfig, McpConfig, PluginContents, PluginManifest } from '../types.js';
 import { getSourceRoot } from './platform.js';
 
@@ -54,7 +55,7 @@ export function hashFile(filePath: string): string {
 // Dirs that are dev-state, not plugin content. We skip them when hashing or
 // scanning so e.g. a plugin author's local `.claude/worktrees/` (git worktrees
 // full of broken symlinks) doesn't crash hashDir or pollute the content hash.
-const HASH_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage', 'worktrees']);
+const HASH_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage', 'worktrees', 'target', '__pycache__', '.DS_Store']);
 
 /**
  * Compute a deterministic MD5 hash over all files in a directory (sorted by
@@ -82,6 +83,26 @@ export function hashDir(dirPath: string): string {
   return h.digest('hex');
 }
 
+function hashRuntimeLinks(dirPath: string): string {
+  const root = fs.realpathSync(dirPath);
+  const links: string[] = [];
+  (function walk(dir: string, prefix: string) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (HASH_SKIP_DIRS.has(entry.name)) continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(absolute, rel);
+      else if (entry.isSymbolicLink()) {
+        const target = fs.realpathSync(absolute);
+        const targetRel = path.relative(root, target);
+        if (targetRel.startsWith('..') || path.isAbsolute(targetRel)) throw new Error(`Runtime link points outside packaged directory: ${absolute}`);
+        links.push(`${rel}->${targetRel}`);
+      }
+    }
+  })(root, '');
+  return crypto.createHash('md5').update(links.sort().join('\n')).digest('hex');
+}
+
 // ---------------------------------------------------------------------------
 // Lookup helpers
 // ---------------------------------------------------------------------------
@@ -93,6 +114,7 @@ const TYPE_TO_BUCKET: Record<string, keyof Catalog> = {
   bundle: 'bundles',
   command: 'commands',
   plugin: 'plugins',
+  herdr: 'herdr',
 };
 
 /** Find an entry in the catalog by item type and name. Returns undefined for unknown types. */
@@ -126,6 +148,11 @@ export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undef
   return findEntry(catalog, 'plugin', name);
 }
 
+/** Find a native HerdR resource by name. */
+export function findHerdr(catalog: Catalog, name: string): CatalogEntry | undefined {
+  return findEntry(catalog, 'herdr', name);
+}
+
 /**
  * Resolve which manifest file declares a plugin in the given directory.
  * Plugins are an emerging cross-provider concept; the toolkit accepts both
@@ -136,7 +163,7 @@ export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undef
  *   3. `plugin.json` at the plugin root — generic shape used by ad-hoc and
  *      cross-tool plugin packages (some Copilot/community formats)
  *
- * Returns the absolute manifest path if either exists, else null.
+ * Returns the absolute manifest path if one exists, else null.
  */
 export function findPluginManifestPath(pluginDir: string): string | null {
   const claudePath = path.join(pluginDir, '.claude-plugin', 'plugin.json');
@@ -153,6 +180,14 @@ export function loadPluginManifest(pluginDir: string): PluginManifest {
   const manifestPath = findPluginManifestPath(pluginDir);
   if (!manifestPath) throw new Error(`No plugin manifest found in ${pluginDir}`);
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as PluginManifest;
+}
+
+/** Hash a HerdR resource and its toolkit-owned runtime siblings. */
+export function hashHerdrDir(herdrDir: string, sourceRoot: string): string {
+  const manifest = readHerdrManifest(herdrDir);
+  const packageHash = (dir: string) => `${hashDir(dir)}:${hashRuntimeLinks(dir)}`;
+  const hashes = [packageHash(herdrDir), ...herdrRuntimeDirs(herdrDir, sourceRoot, manifest.id).map(dir => `${path.basename(dir)}:${packageHash(dir)}`)];
+  return crypto.createHash('md5').update(JSON.stringify(hashes)).digest('hex');
 }
 
 const PLUGIN_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage']);

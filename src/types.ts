@@ -14,6 +14,7 @@ export interface Catalog {
   bundles: CatalogEntry[];
   commands: CatalogEntry[];
   plugins: CatalogEntry[];
+  herdr: CatalogEntry[];
 }
 
 /**
@@ -108,6 +109,7 @@ export interface McpConfigFile {
 }
 
 export interface LockEntry {
+  herdr?: { id: string; path: string };
   hash: string;
   installedAt: string;
   items?: Record<string, LockEntry>;
@@ -137,7 +139,7 @@ export interface SourcesConfig {
   cacheTTL: number; // seconds
 }
 
-export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command' | 'plugin';
+export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command' | 'plugin' | 'herdr';
 
 export interface InstallResult {
   type: ItemType;

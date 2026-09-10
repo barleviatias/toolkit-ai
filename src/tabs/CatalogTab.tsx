@@ -10,6 +10,7 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { Catalog } from '../types.js';
+import { formatRefreshMessage, type ExternalResources } from '../core/sources.js';
 import {
   installSkill,
   installAgent,
@@ -17,8 +18,9 @@ import {
   installBundle,
   installCommand,
   installPlugin,
+  installHerdr,
 } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin, removeHerdr } from '../core/remover.js';
 import { withLogging, withMultiLogging } from '../core/logger.js';
 import { getWritableTargetLabelsForType } from '../core/platform.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
@@ -29,6 +31,7 @@ interface CatalogTabProps {
   items: ItemData[];
   catalog: Catalog;
   onRefresh: () => void;
+  onRefreshSources: (forceRefresh?: boolean) => Promise<ExternalResources>;
   onUpdateItem: (item: ItemData) => void;
   onUpdateAll: () => void;
 }
@@ -37,6 +40,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
   items,
   catalog,
   onRefresh,
+  onRefreshSources,
   onUpdateItem,
   onUpdateAll,
 }) => {
@@ -72,7 +76,14 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (input === '4') toggleType('agent');
       else if (input === '5') toggleType('mcp');
       else if (input === '6') toggleType('command');
+      else if (input === '7') toggleType('herdr');
       else if (input === '0') setTypeFilter(new Set());
+      else if (input === 'f') {
+        setMessage('Refreshing all sources in background...');
+        void onRefreshSources(true)
+          .then(resources => setMessage(formatRefreshMessage(resources, 'Catalog refreshed')))
+          .catch((error: unknown) => setMessage(`Error refreshing sources: ${error instanceof Error ? error.message : String(error)}`));
+      }
       else if (input === 'U') {
         if (updateCount === 0) {
           setMessage('No updates available');
@@ -125,6 +136,8 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         withMultiLogging({ action: 'install-bundle', type, name, source, providers }, log => installBundle(catalog, name, opts, log));
       } else if (type === 'plugin') {
         withMultiLogging({ action: 'install-plugin', type, name, source, providers }, log => installPlugin(catalog, name, opts, log));
+      } else if (type === 'herdr') {
+        withLogging({ action: 'install', type, name, source }, log => installHerdr(catalog, name, opts, log));
       } else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -193,6 +206,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (type === 'bundle')  removed(log => removeBundle(catalog, name, log));
       else if (type === 'command') removed(log => removeCommand(catalog, name, log));
       else if (type === 'plugin')  removed(log => removePlugin(catalog, name, log));
+      else if (type === 'herdr')   removed(log => removeHerdr(name, log));
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
@@ -320,14 +334,14 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (please wait)</Text></Text>
       )}
       {!busy && message && (
-        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>
+        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : message.includes('warning') ? 'yellow' : 'green'}>  {message}</Text>
       )}
       <StatusBar
         selectedCount={selected.size}
         hints={
           busy
             ? 'Working...'
-            : '/ search · 1-6 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch'
+            : '/ search · 1-7 filter · 0 all · f refresh · Space select · i install · r remove · u update · U all · Tab switch'
         }
       />
     </Box>

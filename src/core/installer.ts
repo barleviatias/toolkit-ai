@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { installHerdrPlugin } from './herdr-plugins.js';
 import path from 'path';
 import type { Catalog, CatalogEntry, InstallResult, McpConfigFile, McpServerEntry, PluginContents } from '../types.js';
 import {
@@ -30,6 +31,7 @@ import {
   findBundle,
   findCommand,
   findPlugin,
+  findHerdr,
   loadBundleConfig,
   loadMcpConfig,
   loadPluginManifest,
@@ -806,6 +808,33 @@ export function installPlugin(
   return installExternalPlugin(entry.source, name, entry.path, entry.hash, opts, log);
 }
 
+/** Install a HerdR resource once through HerdR's native registry. */
+export function installHerdr(
+  catalog: Catalog,
+  name: string,
+  opts: Omit<InstallOptions, 'parentKey'> = {},
+  log: LogFn = console.log,
+): InstallResult {
+  const entry = findHerdr(catalog, name);
+  if (!entry) throw new Error(`HerdR resource not found in catalog: ${name}`);
+  return installExternalHerdr(entry.source, name, entry.path, entry.hash, opts, log);
+}
+
+/** Install a HerdR resource from a configured source cache. */
+export function installExternalHerdr(
+  sourceName: string,
+  name: string,
+  resourcePath: string,
+  hash: string,
+  opts: Omit<InstallOptions, 'parentKey'> = {},
+  log: LogFn = console.log,
+): InstallResult {
+  assertSafePathSegment(name, 'HerdR resource name');
+  const resourceDir = path.join(getSourceRoot(sourceName), resourcePath);
+  if (!fs.existsSync(resourceDir)) throw new Error(`External HerdR resource not found at: ${resourceDir}`);
+  return installHerdrPlugin(name, resourceDir, hash, sourceName, opts, log);
+}
+
 /**
  * Install a plugin from an external source cache. The plugin manifest may be
  * either Claude Code's `.claude-plugin/plugin.json` or a generic top-level
@@ -830,8 +859,6 @@ export function installExternalPlugin(
   const pluginDir = path.join(getSourceRoot(sourceName), pluginPath);
   if (!fs.existsSync(pluginDir)) throw new Error(`External plugin not found at: ${pluginDir}`);
 
-  // Read manifest just to fail fast on a malformed plugin.
-  loadPluginManifest(pluginDir);
   const contents = readPluginContents(pluginDir);
 
   log(`\nInstalling plugin: ${pluginName}`);

@@ -11,19 +11,17 @@ import { parseKey } from '../core/item-key.js';
 import { useFilteredItems } from '../hooks/useFilteredItems.js';
 import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
-import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, uniquifySourceName, type ExternalResources, type SourceLoadWarning } from '../core/sources.js';
+import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, uniquifySourceName, formatRefreshMessage, type ExternalResources, type SourceLoadWarning } from '../core/sources.js';
 import type { Source } from '../types.js';
-import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin, installHerdr } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin, removeHerdr } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 import type { SourceFetchStatus } from '../hooks/useCatalog.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
 import { withLogging, withMultiLogging } from '../core/logger.js';
 
-import { IS_DEV_BUILD, TOOLKIT_VERSION, CACHE_DIR, getWritableTargetLabelsForType } from '../core/platform.js';
-import fs from 'fs';
-import path from 'path';
+import { IS_DEV_BUILD, TOOLKIT_VERSION, getWritableTargetLabelsForType } from '../core/platform.js';
 
 interface SourcesTabProps {
   allItems: ItemData[];
@@ -36,20 +34,6 @@ interface SourcesTabProps {
   onForgetSource: (name: string) => void;
   onAdoptSource: (source: Source) => void;
   onUpdateItem: (item: ItemData) => void;
-}
-
-function countResources(resources: ExternalResources): number {
-  return resources.skills.length + resources.agents.length + resources.mcps.length + resources.bundles.length + resources.commands.length + resources.plugins.length;
-}
-
-function formatRefreshMessage(resources: ExternalResources, label: string): string {
-  const total = countResources(resources);
-  if (resources.warnings.length === 0) {
-    return `${label} (${total} item${total === 1 ? '' : 's'})`;
-  }
-  const cached = resources.warnings.filter(warning => warning.usedCache).length;
-  const cacheNote = cached > 0 ? `${cached} kept cached data` : 'some sources unavailable';
-  return `${label} with ${resources.warnings.length} warning${resources.warnings.length === 1 ? '' : 's'} (${cacheNote})`;
 }
 
 export const SourcesTab: React.FC<SourcesTabProps> = ({
@@ -129,18 +113,12 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         const source = config.sources[cursor];
         if (source) {
           const nextEnabled = source.enabled === false;
-          // Instant toggle: persist to disk + flip in-memory state. Only fetch
-          // if enabling and we don't have usable cache yet.
+          // Show any saved display snapshot, then revalidate in the background.
           setSourceEnabled(source.name, nextEnabled);
           refresh();
           if (nextEnabled) {
             onAdoptSource({ ...source, enabled: true });
-            // No cache → kick off a background fetch so the source's items
-            // appear when ready. Cache present → already showing, nothing to do.
-            const cachePath = path.join(CACHE_DIR, source.name);
-            if (!fs.existsSync(cachePath)) {
-              void onRefreshSingleSource({ ...source, enabled: true }, false);
-            }
+            void onRefreshSingleSource({ ...source, enabled: true }, false);
             setMessage(`Enabled source: ${source.name}`);
           } else {
             onForgetSource(source.name);
@@ -225,6 +203,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         toggleType('mcp');
       } else if (ch === '6') {
         toggleType('command');
+      } else if (ch === '7') {
+        toggleType('herdr');
       } else if (ch === '0') {
         setTypeFilter(new Set());
       }
@@ -251,6 +231,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       else if (type === 'bundle') withMultiLogging({ action: 'install-bundle', type, name, source, providers }, log => installBundle(catalog, name, opts, log));
       else if (type === 'command') withLogging({ action: 'install', type, name, source, providers }, log => installCommand(catalog, name, opts, log));
       else if (type === 'plugin') withMultiLogging({ action: 'install-plugin', type, name, source, providers }, log => installPlugin(catalog, name, opts, log));
+      else if (type === 'herdr') withLogging({ action: 'install', type, name, source }, log => installHerdr(catalog, name, opts, log));
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -305,6 +286,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       else if (type === 'mcp')     removeMcp(catalog, name, () => {});
       else if (type === 'command') removeCommand(catalog, name, () => {});
       else if (type === 'plugin')  removePlugin(catalog, name, () => {});
+      else if (type === 'herdr')   removeHerdr(name, () => {});
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
@@ -433,7 +415,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         {!busy && message && <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>}
         <StatusBar
           selectedCount={selected.size}
-          hints={busy ? 'Working…' : 'Esc back · / search · 1-6 filter · 0 all · Space select · Enter details · i install · r remove · Tab switch'}
+          hints={busy ? 'Working…' : 'Esc back · / search · 1-7 filter · 0 all · Space select · Enter details · i install · r remove · Tab switch'}
         />
       </Box>
     );
@@ -516,7 +498,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         <Text color="yellow">  ⟳ {busy}...<Text dimColor>  (blocking, please wait)</Text></Text>
       )}
       {!busy && message && (
-        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>
+        <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : message.includes('warning') ? 'yellow' : 'green'}>  {message}</Text>
       )}
 
       <StatusBar hints={

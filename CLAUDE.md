@@ -96,6 +96,9 @@ src/
     scanner.ts           # Security scanner for skills, agents, MCPs
     sources.ts           # External source fetch, cache, scan (GitHub/Bitbucket)
     installed-state.ts   # Filesystem discovery of installed items (lock recovery)
+    catalog-items.ts     # Prepares display items, scans and installed-state labels off-thread
+    catalog-snapshot.ts  # Persisted ready-to-display catalog for immediate repeat launches
+    catalog-worker.ts    # Background source discovery/scanning; reuses the bundled executable
   components/
     TabBar.tsx           # Tab navigation header
     Logo.tsx             # ASCII art branding
@@ -112,7 +115,7 @@ src/
     SourcesTab.tsx       # Source management with per-source item browsing
     SettingsTab.tsx      # Install mode, cache TTL, fetch concurrency, target diagnostics
   hooks/
-    useCatalog.ts        # Central data hook — loads catalog + external resources + lock + scan cache
+    useCatalog.ts        # Paints saved catalog immediately, then streams worker results into the TUI
     useFilteredItems.ts  # Shared filter/search/count logic for item lists
   commands/
     headless.ts          # All --flag commands
@@ -146,6 +149,7 @@ Sources are GitHub/Bitbucket repos. The toolkit discovers resources by conventio
   config.json            # User settings: installMode, cacheTTL, sourceConcurrency
   lock.json              # Tracks installed items with content hashes
   sources.json           # User's custom sources (overrides bundled defaults)
+  catalog-cache.json     # Last catalog/display snapshot; revalidated by the background worker
   cache/                 # Shallow-cloned repos from external sources
 ```
 
