@@ -40,7 +40,7 @@ const { scan: scanCache, plugins: pluginContentsCache } = loadStartupCache();
 // Set true when a live scan/walk adds an entry, so the flush effect persists it.
 let startupCacheDirty = false;
 
-const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
+const EMPTY_EXTERNAL: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], herdr: [], warnings: [] };
 
 export type SourceFetchStatus = 'idle' | 'fetching' | 'ready' | 'error';
 
@@ -63,7 +63,7 @@ function mergePerSource(
   // and `ai_resources-bar` — each keep their entry, exactly like skills/agents,
   // so the user can see and pick a specific branch.
   const NATIVE_PLUGIN_SOURCES = new Set<string>([CLAUDE_NATIVE_SOURCE, CODEX_NATIVE_SOURCE, COPILOT_NATIVE_SOURCE]);
-  const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], warnings: [] };
+  const merged: ExternalResources = { skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], herdr: [], warnings: [] };
   const configuredPluginNames = new Set<string>();
   const seenNativePluginNames = new Set<string>();
   for (const name of sourceOrder) {
@@ -74,6 +74,7 @@ function mergePerSource(
     merged.mcps.push(...r.mcps);
     merged.bundles.push(...r.bundles);
     merged.commands.push(...r.commands);
+    merged.herdr.push(...r.herdr);
     const isNative = NATIVE_PLUGIN_SOURCES.has(name);
     for (const p of r.plugins) {
       if (isNative) {
@@ -132,7 +133,7 @@ export function useCatalog() {
       result = await fetchAndScanSource(source, settings.cacheTTL, forceRefresh);
     } catch (e: unknown) {
       result = {
-        skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [],
+        skills: [], agents: [], mcps: [], bundles: [], commands: [], plugins: [], herdr: [],
         warnings: [{
           name: source.name,
           message: e instanceof Error ? e.message : String(e),
@@ -546,6 +547,7 @@ export function useCatalog() {
     }
 
     for (const p of catalog.plugins) items.push(toItem('plugin', p));
+    for (const h of catalog.herdr) items.push(toItem('herdr', h));
     for (const b of catalog.bundles) items.push(toItem('bundle', b));
     for (const s of catalog.skills) items.push(toItem('skill', s));
     for (const a of catalog.agents) items.push(toItem('agent', a));

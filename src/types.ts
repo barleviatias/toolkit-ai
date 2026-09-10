@@ -14,6 +14,7 @@ export interface Catalog {
   bundles: CatalogEntry[];
   commands: CatalogEntry[];
   plugins: CatalogEntry[];
+  herdr: CatalogEntry[];
 }
 
 /**
@@ -30,7 +31,6 @@ export interface Catalog {
  * an array of paths, all relative to the plugin root.
  */
 export interface PluginManifest {
-  herdr?: boolean;
   name: string;
   description?: string;
   version?: string;
@@ -139,7 +139,7 @@ export interface SourcesConfig {
   cacheTTL: number; // seconds
 }
 
-export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command' | 'plugin';
+export type ItemType = 'skill' | 'agent' | 'mcp' | 'bundle' | 'command' | 'plugin' | 'herdr';
 
 export interface InstallResult {
   type: ItemType;

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'child_process';
 
-test('HerdR install, dependency updates, failures, ownership and removal', {skip:process.platform==='win32'}, () => {
+test('HerdR resource install, dependency updates, failures, ownership and removal', {skip:process.platform==='win32'}, () => {
   const home=fs.mkdtempSync(path.join(os.tmpdir(),'toolkit-herdr-test-'));
   try {
     const result=spawnSync(process.execPath,['tests/fixtures/herdr-plugin.mjs',home],{encoding:'utf8',env:process.env});

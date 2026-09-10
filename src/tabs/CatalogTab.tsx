@@ -17,8 +17,9 @@ import {
   installBundle,
   installCommand,
   installPlugin,
+  installHerdr,
 } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin } from '../core/remover.js';
+import { removeSkill, removeAgent, removeMcp, removeBundle, removeCommand, removePlugin, removeHerdr } from '../core/remover.js';
 import { withLogging, withMultiLogging } from '../core/logger.js';
 import { getWritableTargetLabelsForType } from '../core/platform.js';
 import { needsConsent, buildConsentPrompt, resolveBundleChildren } from './install-consent.js';
@@ -72,6 +73,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (input === '4') toggleType('agent');
       else if (input === '5') toggleType('mcp');
       else if (input === '6') toggleType('command');
+      else if (input === '7') toggleType('herdr');
       else if (input === '0') setTypeFilter(new Set());
       else if (input === 'U') {
         if (updateCount === 0) {
@@ -125,6 +127,8 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         withMultiLogging({ action: 'install-bundle', type, name, source, providers }, log => installBundle(catalog, name, opts, log));
       } else if (type === 'plugin') {
         withMultiLogging({ action: 'install-plugin', type, name, source, providers }, log => installPlugin(catalog, name, opts, log));
+      } else if (type === 'herdr') {
+        withLogging({ action: 'install', type, name, source }, log => installHerdr(catalog, name, opts, log));
       } else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -193,6 +197,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
       else if (type === 'bundle')  removed(log => removeBundle(catalog, name, log));
       else if (type === 'command') removed(log => removeCommand(catalog, name, log));
       else if (type === 'plugin')  removed(log => removePlugin(catalog, name, log));
+      else if (type === 'herdr')   removed(log => removeHerdr(name, log));
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
@@ -327,7 +332,7 @@ export const CatalogTab: React.FC<CatalogTabProps> = ({
         hints={
           busy
             ? 'Working...'
-            : '/ search · 1-6 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch'
+            : '/ search · 1-7 filter · 0 all · Space select · Enter details · i install · r remove · u update · U all · Tab switch'
         }
       />
     </Box>

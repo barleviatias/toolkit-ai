@@ -46,6 +46,7 @@ const TYPE_COLORS: Record<string, string> = {
   bundle:  'cyan',
   command: 'green',
   plugin:  'red',
+  herdr:   'cyan',
 };
 
 interface ItemRowProps {
@@ -81,7 +82,7 @@ export const ItemRow: React.FC<ItemRowProps> = ({ item, isActive, isSelected }) 
         <Text color={checkColor}>{check}</Text>
         <Text color={typeColor} bold>{item.type.toUpperCase().padEnd(7)} </Text>
         <Text bold={isActive}>{item.name}</Text>
-        {item.type === 'plugin' && item.version && (
+        {(item.type === 'plugin' || item.type === 'herdr') && item.version && (
           <Text dimColor> · v{item.version}</Text>
         )}
         <Text dimColor> · {item.source}</Text>

@@ -400,6 +400,7 @@ function supportsItemType(tool: ToolInstallation, type: string): boolean {
   if (type === 'command') return tool.supportsCommands;
   if (type === 'bundle') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps || tool.supportsCommands;
   if (type === 'plugin') return tool.supportsSkills || tool.supportsAgents || tool.supportsMcps || tool.supportsCommands;
+  if (type === 'herdr') return false;
   return false;
 }
 

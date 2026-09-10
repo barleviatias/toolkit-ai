@@ -13,8 +13,8 @@ import type { ItemData } from '../components/ItemRow.js';
 import type { SourcesConfig, Catalog } from '../types.js';
 import { loadSources, addSource, removeSource, setSourceEnabled, parseSourceInput, uniquifySourceName, type ExternalResources, type SourceLoadWarning } from '../core/sources.js';
 import type { Source } from '../types.js';
-import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin } from '../core/installer.js';
-import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin } from '../core/remover.js';
+import { installSkill, installAgent, installMcp, installBundle, installCommand, installPlugin, installHerdr } from '../core/installer.js';
+import { removeSkill, removeAgent, removeMcp, removeCommand, removePlugin, removeHerdr } from '../core/remover.js';
 import { useMarkEscConsumed } from '../hooks/useEscContext.js';
 import { useRunBusy } from '../hooks/useRunBusy.js';
 import type { SourceFetchStatus } from '../hooks/useCatalog.js';
@@ -39,7 +39,7 @@ interface SourcesTabProps {
 }
 
 function countResources(resources: ExternalResources): number {
-  return resources.skills.length + resources.agents.length + resources.mcps.length + resources.bundles.length + resources.commands.length + resources.plugins.length;
+  return resources.skills.length + resources.agents.length + resources.mcps.length + resources.bundles.length + resources.commands.length + resources.plugins.length + resources.herdr.length;
 }
 
 function formatRefreshMessage(resources: ExternalResources, label: string): string {
@@ -225,6 +225,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         toggleType('mcp');
       } else if (ch === '6') {
         toggleType('command');
+      } else if (ch === '7') {
+        toggleType('herdr');
       } else if (ch === '0') {
         setTypeFilter(new Set());
       }
@@ -251,6 +253,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       else if (type === 'bundle') withMultiLogging({ action: 'install-bundle', type, name, source, providers }, log => installBundle(catalog, name, opts, log));
       else if (type === 'command') withLogging({ action: 'install', type, name, source, providers }, log => installCommand(catalog, name, opts, log));
       else if (type === 'plugin') withMultiLogging({ action: 'install-plugin', type, name, source, providers }, log => installPlugin(catalog, name, opts, log));
+      else if (type === 'herdr') withLogging({ action: 'install', type, name, source }, log => installHerdr(catalog, name, opts, log));
       else {
         setMessage(`Error: ${type} ${name} cannot be installed`);
         return;
@@ -305,6 +308,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       else if (type === 'mcp')     removeMcp(catalog, name, () => {});
       else if (type === 'command') removeCommand(catalog, name, () => {});
       else if (type === 'plugin')  removePlugin(catalog, name, () => {});
+      else if (type === 'herdr')   removeHerdr(name, () => {});
       setMessage(`Removed ${type} ${name}`);
       onRefresh();
     } catch (e: unknown) {
@@ -433,7 +437,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         {!busy && message && <Text color={message.startsWith('\u2715') || message.startsWith('Error') ? 'red' : 'green'}>  {message}</Text>}
         <StatusBar
           selectedCount={selected.size}
-          hints={busy ? 'Working…' : 'Esc back · / search · 1-6 filter · 0 all · Space select · Enter details · i install · r remove · Tab switch'}
+          hints={busy ? 'Working…' : 'Esc back · / search · 1-7 filter · 0 all · Space select · Enter details · i install · r remove · Tab switch'}
         />
       </Box>
     );

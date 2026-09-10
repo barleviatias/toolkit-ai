@@ -12,6 +12,10 @@ interface HerdrManifest {
   build: BuildStep[];
 }
 
+const RUNTIME_SIBLINGS: Readonly<Record<string, readonly string[]>> = {
+  'radware.ams': ['radware-ams'],
+};
+
 function platforms(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || !value.every(p => ['linux', 'macos', 'windows'].includes(String(p)))) {
@@ -39,18 +43,13 @@ export function readHerdrManifest(dir: string): HerdrManifest {
   return { id: value.id, version: value.version, description: typeof value.description === 'string' ? value.description : '', platforms: platforms(value.platforms), build };
 }
 
-/** Resolve optional toolkit.json runtime siblings without allowing paths outside their parent. */
-export function herdrRuntimeDirs(dir: string, sourceRoot: string): string[] {
-  const metadata = path.join(dir, 'toolkit.json');
-  if (!fs.existsSync(metadata)) return [];
-  const value: unknown = JSON.parse(fs.readFileSync(metadata, 'utf8'));
-  if (!value || typeof value !== 'object') throw new Error('Invalid toolkit.json');
-  const siblings = (value as Record<string, unknown>).runtimeSiblings ?? [];
-  if (!Array.isArray(siblings) || !siblings.every(name => typeof name === 'string')) throw new Error('Invalid runtimeSiblings');
+/** Resolve toolkit-owned runtime siblings without allowing paths outside their source. */
+export function herdrRuntimeDirs(dir: string, sourceRoot: string, pluginId: string): string[] {
+  const siblings = RUNTIME_SIBLINGS[pluginId] ?? [];
   const parent = fs.realpathSync(path.dirname(dir));
   const relative = path.relative(fs.realpathSync(sourceRoot), parent);
   if (siblings.length && (relative.startsWith('..') || path.isAbsolute(relative))) throw new Error('Runtime siblings must stay inside the configured source');
-  return [...new Set(siblings as string[])].sort().map(name => {
+  return siblings.map(name => {
     assertSafePathSegment(name, 'runtime sibling');
     if (name === path.basename(dir)) throw new Error('Runtime sibling cannot be the plugin itself');
     const candidate = path.join(parent, name);

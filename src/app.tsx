@@ -18,6 +18,7 @@ import {
   installBundle,
   installCommand,
   installPlugin,
+  installHerdr,
 } from './core/installer.js';
 import { updateAll } from './core/updater.js';
 import { detectToolInstallations } from './core/platform.js';
@@ -116,6 +117,7 @@ const App: React.FC<AppProps> = ({ initialTab }) => {
     else if (type === 'bundle')  installBundle(catalog, name, { force: true }, () => {});
     else if (type === 'command') installCommand(catalog, name, { force: true }, () => {});
     else if (type === 'plugin')  installPlugin(catalog, name, { force: true }, () => {});
+    else if (type === 'herdr')   installHerdr(catalog, name, { force: true }, () => {});
     else throw new Error(`${type} ${name} cannot be updated`);
     refreshLock();
   }, [catalog, refreshLock]);

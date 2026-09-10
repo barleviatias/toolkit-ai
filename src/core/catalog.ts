@@ -83,6 +83,26 @@ export function hashDir(dirPath: string): string {
   return h.digest('hex');
 }
 
+function hashRuntimeLinks(dirPath: string): string {
+  const root = fs.realpathSync(dirPath);
+  const links: string[] = [];
+  (function walk(dir: string, prefix: string) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (HASH_SKIP_DIRS.has(entry.name)) continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(absolute, rel);
+      else if (entry.isSymbolicLink()) {
+        const target = fs.realpathSync(absolute);
+        const targetRel = path.relative(root, target);
+        if (targetRel.startsWith('..') || path.isAbsolute(targetRel)) throw new Error(`Runtime link points outside packaged directory: ${absolute}`);
+        links.push(`${rel}->${targetRel}`);
+      }
+    }
+  })(root, '');
+  return crypto.createHash('md5').update(links.sort().join('\n')).digest('hex');
+}
+
 // ---------------------------------------------------------------------------
 // Lookup helpers
 // ---------------------------------------------------------------------------
@@ -94,6 +114,7 @@ const TYPE_TO_BUCKET: Record<string, keyof Catalog> = {
   bundle: 'bundles',
   command: 'commands',
   plugin: 'plugins',
+  herdr: 'herdr',
 };
 
 /** Find an entry in the catalog by item type and name. Returns undefined for unknown types. */
@@ -127,6 +148,11 @@ export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undef
   return findEntry(catalog, 'plugin', name);
 }
 
+/** Find a native HerdR resource by name. */
+export function findHerdr(catalog: Catalog, name: string): CatalogEntry | undefined {
+  return findEntry(catalog, 'herdr', name);
+}
+
 /**
  * Resolve which manifest file declares a plugin in the given directory.
  * Plugins are an emerging cross-provider concept; the toolkit accepts both
@@ -137,8 +163,6 @@ export function findPlugin(catalog: Catalog, name: string): CatalogEntry | undef
  *   3. `plugin.json` at the plugin root — generic shape used by ad-hoc and
  *      cross-tool plugin packages (some Copilot/community formats)
  *
- *   4. `herdr-plugin.toml` — native HerdR workflow plugin
- *
  * Returns the absolute manifest path if one exists, else null.
  */
 export function findPluginManifestPath(pluginDir: string): string | null {
@@ -148,8 +172,6 @@ export function findPluginManifestPath(pluginDir: string): string | null {
   if (fs.existsSync(codexPath)) return codexPath;
   const rootPath = path.join(pluginDir, 'plugin.json');
   if (fs.existsSync(rootPath)) return rootPath;
-  const herdrPath = path.join(pluginDir, 'herdr-plugin.toml');
-  if (fs.existsSync(herdrPath)) return herdrPath;
   return null;
 }
 
@@ -157,17 +179,14 @@ export function findPluginManifestPath(pluginDir: string): string | null {
 export function loadPluginManifest(pluginDir: string): PluginManifest {
   const manifestPath = findPluginManifestPath(pluginDir);
   if (!manifestPath) throw new Error(`No plugin manifest found in ${pluginDir}`);
-  if (path.basename(manifestPath) === 'herdr-plugin.toml') {
-    const manifest = readHerdrManifest(pluginDir);
-    return { name: path.basename(pluginDir), description: manifest.description, version: manifest.version, herdr: true };
-  }
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as PluginManifest;
 }
 
-/** Hash the plugin and its explicitly packaged HerdR runtime siblings. */
-export function hashPluginDir(pluginDir: string, sourceRoot: string): string {
-  if (!loadPluginManifest(pluginDir).herdr) return hashDir(pluginDir);
-  const hashes = [hashDir(pluginDir), ...herdrRuntimeDirs(pluginDir, sourceRoot).map(dir => `${path.basename(dir)}:${hashDir(dir)}`)];
+/** Hash a HerdR resource and its toolkit-owned runtime siblings. */
+export function hashHerdrDir(herdrDir: string, sourceRoot: string): string {
+  const manifest = readHerdrManifest(herdrDir);
+  const packageHash = (dir: string) => `${hashDir(dir)}:${hashRuntimeLinks(dir)}`;
+  const hashes = [packageHash(herdrDir), ...herdrRuntimeDirs(herdrDir, sourceRoot, manifest.id).map(dir => `${path.basename(dir)}:${packageHash(dir)}`)];
   return crypto.createHash('md5').update(JSON.stringify(hashes)).digest('hex');
 }
 

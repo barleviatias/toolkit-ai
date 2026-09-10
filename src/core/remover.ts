@@ -86,6 +86,8 @@ export function removeItemFromFilesystem(
       if (removeLink(dest)) { log(`  [-] command ${name} removed from ${dest}`); removed = true; }
     }
     if (!removed) log(`  command ${name} was not installed`);
+  } else if (type === 'herdr') {
+    removeHerdr(name, log);
   }
 }
 
@@ -184,13 +186,6 @@ export function removePlugin(catalog: Catalog, name: string, log: LogFn = consol
   const lock = readLock();
   const pluginKey = `plugin:${name}`;
   const pluginEntry = lock.installed[pluginKey];
-  if (pluginEntry?.herdr) {
-    removeHerdrPlugin(name, pluginEntry.herdr, log);
-    delete lock.installed[pluginKey];
-    writeLock(lock);
-    return;
-  }
-
   // Native Copilot uninstall is opportunistic — runs even when the plugin
   // isn't in the toolkit lock (the user might have installed it via Copilot
   // and never decompose-installed via the toolkit), so the user's "remove"
@@ -249,5 +244,20 @@ export function removePlugin(catalog: Catalog, name: string, log: LogFn = consol
     }
   }
   delete lock.installed[pluginKey];
+  writeLock(lock);
+}
+
+/** Remove one toolkit-owned HerdR registration and its managed files. */
+export function removeHerdr(name: string, log: LogFn = console.log): void {
+  log(`\nRemoving HerdR resource: ${name}`);
+  const lock = readLock();
+  const key = `herdr:${name}`;
+  const entry = lock.installed[key];
+  if (!entry?.herdr) {
+    log(`  herdr ${name} was not installed`);
+    return;
+  }
+  removeHerdrPlugin(name, entry.herdr, log);
+  delete lock.installed[key];
   writeLock(lock);
 }

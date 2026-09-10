@@ -268,7 +268,7 @@ test('Plugin install (Codex .codex-plugin manifest) is discovered, installed, an
   assertPluginRoundTrip(data);
 });
 
-test('Plugin updateAll refreshes stale plugin parent lock hash', () => {
+test('updateAll refreshes installed plugin and HerdR resources in one pass', () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-plugin-update-'));
   const data = runFixture('plugin-update.mjs', [tempHome], {
     HOME: tempHome,
@@ -277,8 +277,12 @@ test('Plugin updateAll refreshes stale plugin parent lock hash', () => {
 
   assert.equal(data.beforeHash, 'plugin-hash-1');
   assert.equal(data.afterHash, 'plugin-hash-2');
+  assert.equal(data.herdrBeforeHash, 'herdr-hash-1');
+  assert.equal(data.herdrAfterHash, 'herdr-hash-2');
+  assert.equal(data.herdrRegisteredRoot, data.herdrLockRoot);
   assert.ok(data.installedAt, 'updated plugin lock entry should retain a last-write timestamp');
   assert.ok(data.resultActions.some(r => r.type === 'skill' && r.name === 'hello'));
+  assert.ok(data.resultActions.some(r => r.type === 'herdr' && r.name === 'updatable-herdr'));
   assert.deepEqual(data.itemHashes, {}, 'native-only Codex plugin update should not create decomposed sub-item lock entries');
 });
 

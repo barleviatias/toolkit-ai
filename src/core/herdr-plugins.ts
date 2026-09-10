@@ -26,9 +26,9 @@ function registration(id: string): Registration | undefined {
 }
 
 function managedRoot(name: string): string {
-  assertSafePathSegment(name, 'plugin name');
+  assertSafePathSegment(name, 'HerdR resource name');
   const home = fs.realpathSync(path.dirname(TOOLKIT_HOME));
-  const root = path.join(home, path.basename(TOOLKIT_HOME), 'plugins', 'herdr', name);
+  const root = path.join(home, path.basename(TOOLKIT_HOME), 'herdr', name);
   // Refuse redirected managed directories instead of copying/deleting through links.
   for (let current = root; current !== home; current = path.dirname(current)) {
     if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) throw new Error(`Managed path is a symlink: ${current}`);
@@ -41,14 +41,29 @@ function owns(name: string, installedPath: string): boolean {
   return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function copyTree(source: string, destination: string): void {
+function copyTree(source: string, destination: string, packageRoot = fs.realpathSync(source), ancestors = new Set<string>()): void {
+  const realSource = fs.realpathSync(source);
+  const relative = path.relative(packageRoot, realSource);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Runtime link points outside packaged directory: ${source}`);
+  if (ancestors.has(realSource)) throw new Error(`Runtime link creates a directory cycle: ${source}`);
+  const nextAncestors = new Set(ancestors).add(realSource);
   fs.mkdirSync(destination, { recursive: true });
-  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(realSource, { withFileTypes: true })) {
     if (SKIP.has(entry.name)) continue;
-    const src = path.join(source, entry.name);
+    const src = path.join(realSource, entry.name);
     const dest = path.join(destination, entry.name);
-    if (entry.isDirectory()) copyTree(src, dest);
+    if (entry.isDirectory()) copyTree(src, dest, packageRoot, nextAncestors);
     else if (entry.isFile()) fs.copyFileSync(src, dest);
+    else if (entry.isSymbolicLink()) {
+      const target = fs.realpathSync(src);
+      const targetStat = fs.statSync(target);
+      if (targetStat.isDirectory()) copyTree(target, dest, packageRoot, nextAncestors);
+      else if (targetStat.isFile()) {
+        const targetRelative = path.relative(packageRoot, target);
+        if (targetRelative.startsWith('..') || path.isAbsolute(targetRelative)) throw new Error(`Runtime link points outside packaged directory: ${src}`);
+        fs.copyFileSync(target, dest);
+      } else throw new Error(`Cannot package non-regular runtime link: ${src}`);
+    }
     else throw new Error(`Cannot package non-regular runtime file: ${src}`);
   }
 }
@@ -61,14 +76,14 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
   const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : process.platform;
   if (manifest.platforms && !manifest.platforms.includes(platform)) throw new Error(`Plugin does not support ${platform}`);
   const lock = readLock();
-  const previous = lock.installed[`plugin:${name}`];
+  const previous = lock.installed[`herdr:${name}`];
   const current = registration(manifest.id);
   if (current && (!previous?.herdr || current.plugin_root !== previous.herdr.path || !owns(name, current.plugin_root))) {
-    throw new Error(`HerdR plugin ${manifest.id} is already registered outside this toolkit install. Unlink it explicitly before installing with toolkit.`);
+    throw new Error(`HerdR resource ${manifest.id} is already registered outside this toolkit install. Unlink it explicitly before installing with toolkit.`);
   }
   if (previous?.herdr && previous.herdr.id !== manifest.id) throw new Error('HerdR plugin id changed; remove the previous install first');
-  if (current && previous?.hash === hash && !opts.force) return { type: 'plugin', name, action: 'skipped' };
-  const directories = [source, ...herdrRuntimeDirs(source, getSourceRoot(sourceName))];
+  if (current && previous?.hash === hash && !opts.force) return { type: 'herdr', name, action: 'skipped' };
+  const directories = [source, ...herdrRuntimeDirs(source, getSourceRoot(sourceName), manifest.id)];
   fs.mkdirSync(root, { recursive: true });
   const generation = fs.mkdtempSync(path.join(root, 'install-'));
   const pluginPath = path.join(generation, path.basename(source));
@@ -80,7 +95,7 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
       if (report.findings.length) log(formatReport(report));
       if (!report.passed && opts.strict) {
         fs.rmSync(generation, { recursive: true, force: true });
-        return { type: 'plugin', name, action: 'blocked' };
+        return { type: 'herdr', name, action: 'blocked' };
       }
     }
     const manifestFile = path.join(pluginPath, 'herdr-plugin.toml');
@@ -100,11 +115,11 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
     const verified = registration(manifest.id);
     if (verified?.plugin_root !== pluginPath) throw new Error('HerdR did not confirm the installed plugin path');
     const latestLock = readLock();
-    latestLock.installed[`plugin:${name}`] = { hash, installedAt: new Date().toISOString(), herdr: { id: manifest.id, path: pluginPath } };
+    latestLock.installed[`herdr:${name}`] = { hash, installedAt: new Date().toISOString(), herdr: { id: manifest.id, path: pluginPath } };
     writeLock(latestLock);
-    log(`  [+] plugin ${name} installed in HerdR (native)`);
+    log(`  [+] herdr ${name} installed`);
     // Keep older generations for already-running panes until explicit removal.
-    return { type: 'plugin', name, action: previous ? 'updated' : 'installed' };
+    return { type: 'herdr', name, action: previous ? 'updated' : 'installed' };
   } catch (error) {
     let canRemove = true;
     if (linkAttempted) {
@@ -131,5 +146,5 @@ export function removeHerdrPlugin(name: string, installed: NonNullable<LockEntry
   if (current && current.plugin_root !== installed.path) throw new Error('HerdR plugin now points elsewhere; refusing to unlink it');
   if (current) run('herdr', ['plugin', 'unlink', installed.id]);
   fs.rmSync(managedRoot(name), { recursive: true, force: true });
-  log(`  [-] plugin ${name} removed from HerdR`);
+  log(`  [-] herdr ${name} removed`);
 }
