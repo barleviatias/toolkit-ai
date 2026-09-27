@@ -2,6 +2,7 @@ import { defineConfig } from 'tsup';
 import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { builtinModules } from 'module';
+import { resolve } from 'path';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
 const isWatch = process.argv.includes('--watch');
@@ -43,7 +44,7 @@ export default defineConfig({
   shims: true,
   esbuildOptions(options) {
     options.alias = {
-      'react-devtools-core': '/dev/null',
+      'react-devtools-core': resolve('scripts/empty-devtools.cjs'),
     };
     options.platform = 'node';
   },

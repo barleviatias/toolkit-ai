@@ -5,6 +5,7 @@ import type { InstallResult, LockEntry } from '../types.js';
 import { TOOLKIT_HOME, assertSafePathSegment, getSourceRoot } from './platform.js';
 import { readLock, writeLock } from './lock.js';
 import { herdrRuntimeDirs, readHerdrManifest } from './herdr-manifest.js';
+import { relativeHerdrPath, sameHerdrPath } from './herdr-paths.js';
 import { scanSkillDir, formatReport } from './scanner.js';
 
 const SKIP = new Set(['.git', 'node_modules', 'target', '__pycache__', '.DS_Store']);
@@ -37,7 +38,7 @@ function managedRoot(name: string): string {
 }
 
 function owns(name: string, installedPath: string): boolean {
-  const relative = path.relative(managedRoot(name), installedPath);
+  const relative = relativeHerdrPath(managedRoot(name), installedPath);
   return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
@@ -78,7 +79,7 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
   const lock = readLock();
   const previous = lock.installed[`herdr:${name}`];
   const current = registration(manifest.id);
-  if (current && (!previous?.herdr || current.plugin_root !== previous.herdr.path || !owns(name, current.plugin_root))) {
+  if (current && (!previous?.herdr || !sameHerdrPath(current.plugin_root, previous.herdr.path) || !owns(name, current.plugin_root))) {
     throw new Error(`HerdR resource ${manifest.id} is already registered outside this toolkit install. Unlink it explicitly before installing with toolkit.`);
   }
   if (previous?.herdr && previous.herdr.id !== manifest.id) throw new Error('HerdR plugin id changed; remove the previous install first');
@@ -109,11 +110,11 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
     if (fs.readFileSync(manifestFile, 'utf8') !== original) throw new Error('Build changed herdr-plugin.toml; registration aborted');
     // Recheck ownership after a potentially long build.
     const latest = registration(manifest.id);
-    if (latest?.plugin_root !== current?.plugin_root) throw new Error('HerdR registration changed during build; retry');
+    if (!sameHerdrPath(latest?.plugin_root, current?.plugin_root)) throw new Error('HerdR registration changed during build; retry');
     linkAttempted = true;
     run('herdr', ['plugin', 'link', pluginPath, current?.enabled === false ? '--disabled' : '--enabled']);
     const verified = registration(manifest.id);
-    if (verified?.plugin_root !== pluginPath) throw new Error('HerdR did not confirm the installed plugin path');
+    if (!sameHerdrPath(verified?.plugin_root, pluginPath)) throw new Error('HerdR did not confirm the installed plugin path');
     const latestLock = readLock();
     latestLock.installed[`herdr:${name}`] = { hash, installedAt: new Date().toISOString(), herdr: { id: manifest.id, path: pluginPath } };
     writeLock(latestLock);
@@ -124,11 +125,11 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
     let canRemove = true;
     if (linkAttempted) {
       try {
-        if (registration(manifest.id)?.plugin_root === pluginPath) {
+        if (sameHerdrPath(registration(manifest.id)?.plugin_root, pluginPath)) {
           if (current) run('herdr', ['plugin', 'link', current.plugin_root, current.enabled ? '--enabled' : '--disabled']);
           else run('herdr', ['plugin', 'unlink', manifest.id]);
         }
-        canRemove = registration(manifest.id)?.plugin_root !== pluginPath;
+        canRemove = !sameHerdrPath(registration(manifest.id)?.plugin_root, pluginPath);
       } catch {
         canRemove = false;
       }
@@ -143,7 +144,7 @@ export function installHerdrPlugin(name: string, source: string, hash: string, s
 export function removeHerdrPlugin(name: string, installed: NonNullable<LockEntry['herdr']>, log: Log): void {
   if (!owns(name, installed.path)) throw new Error('Refusing to remove a HerdR path outside toolkit storage');
   const current = registration(installed.id);
-  if (current && current.plugin_root !== installed.path) throw new Error('HerdR plugin now points elsewhere; refusing to unlink it');
+  if (current && !sameHerdrPath(current.plugin_root, installed.path)) throw new Error('HerdR plugin now points elsewhere; refusing to unlink it');
   if (current) run('herdr', ['plugin', 'unlink', installed.id]);
   fs.rmSync(managedRoot(name), { recursive: true, force: true });
   log(`  [-] herdr ${name} removed`);
