@@ -500,7 +500,7 @@ function findSkillDirs(dir: string): string[] {
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name) || (entry.name.startsWith('.') && entry.name !== '.agents')) continue;
       const child = path.join(current, entry.name);
       if (isPackagedRoot(child)) continue;
       walk(child);
