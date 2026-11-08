@@ -28,6 +28,12 @@ function runFixture(name, args = [], extraEnv = {}) {
   return JSON.parse(result.stdout);
 }
 
+test('source scanner discovers skills under .agents without scanning unrelated dotfolders', () => {
+  assert.deepEqual(runFixture('dot-agents-skills.mjs'), [
+    { name: 'code-review', path: '.agents/skills/code-review' },
+  ]);
+});
+
 // ===========================================================================
 // item-key tests
 // ===========================================================================
